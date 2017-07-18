@@ -18,6 +18,7 @@
 #include <linux/uaccess.h>
 #include <linux/security.h>
 #include <linux/lsm_hooks.h>
+#include <linux/ima.h>
 #include "integrity.h"
 
 static struct kmem_cache *iint_cache __read_mostly;
@@ -49,6 +50,8 @@ static void iint_free(struct integrity_iint_cache *iint)
 	iint->ima_creds_status = INTEGRITY_UNKNOWN;
 	iint->evm_status = INTEGRITY_UNKNOWN;
 	iint->measured_pcrs = 0;
+	rwlock_init(&iint->ns_list_lock);
+	INIT_LIST_HEAD(&iint->ns_list);
 	kmem_cache_free(iint_cache, iint);
 }
 
@@ -94,6 +97,8 @@ static void integrity_inode_free(struct inode *inode)
 	iint = integrity_iint_find(inode);
 	integrity_inode_set_iint(inode, NULL);
 
+	ima_free_ns_status_list(iint);
+
 	iint_free(iint);
 }
 
@@ -109,6 +114,8 @@ static void init_once(void *foo)
 	iint->ima_creds_status = INTEGRITY_UNKNOWN;
 	iint->evm_status = INTEGRITY_UNKNOWN;
 	mutex_init(&iint->mutex);
+	rwlock_init(&iint->ns_list_lock);
+	INIT_LIST_HEAD(&iint->ns_list);
 }
 
 static struct security_hook_list integrity_hooks[] __ro_after_init = {
