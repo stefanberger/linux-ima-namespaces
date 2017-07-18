@@ -12,6 +12,11 @@ int ima_init_namespace(struct ima_namespace *ns)
 {
 	int ret;
 
+	INIT_LIST_HEAD(&ns->ns_status_list);
+	rwlock_init(&ns->ns_status_list_lock);
+	/* Use KMEM_CACHE for simplicity */
+	ns->ns_status_cache = KMEM_CACHE(ns_status, SLAB_PANIC);
+
 	INIT_LIST_HEAD(&ns->ima_default_rules);
 	INIT_LIST_HEAD(&ns->ima_policy_rules);
 	INIT_LIST_HEAD(&ns->ima_temp_rules);
@@ -38,10 +43,14 @@ int ima_init_namespace(struct ima_namespace *ns)
 		ret = register_blocking_lsm_notifier
 						(&ns->ima_lsm_policy_notifier);
 		if (ret)
-			return ret;
+			goto err_destroy_cache;
 	}
 
 	return 0;
+
+err_destroy_cache:
+	kmem_cache_destroy(ns->ns_status_cache);
+	return ret;
 }
 
 int __init ima_ns_init(void)
