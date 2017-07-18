@@ -13,6 +13,7 @@
 #include <linux/kexec.h>
 #include <crypto/hash_info.h>
 struct linux_binprm;
+struct integrity_iint_cache;
 
 extern struct ima_namespace init_ima_ns;
 
@@ -114,9 +115,15 @@ static inline bool ima_appraise_signature(enum kernel_read_file_id func)
 
 void free_ima_ns(struct user_namespace *ns);
 
+void ima_free_ns_status_list(struct integrity_iint_cache *iint);
+
 #else
 
 static inline void free_ima_ns(struct user_namespace *user_ns)
+{
+}
+
+static inline void ima_free_ns_status_list(struct integrity_iint_cache *iint)
 {
 }
 
