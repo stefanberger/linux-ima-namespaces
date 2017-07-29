@@ -54,6 +54,8 @@ int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
 	ns->ima_appraise = IMA_APPRAISE_ENFORCE;
 #endif
 
+	mutex_init(&ns->tpm_provider_mutex);
+
 	if (ns != &init_ima_ns) {
 		ns->ima_lsm_policy_notifier.notifier_call =
 						ima_lsm_policy_change;
