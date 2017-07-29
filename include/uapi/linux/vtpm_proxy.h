@@ -51,4 +51,10 @@ struct vtpm_proxy_new_dev {
 #define TPM2_CC_SET_LOCALITY	0x20001000
 #define TPM_ORD_SET_LOCALITY	0x20001000
 
+/*
+ * ioctl for the file descriptor 'fd' returned by VTPM_PROXY_IOC_NEW_DEV ioctl.
+ * Use it to connect a tpm_chip to an IMA namespace.
+ */
+#define VTPM_PROXY_IOC_CONNECT_TO_IMA_NS  _IO(0xa1, 0x10)
+
 #endif /* _UAPI_LINUX_VTPM_PROXY_H */

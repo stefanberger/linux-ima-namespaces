@@ -20,6 +20,7 @@
 #include <linux/anon_inodes.h>
 #include <linux/poll.h>
 #include <linux/compat.h>
+#include <linux/ima.h>
 
 #include "tpm.h"
 
@@ -33,13 +34,14 @@ struct proxy_dev {
 
 	wait_queue_head_t wq;
 
-	struct mutex buf_lock;       /* protect buffer and flags */
+	struct mutex buf_lock;       /* protect buffer, flags, and state */
 
 	long state;                  /* internal state */
 #define STATE_OPENED_FLAG        BIT(0)
 #define STATE_WAIT_RESPONSE_FLAG BIT(1)  /* waiting for emulator response */
 #define STATE_REGISTERED_FLAG	 BIT(2)
 #define STATE_DRIVER_COMMAND     BIT(3)  /* sending a driver specific command */
+#define STATE_USED_BY_IMA_NS     BIT(4)  /* used by an IMA namespace */
 
 	size_t req_len;              /* length of queued TPM request */
 	size_t resp_len;             /* length of queued TPM response */
@@ -54,10 +56,111 @@ struct proxy_dev {
 static struct workqueue_struct *workqueue;
 
 static void vtpm_proxy_delete_device(struct proxy_dev *proxy_dev);
+static void vtpm_proxy_fops_undo_open(struct proxy_dev *proxy_dev);
+static struct tpm_provider vtpm_tpm_provider;
+static inline void vtpm_proxy_get_proxy_dev(struct proxy_dev *proxy_dev);
+static inline void vtpm_proxy_put_proxy_dev(struct proxy_dev *proxy_dev);
 
 /*
  * Functions related to 'server side'
  */
+
+/**
+ * vtpm_proxy_set_chip_imans - connect tpm_chip to currently active IMA-ns
+ *
+ * @proxy_dev: tpm proxy device
+ * @filp: file pointer
+ */
+static int vtpm_proxy_set_chip_imans(struct proxy_dev *proxy_dev,
+				     struct file *filp)
+{
+	struct user_namespace *user_ns;
+	int rc;
+
+	/* initialization must have completed */
+	flush_work(&proxy_dev->work);
+
+	mutex_lock(&proxy_dev->buf_lock);
+
+	rc = -EINVAL;
+	if (!(proxy_dev->state & STATE_OPENED_FLAG))
+		goto unlock;
+
+	rc = -EBUSY;
+	if (proxy_dev->state & STATE_USED_BY_IMA_NS)
+		goto unlock;
+
+	user_ns = current_user_ns();
+	if (tpm_transfer_chip_user_ns(proxy_dev->chip, user_ns) != user_ns)
+		goto unlock;
+
+	rc = ima_ns_set_tpm_chip(&vtpm_tpm_provider, proxy_dev->chip);
+	if (rc)
+		goto release_chip;
+
+	proxy_dev->state |= STATE_USED_BY_IMA_NS;
+	vtpm_proxy_get_proxy_dev(proxy_dev);
+	goto unlock;
+
+release_chip:
+	tpm_release_chip_user_ns(proxy_dev->chip);
+
+unlock:
+	mutex_unlock(&proxy_dev->buf_lock);
+
+	return rc;
+}
+
+/**
+ * vtpm_proxy_release_chip - kernel subsystem (IMA) releases chip
+ *
+ * @tpm_chip: tpm_chip to release
+ */
+void vtpm_proxy_release_chip(struct tpm_chip *chip)
+{
+	struct proxy_dev *proxy_dev = dev_get_drvdata(&chip->dev);
+
+	/* notify 'server side' application with a HUP */
+	vtpm_proxy_fops_undo_open(proxy_dev);
+
+	/*
+	 * release reference we're holding since vtpm_set_chip_imans
+	 */
+	mutex_lock(&proxy_dev->buf_lock);
+	proxy_dev->state &= ~STATE_USED_BY_IMA_NS;
+	mutex_unlock(&proxy_dev->buf_lock);
+
+	BUG_ON(!tpm_release_chip_user_ns(chip));
+
+	vtpm_proxy_put_proxy_dev(proxy_dev);
+}
+
+static long vtpm_proxy_ioctl_connect_to_ima_ns(struct file *filp)
+{
+	struct proxy_dev *proxy_dev = filp->private_data;
+
+	WARN_ON(!proxy_dev);
+
+	return vtpm_proxy_set_chip_imans(proxy_dev, filp);
+}
+
+/**
+ * vtpm_proxy_fops_ioctl - ioctl command on 'server side'
+ *
+ * @filp: file pointer
+ * @ioctl: ioctl number
+ * @arg: argument
+ */
+static long vtpm_proxy_fops_ioctl(struct file *filp, unsigned int ioctl,
+				  unsigned long arg)
+{
+	switch (ioctl) {
+	case VTPM_PROXY_IOC_CONNECT_TO_IMA_NS:
+		return vtpm_proxy_ioctl_connect_to_ima_ns(filp);
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
 
 /**
  * vtpm_proxy_fops_read - Read TPM commands on 'server side'
@@ -249,6 +352,7 @@ static const struct file_operations vtpm_proxy_fops = {
 	.write = vtpm_proxy_fops_write,
 	.poll = vtpm_proxy_fops_poll,
 	.release = vtpm_proxy_fops_release,
+	.unlocked_ioctl = vtpm_proxy_fops_ioctl,
 };
 
 /*
@@ -539,6 +643,14 @@ static inline void vtpm_proxy_put_proxy_dev(struct proxy_dev *proxy_dev)
 }
 
 /*
+ * Get a reference to proxy_dev
+ */
+static inline void vtpm_proxy_get_proxy_dev(struct proxy_dev *proxy_dev)
+{
+	kref_get(&proxy_dev->kref);
+}
+
+/*
  * Create a /dev/tpm%d and 'server side' file descriptor pair
  *
  * Return:
@@ -695,6 +807,10 @@ static struct miscdevice vtpmx_miscdev = {
 	.minor = MISC_DYNAMIC_MINOR,
 	.name = "vtpmx",
 	.fops = &vtpmx_fops,
+};
+
+static struct tpm_provider vtpm_tpm_provider = {
+	.release_chip = vtpm_proxy_release_chip,
 };
 
 static int __init vtpm_module_init(void)
