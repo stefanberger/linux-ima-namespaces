@@ -17,6 +17,12 @@
 struct linux_binprm;
 struct integrity_iint_cache;
 
+struct tpm_chip;
+
+struct tpm_provider {
+	void (*release_chip)(struct tpm_chip *chip);
+};
+
 extern struct ima_namespace init_ima_ns;
 
 #ifdef CONFIG_IMA
@@ -126,6 +132,9 @@ static inline int ima_securityfs_init(struct user_namespace *user_ns,
 	return ima_fs_ns_init(user_ns, root);
 }
 
+int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
+			struct tpm_chip *chip);
+
 #else
 
 static inline void free_ima_ns(struct user_namespace *user_ns)
@@ -140,6 +149,12 @@ static inline int ima_securityfs_init(struct user_namespace *ns,
 				      struct dentry *root)
 {
 	return 0;
+}
+
+static inline int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
+				      struct tpm_chip *chip)
+{
+	return -EINVAL;
 }
 
 #endif /* CONFIG_IMA_NS */

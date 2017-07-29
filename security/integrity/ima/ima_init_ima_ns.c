@@ -131,5 +131,7 @@ struct ima_namespace init_ima_ns = {
 #ifdef CONFIG_IMA_APPRAISE
 	.ima_appraise = IMA_APPRAISE_ENFORCE,
 #endif
+	.tpm_provider_mutex =
+			__MUTEX_INITIALIZER(init_ima_ns.tpm_provider_mutex),
 };
 EXPORT_SYMBOL(init_ima_ns);
