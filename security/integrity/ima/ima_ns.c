@@ -12,6 +12,33 @@
 
 static struct kmem_cache *imans_cachep;
 
+int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
+			struct tpm_chip *tpm_chip)
+{
+	struct ima_namespace *ns = get_current_ns();
+	int ret = 0;
+
+	if (!ns)
+		return -EINVAL;
+
+	if (ns_is_active(ns))
+		return -EBUSY;
+
+	mutex_lock(&ns->tpm_provider_mutex);
+
+	if (ns->ima_tpm_chip) {
+		ret = -EBUSY;
+	} else {
+		ns->tpm_provider = tpm_provider;
+		ns->ima_tpm_chip = tpm_chip;
+	}
+
+	mutex_unlock(&ns->tpm_provider_mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ima_ns_set_tpm_chip);
+
 static struct ima_config *get_parent_config(struct user_namespace *user_ns)
 {
 	struct ima_namespace *ns;
@@ -41,6 +68,9 @@ struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
 
 	ns->integrity_ns = user_ns->integrity_ns;
 
+	/* a few variables need to be initialized very early */
+	mutex_init(&ns->tpm_provider_mutex);
+
 	return ns;
 }
 
@@ -66,6 +96,9 @@ void ima_free_ima_ns(struct ima_namespace *ns)
 
 	if (ns_is_active(ns))
 		destroy_ima_ns(ns);
+
+	if (ns->ima_tpm_chip)
+		ns->tpm_provider->release_chip(ns->ima_tpm_chip);
 
 	kmem_cache_free(imans_cachep, ns);
 }

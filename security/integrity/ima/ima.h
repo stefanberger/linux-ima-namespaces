@@ -180,6 +180,9 @@ struct ima_namespace {
 	struct ima_algo_desc *ima_algo_array;
 	int ima_sha1_idx;
 	int ima_hash_algo_idx;
+
+	struct tpm_provider *tpm_provider;
+	struct mutex tpm_provider_mutex;
 	/*
 	 * Additional number of slots reserved, as needed, for SHA1
 	 * and IMA default algo.
