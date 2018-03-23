@@ -59,6 +59,7 @@ struct fs_parameter;
 enum fs_value_type;
 struct watch;
 struct watch_notification;
+struct kernfs_node;
 
 /* Default (no) options for the capable function */
 #define CAP_OPT_NONE 0x0
@@ -1928,6 +1929,8 @@ struct dentry *securityfs_create_symlink(const char *name,
 					 const char *target,
 					 const struct inode_operations *iops);
 extern void securityfs_remove(struct dentry *dentry);
+
+extern struct kernfs_node *security_kernfs;
 
 #else /* CONFIG_SECURITYFS */
 

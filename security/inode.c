@@ -328,17 +328,20 @@ static const struct file_operations lsm_ops = {
 };
 #endif
 
+struct kernfs_node *security_kernfs;
+
 static int __init securityfs_init(void)
 {
 	int retval;
 
-	retval = sysfs_create_mount_point(kernel_kobj, "security");
-	if (retval)
-		return retval;
+	security_kernfs = kernfs_create_dir(kernel_kobj->sd, "security",
+				     S_IRUGO|S_IWUGO|S_IXUGO, NULL);
+	if (IS_ERR(security_kernfs))
+		return PTR_ERR(security_kernfs);
 
 	retval = register_filesystem(&fs_type);
 	if (retval) {
-		sysfs_remove_mount_point(kernel_kobj, "security");
+		kernfs_remove(security_kernfs);
 		return retval;
 	}
 #ifdef CONFIG_SECURITY
