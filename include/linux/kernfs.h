@@ -161,6 +161,7 @@ struct kernfs_node {
 	unsigned short		flags;
 	umode_t			mode;
 	struct kernfs_iattrs	*iattr;
+	const struct inode_operations *iops; /* user provided */
 };
 
 /*
@@ -387,6 +388,10 @@ struct kernfs_node *__kernfs_create_file(struct kernfs_node *parent,
 struct kernfs_node *kernfs_create_link(struct kernfs_node *parent,
 				       const char *name,
 				       struct kernfs_node *target);
+struct kernfs_node *kernfs_create_link_iops(struct kernfs_node *parent,
+					    const char *name,
+					    struct kernfs_node *target,
+					  const struct inode_operations *iops);
 void kernfs_activate(struct kernfs_node *kn);
 void kernfs_remove(struct kernfs_node *kn);
 void kernfs_break_active_protection(struct kernfs_node *kn);
@@ -484,6 +489,12 @@ __kernfs_create_file(struct kernfs_node *parent, const char *name,
 static inline struct kernfs_node *
 kernfs_create_link(struct kernfs_node *parent, const char *name,
 		   struct kernfs_node *target)
+{ return ERR_PTR(-ENOSYS); }
+
+static inline struct kernfs_node *
+kernfs_create_link_iops(struct kernfs_node *parent, const char *name,
+			struct kernfs_node *target,
+			const struct inode_operations *iops);
 { return ERR_PTR(-ENOSYS); }
 
 static inline void kernfs_activate(struct kernfs_node *kn) { }

@@ -219,7 +219,7 @@ static void kernfs_init_inode(struct kernfs_node *kn, struct inode *inode)
 		inode->i_fop = &kernfs_file_fops;
 		break;
 	case KERNFS_LINK:
-		inode->i_op = &kernfs_symlink_iops;
+		inode->i_op = kn->iops ? kn->iops : &kernfs_symlink_iops;
 		break;
 	default:
 		BUG();

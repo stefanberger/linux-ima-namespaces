@@ -18,13 +18,15 @@
  * @parent: directory to create the symlink in
  * @name: name of the symlink
  * @target: target node for the symlink to point to
+ * @iops: optional inode_operations for this symlink
  *
  * Returns the created node on success, ERR_PTR() value on error.
  * Ownership of the link matches ownership of the target.
  */
-struct kernfs_node *kernfs_create_link(struct kernfs_node *parent,
-				       const char *name,
-				       struct kernfs_node *target)
+struct kernfs_node *kernfs_create_link_iops(struct kernfs_node *parent,
+					    const char *name,
+					    struct kernfs_node *target,
+					    const struct inode_operations *iops)
 {
 	struct kernfs_node *kn;
 	int error;
@@ -44,6 +46,7 @@ struct kernfs_node *kernfs_create_link(struct kernfs_node *parent,
 	if (kernfs_ns_enabled(parent))
 		kn->ns = target->ns;
 	kn->symlink.target_kn = target;
+	kn->iops = iops;
 	kernfs_get(target);	/* ref owned by symlink */
 
 	error = kernfs_add_one(kn);
@@ -52,6 +55,20 @@ struct kernfs_node *kernfs_create_link(struct kernfs_node *parent,
 
 	kernfs_put(kn);
 	return ERR_PTR(error);
+}
+/**
+ * kernfs_create_link - create a symlink
+ * @parent: directory to create the symlink in
+ * @name: name of the symlink
+ * @target: target node for the symlink to point to
+ *
+ * Returns the created node on success, ERR_PTR() value on error.
+ */
+struct kernfs_node *kernfs_create_link(struct kernfs_node *parent,
+				       const char *name,
+				       struct kernfs_node *target)
+{
+	return kernfs_create_link_iops(parent, name, target, NULL);
 }
 
 static int kernfs_get_target_path(struct kernfs_node *parent,
