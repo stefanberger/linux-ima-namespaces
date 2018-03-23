@@ -4493,7 +4493,8 @@ static bool mount_too_revealing(const struct super_block *sb, int *new_mnt_flags
 
 	/* Can this filesystem be too revealing? */
 	s_iflags = sb->s_iflags;
-	if (!(s_iflags & SB_I_USERNS_VISIBLE))
+	if (!(s_iflags & SB_I_USERNS_VISIBLE) ||
+	     (s_iflags & SB_I_NEVER_TOO_REVEALING))
 		return false;
 
 	if ((s_iflags & required_iflags) != required_iflags) {

@@ -33,7 +33,7 @@ static int sysfs_get_tree(struct fs_context *fc)
 		return ret;
 
 	if (kfc->new_sb_created)
-		fc->root->d_sb->s_iflags |= SB_I_USERNS_VISIBLE;
+		fc->root->d_sb->s_iflags |= SB_I_USERNS_VISIBLE | SB_I_NEVER_TOO_REVEALING;
 	return 0;
 }
 
