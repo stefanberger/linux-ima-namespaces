@@ -53,6 +53,37 @@ static struct integrity_rbtree_common *__integrity_rbtree_find(struct rb_root *r
 }
 
 /*
+ * __integrity_rbtree_insert : insert the given integrity_iint_common
+ *
+ * @rb_root: The rb-tree to insert the node into; must hold lock on it
+ * @common: The structure to insert with common->inode set to the inode
+ *
+ */
+static void __integrity_rbtree_insert(struct rb_root *rb_root,
+		                      struct integrity_rbtree_common *common)
+{
+	struct integrity_rbtree_common *test_common;
+	struct rb_node *node, *parent = NULL;
+	struct rb_node **p;
+
+	p = &rb_root->rb_node;
+
+	while (*p) {
+		parent = *p;
+		test_common = rb_entry(parent, struct integrity_rbtree_common,
+				       rb_node);
+		if (common->inode < test_common->inode)
+			p = &(*p)->rb_left;
+		else
+			p = &(*p)->rb_right;
+	}
+
+	node = &common->rb_node;
+	rb_link_node(node, parent, p);
+	rb_insert_color(node, rb_root);
+}
+
+/*
  * integrity_iint_find - return the iint associated with an inode
  */
 struct integrity_iint_cache *integrity_iint_find(struct inode *inode)
@@ -96,9 +127,7 @@ static void iint_free(struct integrity_iint_cache *iint)
  */
 struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
 {
-	struct rb_node **p;
-	struct rb_node *node, *parent = NULL;
-	struct integrity_iint_cache *iint, *test_iint;
+	struct integrity_iint_cache *iint;
 
 	/*
 	 * The integrity's "iint_cache" is initialized at security_init(),
@@ -116,27 +145,15 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
 	if (!iint)
 		return NULL;
 
+	iint->common.inode = inode;
+	inode->i_flags |= S_IMA;
+
 	write_lock(&integrity_iint_lock);
 
-	p = &integrity_iint_tree.rb_node;
-	while (*p) {
-		parent = *p;
-		test_iint = (struct integrity_iint_cache *)
-				rb_entry(parent, struct integrity_rbtree_common,
-					 rb_node);
-		if (inode < test_iint->common.inode)
-			p = &(*p)->rb_left;
-		else
-			p = &(*p)->rb_right;
-	}
-
-	iint->common.inode = inode;
-	node = &iint->common.rb_node;
-	inode->i_flags |= S_IMA;
-	rb_link_node(node, parent, p);
-	rb_insert_color(node, &integrity_iint_tree);
+	__integrity_rbtree_insert(&integrity_iint_tree, &iint->common);
 
 	write_unlock(&integrity_iint_lock);
+
 	return iint;
 }
 
