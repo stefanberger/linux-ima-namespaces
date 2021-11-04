@@ -36,11 +36,12 @@ static struct integrity_iint_cache *__integrity_iint_find(struct inode *inode)
 	struct rb_node *n = integrity_iint_tree.rb_node;
 
 	while (n) {
-		iint = rb_entry(n, struct integrity_iint_cache, rb_node);
+		iint = (struct integrity_iint_cache *)
+			rb_entry(n, struct integrity_rbtree_common, rb_node);
 
-		if (inode < iint->inode)
+		if (inode < iint->common.inode)
 			n = n->rb_left;
-		else if (inode > iint->inode)
+		else if (inode > iint->common.inode)
 			n = n->rb_right;
 		else
 			break;
@@ -119,16 +120,17 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
 	p = &integrity_iint_tree.rb_node;
 	while (*p) {
 		parent = *p;
-		test_iint = rb_entry(parent, struct integrity_iint_cache,
-				     rb_node);
-		if (inode < test_iint->inode)
+		test_iint = (struct integrity_iint_cache *)
+				rb_entry(parent, struct integrity_rbtree_common,
+					 rb_node);
+		if (inode < test_iint->common.inode)
 			p = &(*p)->rb_left;
 		else
 			p = &(*p)->rb_right;
 	}
 
-	iint->inode = inode;
-	node = &iint->rb_node;
+	iint->common.inode = inode;
+	node = &iint->common.rb_node;
 	inode->i_flags |= S_IMA;
 	rb_link_node(node, parent, p);
 	rb_insert_color(node, &integrity_iint_tree);
@@ -152,7 +154,7 @@ void integrity_inode_free(struct inode *inode)
 
 	write_lock(&integrity_iint_lock);
 	iint = __integrity_iint_find(inode);
-	rb_erase(&iint->rb_node, &integrity_iint_tree);
+	rb_erase(&iint->common.rb_node, &integrity_iint_tree);
 	write_unlock(&integrity_iint_lock);
 
 	iint_free(iint);

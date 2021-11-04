@@ -122,11 +122,16 @@ struct signature_v2_hdr {
 	uint8_t sig[];		/* signature payload */
 } __packed;
 
+/* common part for entries in the rbtree */
+struct integrity_rbtree_common {
+	struct rb_node rb_node;	/* rbtree node */
+	struct inode *inode;	/* back pointer to inode in question */
+};
+
 /* integrity data associated with an inode */
 struct integrity_iint_cache {
-	struct rb_node rb_node;	/* rooted in integrity_iint_tree */
+	struct integrity_rbtree_common common; /* common part; must be first */
 	struct mutex mutex;	/* protects: version, flags, digest */
-	struct inode *inode;	/* back pointer to inode in question */
 	u64 version;		/* track inode changes */
 	unsigned long flags;
 	unsigned long measured_pcrs;
