@@ -28,20 +28,20 @@ static struct kmem_cache *iint_cache __read_mostly;
 struct dentry *integrity_dir;
 
 /*
- * __integrity_iint_find - return the iint associated with an inode
+ * __integrity_rbtree_find - return an entry associated with an inode
  */
-static struct integrity_iint_cache *__integrity_iint_find(struct inode *inode)
+static struct integrity_rbtree_common *__integrity_rbtree_find(struct rb_root *rb_root,
+							       struct inode *inode)
 {
-	struct integrity_iint_cache *iint;
-	struct rb_node *n = integrity_iint_tree.rb_node;
+	struct integrity_rbtree_common *common;
+	struct rb_node *n = rb_root->rb_node;
 
 	while (n) {
-		iint = (struct integrity_iint_cache *)
-			rb_entry(n, struct integrity_rbtree_common, rb_node);
+		common = rb_entry(n, struct integrity_rbtree_common, rb_node);
 
-		if (inode < iint->common.inode)
+		if (inode < common->inode)
 			n = n->rb_left;
-		else if (inode > iint->common.inode)
+		else if (inode > common->inode)
 			n = n->rb_right;
 		else
 			break;
@@ -49,7 +49,7 @@ static struct integrity_iint_cache *__integrity_iint_find(struct inode *inode)
 	if (!n)
 		return NULL;
 
-	return iint;
+	return common;
 }
 
 /*
@@ -63,7 +63,8 @@ struct integrity_iint_cache *integrity_iint_find(struct inode *inode)
 		return NULL;
 
 	read_lock(&integrity_iint_lock);
-	iint = __integrity_iint_find(inode);
+	iint = (struct integrity_iint_cache *)
+			__integrity_rbtree_find(&integrity_iint_tree, inode);
 	read_unlock(&integrity_iint_lock);
 
 	return iint;
@@ -153,7 +154,8 @@ void integrity_inode_free(struct inode *inode)
 		return;
 
 	write_lock(&integrity_iint_lock);
-	iint = __integrity_iint_find(inode);
+	iint = (struct integrity_iint_cache *)
+			__integrity_rbtree_find(&integrity_iint_tree, inode);
 	rb_erase(&iint->common.rb_node, &integrity_iint_tree);
 	write_unlock(&integrity_iint_lock);
 
