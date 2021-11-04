@@ -122,10 +122,21 @@ struct signature_v2_hdr {
 	uint8_t sig[];		/* signature payload */
 } __packed;
 
+struct integrity_global_cache;
+
 /* common part for entries in the rbtree */
 struct integrity_rbtree_common {
 	struct rb_node rb_node;	/* rbtree node */
 	struct inode *inode;	/* back pointer to inode in question */
+	struct list_head node;  /* pointer to list of integrity_iint_cache's */
+	struct rb_root *rb_root;/* the rb tree this node is on */
+	rwlock_t *rb_tree_lock; /* the lock of the rbtree */
+	struct integrity_global_cache *global; /* pointer to element holding list head */
+};
+
+/* integrity data for the global cache */
+struct integrity_global_cache {
+	struct integrity_rbtree_common common; /* common part; must be first */
 };
 
 /* integrity data associated with an inode */
