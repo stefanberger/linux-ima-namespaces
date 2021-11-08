@@ -320,31 +320,6 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
 	return iint;
 }
 
-// THIS FUNCTION CAN BE REMOVED! REPLACEMENT IS integrity_global_inode_free()
-/**
- * integrity_inode_free - called on security_inode_free
- * @inode: pointer to the inode
- *
- * Free the integrity information(iint) associated with an inode.
- */
-void integrity_inode_free(struct inode *inode)
-{
-	struct integrity_iint_cache *iint;
-
-	if (!IS_IMA(inode))
-		return;
-
-	write_lock(&iint_tree.rwlock);
-
-	iint = (struct integrity_iint_cache *)
-			__integrity_rbtree_find(&iint_tree.rb_root, inode);
-	rb_erase(&iint->common.rb_node, &iint_tree.rb_root);
-
-	write_unlock(&iint_tree.rwlock);
-
-	iint_free(iint);
-}
-
 /**
  * integrity_rbtree_delete - delete an entire rbtree and remove all its iints
  *			     from the list they are on, possibly deleting the

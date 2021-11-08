@@ -22,7 +22,7 @@ enum integrity_status {
 /* List of EVM protected security xattrs */
 #ifdef CONFIG_INTEGRITY
 extern struct integrity_iint_cache *integrity_inode_get(struct inode *inode);
-extern void integrity_inode_free(struct inode *inode);
+extern void integrity_global_inode_free(struct inode *inode);
 extern void __init integrity_load_keys(void);
 
 #else
@@ -32,7 +32,7 @@ static inline struct integrity_iint_cache *
 	return NULL;
 }
 
-static inline void integrity_inode_free(struct inode *inode)
+static inline void integrity_global_inode_free(struct inode *inode)
 {
 	return;
 }
