@@ -151,7 +151,7 @@ int __init ima_init(void)
 
 	ima_init_policy(&init_ima_ns);
 
-	rc = ima_fs_init();
+	rc = ima_fs_init(&init_ima_ns);
 	if (rc != 0)
 		return rc;
 
