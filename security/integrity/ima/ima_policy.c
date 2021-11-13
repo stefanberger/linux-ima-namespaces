@@ -1909,9 +1909,10 @@ void *ima_policy_start(struct seq_file *m, loff_t *pos)
 	loff_t l = *pos;
 	struct ima_rule_entry *entry;
 	struct list_head *ima_rules_tmp;
+	struct ima_namespace *ns = m->file->f_inode->i_private;
 
 	rcu_read_lock();
-	ima_rules_tmp = rcu_dereference(get_current_ns()->ima_rules);
+	ima_rules_tmp = rcu_dereference(ns->ima_rules);
 	list_for_each_entry_rcu(entry, ima_rules_tmp, list) {
 		if (!l--) {
 			rcu_read_unlock();
@@ -1925,7 +1926,7 @@ void *ima_policy_start(struct seq_file *m, loff_t *pos)
 void *ima_policy_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	struct ima_rule_entry *entry = v;
-	struct ima_namespace *ns = get_current_ns();
+	struct ima_namespace *ns = m->file->f_inode->i_private;
 
 	rcu_read_lock();
 	entry = list_entry_rcu(entry->list.next, struct ima_rule_entry, list);
