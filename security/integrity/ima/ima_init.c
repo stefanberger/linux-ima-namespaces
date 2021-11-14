@@ -151,9 +151,10 @@ int __init ima_init(void)
 
 	ima_init_policy(&init_ima_ns);
 
-	rc = ima_fs_init(&init_ima_ns);
+	rc = ima_fs_init();
 	if (rc != 0)
 		return rc;
+	ima_ns_fs_init(&init_ima_ns);
 
 	ima_measure_critical_data("kernel_info", "kernel_version",
 				  UTS_RELEASE, strlen(UTS_RELEASE), false,
