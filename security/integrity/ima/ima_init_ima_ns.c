@@ -51,6 +51,8 @@ int ima_init_namespace(struct ima_namespace *ns)
 
 	mutex_init(&ns->ima_write_mutex);
 	ns->valid_policy = 1;
+	if (ns != &init_ima_ns)
+		ima_ns_fs_init(ns);
 
 	return 0;
 }

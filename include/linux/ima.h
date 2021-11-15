@@ -279,6 +279,7 @@ struct ima_namespace {
 	unsigned long ima_fs_flags;
 	struct dentry *dentry[IMAFS_DENTRY_LAST];
 	int valid_policy;
+	bool file_ownership_fixes_done;
 };
 
 extern struct ima_namespace init_ima_ns;

@@ -1909,7 +1909,7 @@ void *ima_policy_start(struct seq_file *m, loff_t *pos)
 	loff_t l = *pos;
 	struct ima_rule_entry *entry;
 	struct list_head *ima_rules_tmp;
-	struct ima_namespace *ns = m->file->f_inode->i_private;
+	struct ima_namespace *ns = m->file->f_inode->i_private = get_current_ns();
 
 	rcu_read_lock();
 	ima_rules_tmp = rcu_dereference(ns->ima_rules);

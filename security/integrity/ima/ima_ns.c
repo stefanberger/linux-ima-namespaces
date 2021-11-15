@@ -67,6 +67,7 @@ struct ima_namespace *copy_ima_ns(struct ima_namespace *old_ns,
 static void destroy_ima_ns(struct ima_namespace *ns)
 {
 	printk(KERN_INFO "DESTROY ima_ns: 0x%lx\n", (unsigned long)ns);
+	ima_ns_fs_free(ns);
 	ima_free_policy_rules(ns);
 	free_ns_status_cache(ns);
 	ima_free_measurements(ns);
