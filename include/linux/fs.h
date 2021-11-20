@@ -2409,6 +2409,11 @@ struct filename {
 };
 static_assert(offsetof(struct filename, iname) % sizeof(long) == 0);
 
+static inline struct user_namespace *file_sb_user_ns(const struct file *file)
+{
+	return i_user_ns(file_inode(file));
+}
+
 static inline struct mnt_idmap *file_mnt_idmap(struct file *file)
 {
 	return mnt_idmap(file->f_path.mnt);
