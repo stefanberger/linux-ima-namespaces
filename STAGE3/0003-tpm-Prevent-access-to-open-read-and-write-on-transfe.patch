@@ -1,0 +1,121 @@
+From 587e02b40bed95dafd730883f92000f78937d60d Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 2 Jun 2023 10:45:29 -0400
+Subject: [PATCH 03/89] tpm: Prevent access to open,read, and write on
+ transferred tpm_chip
+
+If a tpm_chip has been transferred to a user/IMA namespace then prevent
+access to it if it is being accessed from a user namespace that does
+not equal the owning user namespace.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ drivers/char/tpm/tpm-dev-common.c | 24 +++++++++++++++++++++++-
+ drivers/char/tpm/tpm-dev.c        |  5 +++++
+ drivers/char/tpm/tpm-dev.h        |  3 +++
+ drivers/char/tpm/tpmrm-dev.c      |  5 +++++
+ 4 files changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/char/tpm/tpm-dev-common.c b/drivers/char/tpm/tpm-dev-common.c
+index 30b4c288c1bb..8614f0f897ae 100644
+--- a/drivers/char/tpm/tpm-dev-common.c
++++ b/drivers/char/tpm/tpm-dev-common.c
+@@ -21,6 +21,20 @@
+ 
+ static struct workqueue_struct *tpm_dev_wq;
+ 
++int tpm_common_check_access(struct tpm_chip *chip)
++{
++	int ret = 0;
++
++	mutex_lock(&chip->tpm_mutex);
++
++	if (chip->users && chip->user_ns != current_user_ns())
++		ret =  -EPERM;
++
++	mutex_unlock(&chip->tpm_mutex);
++
++	return ret;
++}
++
+ static ssize_t tpm_dev_transmit(struct tpm_chip *chip, struct tpm_space *space,
+ 				u8 *buf, size_t bufsiz)
+ {
+@@ -129,6 +143,10 @@ ssize_t tpm_common_read(struct file *file, char __user *buf,
+ 	ssize_t ret_size = 0;
+ 	int rc;
+ 
++	rc = tpm_common_check_access(priv->chip);
++	if (rc)
++		return rc;
++
+ 	mutex_lock(&priv->buffer_mutex);
+ 
+ 	if (priv->response_length) {
+@@ -166,11 +184,15 @@ ssize_t tpm_common_write(struct file *file, const char __user *buf,
+ 			 size_t size, loff_t *off)
+ {
+ 	struct file_priv *priv = file->private_data;
+-	int ret = 0;
++	int ret;
+ 
+ 	if (size > TPM_BUFSIZE)
+ 		return -E2BIG;
+ 
++	ret = tpm_common_check_access(priv->chip);
++	if (ret)
++		return ret;
++
+ 	mutex_lock(&priv->buffer_mutex);
+ 
+ 	/* Cannot perform a write until the read has cleared either via
+diff --git a/drivers/char/tpm/tpm-dev.c b/drivers/char/tpm/tpm-dev.c
+index e2c0baa69fef..faf9cc36fde2 100644
+--- a/drivers/char/tpm/tpm-dev.c
++++ b/drivers/char/tpm/tpm-dev.c
+@@ -19,9 +19,14 @@ static int tpm_open(struct inode *inode, struct file *file)
+ {
+ 	struct tpm_chip *chip;
+ 	struct file_priv *priv;
++	int ret;
+ 
+ 	chip = container_of(inode->i_cdev, struct tpm_chip, cdev);
+ 
++	ret = tpm_common_check_access(chip);
++	if (ret)
++		return ret;
++
+ 	/* It's assured that the chip will be opened just once,
+ 	 * by the check of is_open variable, which is protected
+ 	 * by driver_lock. */
+diff --git a/drivers/char/tpm/tpm-dev.h b/drivers/char/tpm/tpm-dev.h
+index f3742bcc73e3..88a3b52ae10f 100644
+--- a/drivers/char/tpm/tpm-dev.h
++++ b/drivers/char/tpm/tpm-dev.h
+@@ -30,4 +30,7 @@ ssize_t tpm_common_write(struct file *file, const char __user *buf,
+ __poll_t tpm_common_poll(struct file *file, poll_table *wait);
+ 
+ void tpm_common_release(struct file *file, struct file_priv *priv);
++
++int tpm_common_check_access(struct tpm_chip *chip);
++
+ #endif
+diff --git a/drivers/char/tpm/tpmrm-dev.c b/drivers/char/tpm/tpmrm-dev.c
+index eef0fb06ea83..a8bf87b16292 100644
+--- a/drivers/char/tpm/tpmrm-dev.c
++++ b/drivers/char/tpm/tpmrm-dev.c
+@@ -17,6 +17,11 @@ static int tpmrm_open(struct inode *inode, struct file *file)
+ 	int rc;
+ 
+ 	chip = container_of(inode->i_cdev, struct tpm_chip, cdevs);
++
++	rc = tpm_common_check_access(chip);
++	if (rc)
++		return rc;
++
+ 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+ 	if (priv == NULL)
+ 		return -ENOMEM;
+-- 
+2.40.1
+

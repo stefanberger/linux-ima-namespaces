@@ -1,0 +1,28 @@
+From 35d6249d86f386ff5836d959157fbeaa627fe881 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 27 Dec 2022 11:44:28 -0500
+Subject: [PATCH 63/89] evm: Get current evm_namespace in ima_inode_set_acl
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_appraise.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 11cf157d8b14..e8e221d6ad40 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -870,7 +870,9 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+ 		      const char *acl_name, struct posix_acl *kacl)
+ {
+-	struct evm_namespace *evm_ns = &init_evm_ns;
++	struct evm_namespace *evm_ns;
++
++	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
+ 
+ 	if (evm_revalidate_status(evm_ns, acl_name))
+ 		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
+-- 
+2.40.1
+
