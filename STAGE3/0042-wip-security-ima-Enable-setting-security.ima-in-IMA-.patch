@@ -1,0 +1,75 @@
+From 42c8d708ad5e08e5fb810021c762d6c883847522 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 19:49:50 -0500
+Subject: [PATCH 42/55] wip: security/ima: Enable setting security.ima in IMA
+ namespace
+
+Modify cap_inode_setxattr() and cap_inode_removexattr() so that the
+evaluation of capabilities required to access security.ima is deferred to
+ima_inode_setxattr() and ima_inode_removexattr() respectively.
+
+Modify ima_protect_xattr(), which is called by ima_inode_setxattr() and
+ima_inode_removexattr(), so that the capabilities are evaluated there.
+Add the ns_capable() check from cap_inode_setxattr() to this function.
+Further, rather than always requiring CAP_SYS_ADMIN in the user namespace
+of the file, also allow to use CAP_MAC_ADMIN.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/commoncap.c                  | 14 ++++++++++++++
+ security/integrity/ima/ima_appraise.c |  6 +++++-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/security/commoncap.c b/security/commoncap.c
+index 5fc8986c3c77..9108a80d06f8 100644
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -1009,6 +1009,13 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
+ 	if (strcmp(name, XATTR_NAME_CAPS) == 0)
+ 		return 0;
+ 
++	/*
++	 * For XATTR_NAME_IMA the check will be done in
++	 * ima_inode_setxattr()
++	 */
++	if (strcmp(name, XATTR_NAME_IMA) == 0)
++		return 0;
++
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+ 		return -EPERM;
+ 	return 0;
+@@ -1053,6 +1060,13 @@ int cap_inode_removexattr(struct user_namespace *mnt_userns,
+ 		return 0;
+ 	}
+ 
++	/*
++	 * For XATTR_NAME_IMA the check will be done in
++	 * ima_inode_removexattr()
++	 */
++	if (strcmp(name, XATTR_NAME_IMA) == 0)
++		return 0;
++
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+ 		return -EPERM;
+ 	return 0;
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 0bc1608f228f..1d070a23c5a3 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -588,8 +588,12 @@ void ima_inode_post_setattr(struct user_namespace *mnt_userns,
+ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
++	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
++
+ 	if (strcmp(xattr_name, XATTR_NAME_IMA) == 0) {
+-		if (!capable(CAP_SYS_ADMIN))
++		if (!ns_capable(user_ns, CAP_SYS_ADMIN) &&
++		    !capable(CAP_SYS_ADMIN) &&
++		    !mac_admin_ns_capable(current_user_ns()))
+ 			return -EPERM;
+ 		return 1;
+ 	}
+-- 
+2.31.1
+

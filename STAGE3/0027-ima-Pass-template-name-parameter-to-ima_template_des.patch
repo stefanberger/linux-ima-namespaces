@@ -1,0 +1,112 @@
+From e3339e041df4a217959774a59ec3313031f94f2c Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 26 Jan 2022 09:39:22 -0500
+Subject: [PATCH 27/55] ima: Pass template name parameter to
+ ima_template_desc_current
+
+---
+ security/integrity/ima/ima.h          |  3 ++-
+ security/integrity/ima/ima_api.c      |  2 +-
+ security/integrity/ima/ima_main.c     |  3 ++-
+ security/integrity/ima/ima_policy.c   |  4 ++--
+ security/integrity/ima/ima_template.c | 10 +++++++---
+ 5 files changed, 14 insertions(+), 8 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 4b6fa0cf5c87..8ed7aa0699ff 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -248,7 +248,8 @@ void ima_print_digest(struct seq_file *m, u8 *digest, u32 size);
+ int template_desc_init_fields(const char *template_fmt,
+ 			      const struct ima_template_field ***fields,
+ 			      int *num_fields);
+-struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns);
++struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
++						    const char *name);
+ struct ima_template_desc *ima_template_desc_buf(void);
+ struct ima_template_desc *lookup_template_desc(const char *name);
+ bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 9da82fa35a1e..94809315e4ba 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -47,7 +47,7 @@ int ima_alloc_init_template(struct ima_namespace *ns,
+ 	if (desc)
+ 		template_desc = desc;
+ 	else
+-		template_desc = ima_template_desc_current(ns);
++		template_desc = ima_template_desc_current(ns, NULL);
+ 
+ 	*entry = kzalloc(struct_size(*entry, template_data,
+ 				     template_desc->num_fields),
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 76bbb3cb5ffd..eaf990da7c4c 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -38,7 +38,8 @@ int ima_appraise;
+ static int __init hash_setup(struct ima_config *ic, char *str)
+ {
+ 	struct ima_namespace *ns = &init_ima_ns;
+-	struct ima_template_desc *template_desc = ima_template_desc_current(ns);
++	struct ima_template_desc *template_desc =
++				ima_template_desc_current(ns, NULL);
+ 	int i;
+ 
+ 	if (ic->hash_setup_done)
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index a131f6a16e5f..1b660fae128f 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -714,7 +714,7 @@ int ima_match_policy(struct ima_namespace *ns,
+ 	struct list_head *ima_rules_tmp;
+ 
+ 	if (template_desc && !*template_desc)
+-		*template_desc = ima_template_desc_current(ns);
++		*template_desc = ima_template_desc_current(ns, NULL);
+ 
+ 	ima_lazy_lsm_update_rules(ns);
+ 
+@@ -1867,7 +1867,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
+ 
+ 	if (!result && entry->flags & IMA_MODSIG_ALLOWED) {
+ 		template_desc = entry->template ? entry->template :
+-						  ima_template_desc_current(ns);
++					ima_template_desc_current(ns, NULL);
+ 		check_template_modsig(template_desc);
+ 	}
+ 
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index 9a1ddd4cb739..922c1b467c07 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -272,12 +272,15 @@ void ima_init_template_list(void)
+ 	spin_unlock(&template_list);
+ }
+ 
+-struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns)
++struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
++						    const char *name)
+ {
++	const char *tn = name ? name : CONFIG_IMA_DEFAULT_TEMPLATE;
++
+ 	if (!ns->ima_template) {
+ 		ima_init_template_list();
+ 		ns->ima_template =
+-		    lookup_template_desc(CONFIG_IMA_DEFAULT_TEMPLATE);
++		    lookup_template_desc(tn);
+ 	}
+ 	return ns->ima_template;
+ }
+@@ -293,7 +296,8 @@ struct ima_template_desc *ima_template_desc_buf(void)
+ 
+ int ima_init_template(struct ima_namespace *ns)
+ {
+-	struct ima_template_desc *template = ima_template_desc_current(ns);
++	struct ima_template_desc *template =
++			ima_template_desc_current(ns, NULL);
+ 	int result;
+ 
+ 	result = template_desc_init_fields(template->fmt,
+-- 
+2.31.1
+

@@ -1,0 +1,72 @@
+From fcd3d22c109c8a2c422ce1c0000d613a3f0847b2 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 26 Jan 2022 09:42:30 -0500
+Subject: [PATCH 28/55] ima: Pass optional template name t ima_init_template
+
+---
+ security/integrity/ima/ima.h             | 2 +-
+ security/integrity/ima/ima_init_ima_ns.c | 5 ++++-
+ security/integrity/ima/ima_template.c    | 7 +++++--
+ 3 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 8ed7aa0699ff..e4a5d8a294f5 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -260,7 +260,7 @@ int ima_restore_measurement_list(struct ima_namespace *ns,
+ void ima_free_measurements(struct ima_namespace *ns);
+ int ima_measurements_show(struct seq_file *m, void *v);
+ unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
+-int ima_init_template(struct ima_namespace *ns);
++int ima_init_template(struct ima_namespace *ns, const char *name);
+ void ima_init_template_list(void);
+ int ima_init_digests(struct ima_namespace *ns);
+ void ima_free_digests(struct ima_namespace *ns);
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 9e173e4ad1e7..fbc9317e43c7 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -10,6 +10,7 @@
+ 
+ int ima_init_namespace(struct ima_namespace *ns)
+ {
++	const char *tn = NULL;
+ 	int ret;
+ 
+ 	ns->ns_status_tree = RB_ROOT;
+@@ -61,7 +62,9 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 	if (ret < 0)
+ 		goto err_deregister_notifier;
+ 
+-	ret = ima_init_template(ns);
++	if (ns != &init_ima_ns)
++		tn = ns->config.template_name;
++	ret = ima_init_template(ns, tn);
+ 	if (ret != 0)
+ 		goto err_deinit_crypto;
+ 
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index 922c1b467c07..0289d2913ebf 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -294,12 +294,15 @@ struct ima_template_desc *ima_template_desc_buf(void)
+ 	return ima_buf_template;
+ }
+ 
+-int ima_init_template(struct ima_namespace *ns)
++int ima_init_template(struct ima_namespace *ns, const char *name)
+ {
+ 	struct ima_template_desc *template =
+-			ima_template_desc_current(ns, NULL);
++			ima_template_desc_current(ns, name);
+ 	int result;
+ 
++	if (!template)
++		return -EINVAL;
++
+ 	result = template_desc_init_fields(template->fmt,
+ 					   &(template->fields),
+ 					   &(template->num_fields));
+-- 
+2.31.1
+

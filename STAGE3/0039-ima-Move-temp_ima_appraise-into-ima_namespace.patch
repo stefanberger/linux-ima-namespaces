@@ -1,0 +1,78 @@
+From e944f597f876e993201a4a4a9ed2fe044b9e8d9e Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 5 Jan 2022 10:40:54 -0500
+Subject: [PATCH 39/55] ima: Move temp_ima_appraise into ima_namespace
+
+Move temp_ima_appraise into ima_namespace.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h        |  1 +
+ security/integrity/ima/ima_policy.c | 11 ++++-------
+ 2 files changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index a943db103735..14f292704b1e 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -203,6 +203,7 @@ struct ima_namespace {
+ 	struct integrity_namespace *integrity_ns;
+ 
+ 	int ima_appraise;
++	int temp_ima_appraise;
+ } __randomize_layout;
+ extern struct ima_namespace init_ima_ns;
+ 
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 4d4e70d0b19a..da7629ae21f7 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -52,7 +52,6 @@
+ #define INVALID_PCR(a) (((a) < 0) || \
+ 	(a) >= (sizeof_field(struct ns_status, measured_pcrs) * 8))
+ 
+-static int temp_ima_appraise;
+ static int build_ima_appraise __ro_after_init;
+ 
+ atomic_t ima_setxattr_allowed_hash_algorithms;
+@@ -810,7 +809,7 @@ void ima_update_policy_flags(struct ima_namespace *ns)
+ 	}
+ 	rcu_read_unlock();
+ 
+-	ns->ima_appraise |= (build_ima_appraise | temp_ima_appraise);
++	ns->ima_appraise |= (build_ima_appraise | ns->temp_ima_appraise);
+ 	if (!ns->ima_appraise)
+ 		new_policy_flag &= ~IMA_APPRAISE;
+ 
+@@ -852,7 +851,7 @@ static void add_rules(struct ima_namespace *ns,
+ 		}
+ 		if (entries[i].action == APPRAISE) {
+ 			if (entries != build_appraise_rules)
+-				temp_ima_appraise |=
++				ns->temp_ima_appraise |=
+ 					ima_appraise_flag(entries[i].func);
+ 			else
+ 				build_ima_appraise |=
+@@ -1862,7 +1861,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
+ 	if (!result && !ima_validate_rule(entry))
+ 		result = -EINVAL;
+ 	else if (entry->action == APPRAISE)
+-		temp_ima_appraise |= ima_appraise_flag(entry->func);
++		ns->temp_ima_appraise |= ima_appraise_flag(entry->func);
+ 
+ 	if (!result && entry->flags & IMA_MODSIG_ALLOWED) {
+ 		template_desc = entry->template ? entry->template :
+@@ -1937,9 +1936,7 @@ void ima_delete_rules(struct ima_namespace *ns)
+ {
+ 	struct ima_rule_entry *entry, *tmp;
+ 
+-	if (ns == &init_ima_ns)
+-		temp_ima_appraise = 0;
+-
++	ns->temp_ima_appraise = 0;
+ 	list_for_each_entry_safe(entry, tmp, &ns->ima_temp_rules, list) {
+ 		list_del(&entry->list);
+ 		ima_free_rule(entry);
+-- 
+2.31.1
+
