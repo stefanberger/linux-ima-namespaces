@@ -1,0 +1,131 @@
+From 48b16ffb5c36d8abbb8237d509c479a96252aca7 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 16 Mar 2022 12:41:50 -0400
+Subject: [PATCH 63/82] ima: Restrict informational audit messages to
+ init_ima_ns
+
+Restrict informational audit messages that may be emitted due to IMA
+appraisal being active in an IMA namespace to the init_ima_ns.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_appraise.c | 15 +++++++++------
+ security/integrity/ima/ima_main.c     | 27 +++++++++++++++++----------
+ 2 files changed, 26 insertions(+), 16 deletions(-)
+
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 5dc3af4f5577..d5b2212f07e9 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -594,8 +594,9 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 	     (iint->flags & IMA_FAIL_UNVERIFIABLE_SIGS))) {
+ 		status = INTEGRITY_FAIL;
+ 		cause = "unverifiable-signature";
+-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
+-				    op, cause, rc, 0);
++		if (ns == &init_ima_ns)
++			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
++					    filename, op, cause, rc, 0);
+ 	} else if (status != INTEGRITY_PASS) {
+ 		/* Fix mode, but don't replace file signatures. */
+ 		if ((ns->ima_appraise & IMA_APPRAISE_FIX) && !try_modsig &&
+@@ -614,8 +615,9 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 			status = INTEGRITY_PASS;
+ 		}
+ 
+-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
+-				    op, cause, rc, 0);
++		if (ns == &init_ima_ns)
++			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
++					    filename, op, cause, rc, 0);
+ 	} else {
+ 		ima_cache_flags(iint, ns_status, func);
+ 	}
+@@ -826,8 +828,9 @@ static int validate_hash_algo(struct ima_namespace *ns,
+ 
+ 	path = dentry_path(dentry, pathbuf, PATH_MAX);
+ 
+-	integrity_audit_msg(AUDIT_INTEGRITY_DATA, d_inode(dentry), path,
+-			    "set_data", errmsg, -EACCES, 0);
++	if (ns == &init_ima_ns)
++		integrity_audit_msg(AUDIT_INTEGRITY_DATA, d_inode(dentry), path,
++				    "set_data", errmsg, -EACCES, 0);
+ 
+ 	kfree(pathbuf);
+ 
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 80037d972ea7..c7839c55b21b 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -76,7 +76,8 @@ enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
+ }
+ 
+ /* Prevent mmap'ing a file execute that is already mmap'ed write */
+-static int mmap_violation_check(enum ima_hooks func, struct file *file,
++static int mmap_violation_check(struct ima_namespace *ns,
++				enum ima_hooks func, struct file *file,
+ 				char **pathbuf, const char **pathname,
+ 				char *filename)
+ {
+@@ -90,8 +91,10 @@ static int mmap_violation_check(enum ima_hooks func, struct file *file,
+ 		if (!*pathbuf)	/* ima_rdwr_violation possibly pre-fetched */
+ 			*pathname = ima_d_path(&file->f_path, pathbuf,
+ 					       filename);
+-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, *pathname,
+-				    "mmap_file", "mmapped_writers", rc, 0);
++		if (ns == &init_ima_ns)
++			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
++					    *pathname, "mmap_file",
++					    "mmapped_writers", rc, 0);
+ 	}
+ 	return rc;
+ }
+@@ -365,7 +368,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	/* Nothing to do, just return existing appraised status */
+ 	if (!action) {
+ 		if (must_appraise) {
+-			rc = mmap_violation_check(func, file, &pathbuf,
++			rc = mmap_violation_check(ns, func, file, &pathbuf,
+ 						  &pathname, filename);
+ 			if (!rc)
+ 				rc = ima_get_cache_status(ns_status, func);
+@@ -417,7 +420,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 			inode_unlock(inode);
+ 		}
+ 		if (!rc)
+-			rc = mmap_violation_check(func, file, &pathbuf,
++			rc = mmap_violation_check(ns, func, file, &pathbuf,
+ 						  &pathname, filename);
+ 	}
+ 	if (action & IMA_AUDIT)
+@@ -432,9 +435,11 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	    (allowed_algos & (1U << hash_algo)) == 0) {
+ 		rc = -EACCES;
+ 
+-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, file_inode(file),
+-				    pathname, "collect_data",
+-				    "denied-hash-algorithm", rc, 0);
++		if (ns == &init_ima_ns)
++			integrity_audit_msg(AUDIT_INTEGRITY_DATA,
++					    file_inode(file),
++					    pathname, "collect_data",
++					    "denied-hash-algorithm", rc, 0);
+ 	}
+ out_locked:
+ 	if ((mask & MAY_WRITE) && test_bit(IMA_DIGSIG, &iint->atomic_flags) &&
+@@ -566,8 +571,10 @@ int ima_file_mprotect(struct vm_area_struct *vma, unsigned long prot)
+ 
+ 	file = vma->vm_file;
+ 	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
+-	integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, pathname,
+-			    "collect_data", "failed-mprotect", result, 0);
++	if (ns == &init_ima_ns)
++		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, pathname,
++				    "collect_data", "failed-mprotect", result,
++				    0);
+ 	if (pathbuf)
+ 		__putname(pathbuf);
+ 
+-- 
+2.36.1
+

@@ -1,0 +1,129 @@
+From e0c61d1b49900c6fda0c4f88488088ab2a85acfe Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 18 May 2022 15:04:10 -0400
+Subject: [PATCH 78/82] evm: Enable EVM securityfs also for EVM namespace
+
+Enable EVM securityfs also for EVM namespaces. Initialize it when
+securityfs is mounted.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                | 12 +++++++++++-
+ security/integrity/evm/evm.h       |  1 -
+ security/integrity/evm/evm_main.c  |  3 ++-
+ security/integrity/evm/evm_secfs.c | 10 ++++++----
+ security/integrity/ima/ima_fs.c    |  4 ++++
+ 5 files changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 35b360f841e3..bf0530889879 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -52,10 +52,20 @@ struct evm_namespace {
+ 
+ extern struct evm_namespace init_evm_ns;
+ 
+-#if defined(CONFIG_IMA_NS) && defined(CONFIG_EVM)
++#if defined(CONFIG_IMA_NS) || defined(CONFIG_EVM)
+ extern struct evm_namespace *create_evm_ns
+ 				(struct integrity_namespace *integrity_ns);
+ extern void free_evm_ns(struct integrity_namespace *evm_ns);
++int evm_init_secfs(struct integrity_namespace *ns,
++		   struct dentry *secfs_root,
++		   struct dentry *integrity_dir);
++#else
++static inline int evm_init_secfs(struct integrity_namespace *ns,
++				 struct dentry *secfs_root,
++				 struct dentry *integrity_dir)
++{
++	return 0;
++}
+ #endif
+ 
+ #ifdef CONFIG_EVM
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 4daa4016a5c3..2baafbe57436 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -58,7 +58,6 @@ int evm_calc_hash(struct evm_namespace *ns, struct dentry *dentry,
+ 		  struct evm_digest *data);
+ int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
+ 		  const struct xattr *xattr, char *hmac_val);
+-int evm_init_secfs(struct evm_namespace *ns);
+ 
+ static inline struct evm_namespace *current_evm_ns(void)
+ {
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 161de08eb165..b94581c20f79 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -994,7 +994,8 @@ static int __init init_evm(void)
+ 	if (error)
+ 		goto error;
+ 
+-	error = evm_init_secfs(ns);
++	error = evm_init_secfs(ns->integrity_ns, NULL,
++			       ns->integrity_ns->integrity_dir);
+ 	if (error < 0) {
+ 		pr_info("Error registering secfs\n");
+ 		goto error;
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index abb19f6c1b68..7bce3320bb33 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -360,16 +360,18 @@ static const struct file_operations evm_active_ops = {
+ 	.write = evm_write_active,
+ };
+ 
+-int __init evm_init_secfs(struct evm_namespace *ns)
++int evm_init_secfs(struct integrity_namespace *integrity_ns,
++		   struct dentry *root,
++		   struct dentry *integrity_dir)
+ {
++	struct evm_namespace *ns = integrity_ns->evm_ns;
+ 	struct dentry *evm_dir;
+ 	struct dentry *evm_init_tpm = NULL;
+ 	struct dentry *evm_symlink = NULL;
+ 	struct dentry *evm_active = NULL;
+ 	int error = 0;
+ 
+-	evm_dir = securityfs_create_dir("evm",
+-					ns->integrity_ns->integrity_dir);
++	evm_dir = securityfs_create_dir("evm", integrity_dir);
+ 	if (!evm_dir || IS_ERR(evm_dir))
+ 		return -EFAULT;
+ 
+@@ -381,7 +383,7 @@ int __init evm_init_secfs(struct evm_namespace *ns)
+ 		goto out;
+ 	}
+ 
+-	evm_symlink = securityfs_create_symlink("evm", NULL,
++	evm_symlink = securityfs_create_symlink("evm", root,
+ 						"integrity/evm/evm", NULL);
+ 	if (!evm_symlink || IS_ERR(evm_symlink)) {
+ 		error = -EFAULT;
+diff --git a/security/integrity/ima/ima_fs.c b/security/integrity/ima/ima_fs.c
+index feb0c71a4031..f883ef0a56f1 100644
+--- a/security/integrity/ima/ima_fs.c
++++ b/security/integrity/ima/ima_fs.c
+@@ -23,6 +23,7 @@
+ #include <linux/vmalloc.h>
+ #include <linux/ima.h>
+ #include <linux/integrity_namespace.h>
++#include <linux/evm.h>
+ 
+ #include "ima.h"
+ 
+@@ -662,6 +663,9 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
+ 			ret = PTR_ERR(int_dir);
+ 			goto free_ns;
+ 		}
++		ret = evm_init_secfs(user_ns->integrity_ns, root, int_dir);
++		if (ret)
++			goto free_ns;
+ 	} else {
+ 		int_dir = ns->integrity_ns->integrity_dir;
+ 	}
+-- 
+2.36.1
+

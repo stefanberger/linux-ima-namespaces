@@ -1,0 +1,78 @@
+From 6c0962b619fa3fbad32de9557d0ec4fc1d4fe9f1 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 7 Jan 2022 14:46:40 -0500
+Subject: [PATCH 55/82] ima: Adjust flags in loop over ns_status when clearing
+ atomic bits
+
+Rather than only clearing flags on the iint, walk the list of ns_status
+connected to the iint and clear the flags on each ns_status. This is a
+necessary step to prepare for moving appraisal-related flags from the iint
+into the ns_status so they can then be handled on a per-namespace basis.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_main.c | 31 ++++++++++++++++++++++---------
+ 1 file changed, 22 insertions(+), 9 deletions(-)
+
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 6d29f1e02e6a..33bb18051056 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -237,7 +237,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ {
+ 	struct inode *inode = file_inode(file);
+ 	struct integrity_iint_cache *iint = NULL;
+-	struct ns_status *ns_status = NULL;
++	struct ns_status *ns_status = NULL, *ns_stat;
+ 	struct ima_template_desc *template_desc = NULL;
+ 	char *pathbuf = NULL;
+ 	char filename[NAME_MAX];
+@@ -304,13 +304,18 @@ static int __process_measurement(struct ima_namespace *ns,
+ 
+ 	mutex_lock(&iint->mutex);
+ 
+-	flags = iint_flags(iint, ns_status);
+-
+-	if (test_and_clear_bit(IMA_CHANGE_ATTR, &iint->atomic_flags))
++	if (test_and_clear_bit(IMA_CHANGE_ATTR, &iint->atomic_flags)) {
+ 		/* reset appraisal flags if ima_inode_post_setattr was called */
+-		flags &= ~(IMA_APPRAISE | IMA_APPRAISED |
+-			   IMA_APPRAISE_SUBMASK | IMA_APPRAISED_SUBMASK |
+-			   IMA_NONACTION_FLAGS);
++		read_lock(&iint->ns_list_lock);
++		list_for_each_entry(ns_stat, &iint->ns_list, ns_next) {
++			flags = iint_flags(iint, ns_stat);
++			flags &= ~(IMA_APPRAISE | IMA_APPRAISED |
++				   IMA_APPRAISE_SUBMASK |
++				   IMA_APPRAISED_SUBMASK | IMA_NONACTION_FLAGS);
++			set_iint_flags(iint, ns_stat, flags);
++		}
++		read_unlock(&iint->ns_list_lock);
++	}
+ 
+ 	/*
+ 	 * Re-evaulate the file if either the xattr has changed or the
+@@ -321,10 +326,18 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	    ((inode->i_sb->s_iflags & SB_I_IMA_UNVERIFIABLE_SIGNATURE) &&
+ 	     !(inode->i_sb->s_iflags & SB_I_UNTRUSTED_MOUNTER) &&
+ 	     !(action & IMA_FAIL_UNVERIFIABLE_SIGS))) {
+-		flags &= ~IMA_DONE_MASK;
+-		ns_status->measured_pcrs = 0;
++		read_lock(&iint->ns_list_lock);
++		list_for_each_entry(ns_stat, &iint->ns_list, ns_next) {
++			flags = iint_flags(iint, ns_stat);
++			flags &= ~IMA_DONE_MASK;
++			set_iint_flags(iint, ns_stat, flags);
++			ns_stat->measured_pcrs = 0;
++		}
++		read_unlock(&iint->ns_list_lock);
+ 	}
+ 
++	flags = iint_flags(iint, ns_status);
++
+ 	/* Determine if already appraised/measured based on bitmask
+ 	 * (IMA_MEASURE, IMA_MEASURED, IMA_XXXX_APPRAISE, IMA_XXXX_APPRAISED,
+ 	 *  IMA_AUDIT, IMA_AUDITED)
+-- 
+2.36.1
+

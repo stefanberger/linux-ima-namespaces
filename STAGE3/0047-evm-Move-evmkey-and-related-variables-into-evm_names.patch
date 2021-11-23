@@ -1,0 +1,108 @@
+From 15abbaa1b2f5476b76698739db66b956e4ce89f7 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 13 May 2022 10:04:06 -0400
+Subject: [PATCH 47/82] evm: Move evmkey and related variables into
+ evm_namespace
+
+Move emvkey, evmkey_len, and evm_set_key_flags into evm_namespace.
+This now allows evm_set_key() to be called without having to
+filter out callers from non_init_evm namespaces.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                      |  7 +++++++
+ security/integrity/evm/evm_crypto.c      | 18 ++++--------------
+ security/integrity/evm/evm_init_evm_ns.c |  1 +
+ 3 files changed, 12 insertions(+), 14 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 97cd4a165394..3b3c99862c3b 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -22,6 +22,13 @@ struct evm_namespace {
+ 
+ 	struct integrity_namespace *integrity_ns;
+ 	int evm_initialized;
++
++#define MAX_KEY_SIZE 128
++	unsigned char evmkey[MAX_KEY_SIZE];
++	int evmkey_len; /* always equals MAX_KEY_SIZE */;
++
++	unsigned long evm_set_key_flags;
++#define EVM_SET_KEY_BUSY 0
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index e44e7ab08773..e4988b744743 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -22,19 +22,12 @@
+ #include "evm.h"
+ 
+ #define EVMKEY "evm-key"
+-#define MAX_KEY_SIZE 128
+-static unsigned char evmkey[MAX_KEY_SIZE];
+-static const int evmkey_len = MAX_KEY_SIZE;
+ 
+ static struct crypto_shash *hmac_tfm;
+ static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
+ 
+ static DEFINE_MUTEX(mutex);
+ 
+-#define EVM_SET_KEY_BUSY 0
+-
+-static unsigned long evm_set_key_flags;
+-
+ static const char evm_hmac[] = "hmac(sha1)";
+ 
+ /**
+@@ -54,21 +47,18 @@ int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
+ {
+ 	int rc;
+ 
+-	if (ns != &init_evm_ns)
+-		return -EINVAL;
+-
+ 	rc = -EBUSY;
+-	if (test_and_set_bit(EVM_SET_KEY_BUSY, &evm_set_key_flags))
++	if (test_and_set_bit(EVM_SET_KEY_BUSY, &ns->evm_set_key_flags))
+ 		goto busy;
+ 	rc = -EINVAL;
+ 	if (keylen > MAX_KEY_SIZE)
+ 		goto inval;
+-	memcpy(evmkey, key, keylen);
++	memcpy(ns->evmkey, key, keylen);
+ 	ns->evm_initialized |= EVM_INIT_HMAC;
+ 	pr_info("key initialized\n");
+ 	return 0;
+ inval:
+-	clear_bit(EVM_SET_KEY_BUSY, &evm_set_key_flags);
++	clear_bit(EVM_SET_KEY_BUSY, &ns->evm_set_key_flags);
+ busy:
+ 	pr_err("key initialization failed\n");
+ 	return rc;
+@@ -112,7 +102,7 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+ 		return ERR_CAST(tmp_tfm);
+ 	}
+ 	if (type == EVM_XATTR_HMAC) {
+-		rc = crypto_shash_setkey(tmp_tfm, evmkey, evmkey_len);
++		rc = crypto_shash_setkey(tmp_tfm, ns->evmkey, ns->evmkey_len);
+ 		if (rc) {
+ 			crypto_free_shash(tmp_tfm);
+ 			mutex_unlock(&mutex);
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index 7cb0261b48b8..6840319ce042 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -8,6 +8,7 @@ int evm_init_namespace(struct evm_namespace *ns,
+ 		       struct integrity_namespace *integrity_ns)
+ {
+ 	ns->integrity_ns = integrity_ns;
++	ns->evmkey_len = MAX_KEY_SIZE;
+ 
+ 	return 0;
+ }
+-- 
+2.36.1
+

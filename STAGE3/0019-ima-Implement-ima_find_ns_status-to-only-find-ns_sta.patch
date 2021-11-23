@@ -1,0 +1,82 @@
+From 3fa949712ad86aba34e98555101f8701e2c88461 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 14 Mar 2022 11:34:46 -0400
+Subject: [PATCH 19/82] ima: Implement ima_find_ns_status() to only find
+ ns_status
+
+Implement ima_find_ns_status() to only find an existing ns_status
+associated with an ima_namespace and connected to an iint but
+not to create a new one if one cannot be found.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h           | 17 +++++++++++++++++
+ security/integrity/ima/ima_ns_status.c | 17 +++++++++++++++++
+ 2 files changed, 34 insertions(+)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index d72cd6e1527c..817f5ea8cfc1 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -617,6 +617,10 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
+ 				    struct inode *inode,
+ 				    struct integrity_iint_cache *iint);
+ 
++struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
++				     struct inode *inode,
++				     struct integrity_iint_cache *iint);
++
+ void ima_free_ns_status_tree(struct ima_namespace *ns);
+ 
+ static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
+@@ -669,6 +673,19 @@ static inline struct ns_status *ima_get_ns_status
+ 	return ns_status;
+ }
+ 
++static inline struct ns_status *ima_find_ns_status
++					(struct ima_namespace *ns,
++					 struct inode *inode,
++					 struct integrity_iint_cache *iint)
++{
++	struct ns_status *ns_status = &iint->ns_status;
++
++	if (list_empty(&iint->ns_list))
++		return NULL;
++
++	return ns_status;
++}
++
+ static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
+ {
+ 	return &init_ima_ns;
+diff --git a/security/integrity/ima/ima_ns_status.c b/security/integrity/ima/ima_ns_status.c
+index 32d75dbd9c21..db99d9c63b05 100644
+--- a/security/integrity/ima/ima_ns_status.c
++++ b/security/integrity/ima/ima_ns_status.c
+@@ -320,6 +320,23 @@ static void ns_status_unlink(struct ima_namespace *ns,
+ 	RB_CLEAR_NODE(&ns_status->rb_node);
+ }
+ 
++struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
++				     struct inode *inode,
++				     struct integrity_iint_cache *iint)
++{
++	struct ns_status *ns_status;
++
++	lock_group(GRP_NS_STATUS_TREE);
++	read_lock(&ns->ns_tree_lock);
++
++	ns_status = ns_status_find(ns, inode);
++
++	read_unlock(&ns->ns_tree_lock);
++	unlock_group(GRP_NS_STATUS_TREE);
++
++	return ns_status;
++}
++
+ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
+ 				    struct inode *inode,
+ 				    struct integrity_iint_cache *iint)
+-- 
+2.36.1
+

@@ -1,0 +1,41 @@
+From a670dd5b19f9fc6c6a60736b4108a8902925bf64 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 12 Jan 2022 10:11:08 -0500
+Subject: [PATCH 01/82] TESTING: Add an arch policy for testing purposes only
+ (DISABLED)
+
+---
+ security/integrity/ima/ima_efi.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/security/integrity/ima/ima_efi.c b/security/integrity/ima/ima_efi.c
+index 71786d01946f..0e8e8678b970 100644
+--- a/security/integrity/ima/ima_efi.c
++++ b/security/integrity/ima/ima_efi.c
+@@ -62,6 +62,11 @@ static const char * const sb_arch_rules[] = {
+ 	NULL
+ };
+ 
++static const char * const test_arch_rules[] = {
++	"measure func=MODULE_CHECK",
++	NULL
++};
++
+ const char * const *arch_get_ima_policy(void)
+ {
+ 	if (IS_ENABLED(CONFIG_IMA_ARCH_POLICY) && arch_ima_get_secureboot()) {
+@@ -69,5 +74,11 @@ const char * const *arch_get_ima_policy(void)
+ 			set_module_sig_enforced();
+ 		return sb_arch_rules;
+ 	}
++#if 0
++	if (IS_ENABLED(CONFIG_IMA_ARCH_POLICY)) {
++		printk(KERN_INFO ">>> ima: adding arch policy for testing\n");
++		return test_arch_rules;
++	}
++#endif
+ 	return NULL;
+ }
+-- 
+2.36.1
+

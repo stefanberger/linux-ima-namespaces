@@ -1,0 +1,118 @@
+From 64bb7a21dba0b061c18690a4553f95ed921393d3 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 7 Jan 2022 15:13:31 -0500
+Subject: [PATCH 57/82] ima: Adapt ima_reset_appraise_flags() for IMA
+ namespacing support
+
+The current implementation of ima_reset_appraise_flags() only properly
+supports IMA appraisal by the init_ima_ns. To prepare for IMA appraisal
+support for IMA namespaces modify the implementation to support IMA
+appraisal used by any IMA namespace. In particular, set the
+IMA_CHANGE_XATTR bit if any IMA namespace has an IMA appraisal policy.
+Similarly, set or clear the IMA_DIGSIG flag if any IMA namespace has an
+IMA appraisal policy.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_appraise.c | 41 +++++++++++++++++----------
+ 1 file changed, 26 insertions(+), 15 deletions(-)
+
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 1f909d9aee66..0eec16abdba9 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -731,13 +731,13 @@ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
+ 	return 0;
+ }
+ 
+-static void ima_reset_appraise_flags(struct ima_namespace *ns,
+-				     struct inode *inode, int digsig)
++static void ima_reset_appraise_flags(struct inode *inode, int digsig)
+ {
+ 	struct integrity_iint_cache *iint;
+ 	struct ns_status *ns_status;
++	bool found = false;
+ 
+-	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
++	if (!S_ISREG(inode->i_mode))
+ 		return;
+ 
+ 	iint = integrity_iint_find(inode);
+@@ -745,15 +745,22 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
+ 		return;
+ 
+ 	read_lock(&iint->ns_list_lock);
+-	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
++		if (!(ns_status->ns->ima_policy_flag & IMA_APPRAISE))
++			continue;
++
+ 		ns_status->measured_pcrs = 0;
++		found = true;
++	}
+ 	read_unlock(&iint->ns_list_lock);
+ 
+-	set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
+-	if (digsig)
+-		set_bit(IMA_DIGSIG, &iint->atomic_flags);
+-	else
+-		clear_bit(IMA_DIGSIG, &iint->atomic_flags);
++	if (found) {
++		set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
++		if (digsig)
++			set_bit(IMA_DIGSIG, &iint->atomic_flags);
++		else
++			clear_bit(IMA_DIGSIG, &iint->atomic_flags);
++	}
+ }
+ 
+ /**
+@@ -823,8 +830,8 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 		       const void *xattr_value, size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xvalue = xattr_value;
+-	struct evm_namespace *evm_ns = &init_evm_ns;
+-	struct ima_namespace *ns = &init_ima_ns;
++	struct ima_namespace *ns = get_current_ns();
++	struct evm_namespace *evm_ns;
+ 	int digsig = 0;
+ 	int result;
+ 
+@@ -837,26 +844,30 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 	} else if (!strcmp(xattr_name, XATTR_NAME_EVM) && xattr_value_len > 0) {
+ 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
+ 	}
++	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
+ 	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
++		if (!ns_is_active(ns))
++			return -EPERM;
+ 		result = validate_hash_algo(ns, dentry,
+ 					    xvalue, xattr_value_len);
+ 		if (result)
+ 			return result;
+ 
+-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), digsig);
++		ima_reset_appraise_flags(d_backing_inode(dentry), digsig);
+ 	}
+ 	return result;
+ }
+ 
+ int ima_inode_removexattr(struct dentry *dentry, const char *xattr_name)
+ {
+-	struct evm_namespace *evm_ns = &init_evm_ns;
+-	struct ima_namespace *ns = &init_ima_ns;
++	struct evm_namespace *evm_ns;
+ 	int result;
+ 
++	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
++
+ 	result = ima_protect_xattr(dentry, xattr_name, NULL, 0);
+ 	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
+-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
++		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
+ 		if (result == 1)
+ 			result = 0;
+ 	}
+-- 
+2.36.1
+

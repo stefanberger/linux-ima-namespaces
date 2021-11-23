@@ -1,0 +1,31 @@
+From 646b80c30f9bdfce364c6b837951ae0d6fe1cfc7 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 24 Jan 2022 09:56:45 -0500
+Subject: [PATCH 15/82] ima: Check IMA_MEASURED flag using flags from
+ iint_flags()
+
+Use iint_flags() to get the iint flags when checking whether IMA_MEASURED
+is set. This change prepares the flag for moving it into the ns_status
+structure.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 1d6e4477971a..6d4998c25bc0 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -367,7 +367,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 			rc = ima_read_modsig(func, buf, size, &modsig);
+ 
+ 			if (!rc && ima_template_has_modsig(template_desc) &&
+-			    iint->flags & IMA_MEASURED)
++			    iint_flags(iint, ns_status) & IMA_MEASURED)
+ 				action |= IMA_MEASURE;
+ 		}
+ 	}
+-- 
+2.36.1
+

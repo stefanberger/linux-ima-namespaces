@@ -1,0 +1,135 @@
+From d31123f160dbc0125fb80f1d7b97be0cca8246e0 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 13 May 2022 15:32:47 -0400
+Subject: [PATCH 50/82] evm: Move hmac_tfm and evm_tfm into evm_namespace
+
+Move hmac_tfm and evm_tfm into evm_namespace so that each EVM namespace
+can have its own.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                 |  4 ++++
+ security/integrity/evm/evm.h        |  4 ++++
+ security/integrity/evm/evm_crypto.c | 26 ++++++++++++++++++--------
+ security/integrity/evm/evm_ns.c     |  1 +
+ 4 files changed, 27 insertions(+), 8 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index e287f4370b81..7f9213e1139d 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -11,6 +11,8 @@
+ 
+ #include <linux/integrity.h>
+ #include <linux/xattr.h>
++#include <crypto/hash.h>
++#include <crypto/hash_info.h>
+ 
+ struct integrity_iint_cache;
+ struct integrity_namespace;
+@@ -33,6 +35,8 @@ struct evm_namespace {
+ 	int evm_hmac_attrs;
+ 
+ 	struct mutex mutex;
++	struct crypto_shash *hmac_tfm;
++	struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 461fd27943f8..f3ee1895dc3c 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -82,4 +82,8 @@ static inline bool ns_is_active(struct evm_namespace *ns)
+ 	return (ns && test_bit(EVM_NS_ACTIVE, &ns->evm_ns_flags));
+ }
+ 
++#ifdef CONFIG_IMA_NS
++void evm_ns_free_crypto(struct evm_namespace *ns);
++#endif
++
+ #endif
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index 6d3f8e7fe657..b61446216390 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -17,17 +17,27 @@
+ #include <linux/xattr.h>
+ #include <linux/evm.h>
+ #include <keys/encrypted-type.h>
+-#include <crypto/hash.h>
+-#include <crypto/hash_info.h>
+ #include "evm.h"
+ 
+ #define EVMKEY "evm-key"
+ 
+-static struct crypto_shash *hmac_tfm;
+-static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
+-
+ static const char evm_hmac[] = "hmac(sha1)";
+ 
++#ifdef CONFIG_IMA_NS
++void evm_ns_free_crypto(struct evm_namespace *ns)
++{
++	size_t i;
++
++	if (ns->hmac_tfm)
++		crypto_free_shash(ns->hmac_tfm);
++
++	for (i = 0; i < ARRAY_SIZE(ns->evm_tfm); i++) {
++		if (ns->evm_tfm[i])
++			crypto_free_shash(ns->evm_tfm[i]);
++	}
++}
++#endif
++
+ /**
+  * evm_set_key() - set EVM HMAC key from the kernel
+  * @ns: The EVM namespace to set the key on
+@@ -76,13 +86,13 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+ 			pr_err_once("HMAC key is not set\n");
+ 			return ERR_PTR(-ENOKEY);
+ 		}
+-		tfm = &hmac_tfm;
++		tfm = &ns->hmac_tfm;
+ 		algo = evm_hmac;
+ 	} else {
+ 		if (hash_algo >= HASH_ALGO__LAST)
+ 			return ERR_PTR(-EINVAL);
+ 
+-		tfm = &evm_tfm[hash_algo];
++		tfm = &ns->evm_tfm[hash_algo];
+ 		algo = hash_algo_name[hash_algo];
+ 	}
+ 
+@@ -102,7 +112,6 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+ 	if (type == EVM_XATTR_HMAC) {
+ 		rc = crypto_shash_setkey(tmp_tfm, ns->evmkey, ns->evmkey_len);
+ 		if (rc) {
+-			crypto_free_shash(tmp_tfm);
+ 			mutex_unlock(&ns->mutex);
+ 			return ERR_PTR(rc);
+ 		}
+@@ -123,6 +132,7 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+ 	rc = crypto_shash_init(desc);
+ 	if (rc) {
+ 		crypto_free_shash(tmp_tfm);
++		*tfm = NULL;
+ 		kfree(desc);
+ 		return ERR_PTR(rc);
+ 	}
+diff --git a/security/integrity/evm/evm_ns.c b/security/integrity/evm/evm_ns.c
+index 8891d3818097..c330174e9c27 100644
+--- a/security/integrity/evm/evm_ns.c
++++ b/security/integrity/evm/evm_ns.c
+@@ -35,6 +35,7 @@ void free_evm_ns(struct integrity_namespace *integrity_ns)
+ {
+ 	struct evm_namespace *ns = integrity_ns->evm_ns;
+ 
++	evm_ns_free_crypto(ns);
+ 	kmem_cache_free(evmns_cachep, ns);
+ }
+ 
+-- 
+2.36.1
+

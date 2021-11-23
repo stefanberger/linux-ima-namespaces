@@ -1,0 +1,41 @@
+From da9cd6d2d6e1edd18d063ce609fd6a45612afa4e Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 8 Jul 2022 12:21:41 -0400
+Subject: [PATCH 82/82] temp: Patch for checking locking of iint when accessing
+ flags
+
+---
+ security/integrity/ima/ima.h | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 7ca5796f8098..52ad5add1f81 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -605,6 +605,11 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
+ 				       struct ns_status *ns_status)
+ {
++#if 0
++	// this may cause unrelated RCU related error messages
++	if (!mutex_is_locked(&iint->mutex))
++		WARN_ON(true);
++#endif
+ 	if (!ns_status)
+ 		return iint->flags;
+ 
+@@ -618,6 +623,11 @@ static inline unsigned long set_iint_flags(struct integrity_iint_cache *iint,
+ {
+ 	unsigned long ns_status_flags = flags & IMA_NS_STATUS_FLAGS;
+ 
++#if 0
++	// this may cause unrelated RCU related error messages
++	if (!mutex_is_locked(&iint->mutex))
++		WARN_ON(true);
++#endif
+ 	WARN_ON(!ns_status && ns_status_flags);
+ 
+ 	iint->flags = flags & ~IMA_NS_STATUS_FLAGS;
+-- 
+2.36.1
+

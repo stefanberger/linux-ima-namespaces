@@ -1,0 +1,135 @@
+From 6b6043cedcb3a3f744881a710713f03533cf3781 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.vnet.ibm.com>
+Date: Sat, 29 Jul 2017 16:25:21 -0400
+Subject: [PATCH 68/82] ima: Implement support for connecting and release of
+ tpm_chip
+
+Implement functions to connect a tpm_chip to an IMA namespace and
+release it later on.
+
+Signed-off-by: Stefan Berger <stefanb@linux.vnet.ibm.com>
+---
+ include/linux/ima.h                      | 15 ++++++++++++
+ security/integrity/ima/ima.h             |  3 +++
+ security/integrity/ima/ima_init_ima_ns.c |  2 ++
+ security/integrity/ima/ima_ns.c          | 30 ++++++++++++++++++++++++
+ 4 files changed, 50 insertions(+)
+
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index 77aa4b3a8c15..630fd175d01b 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -16,6 +16,12 @@
+ #include <crypto/hash_info.h>
+ struct linux_binprm;
+ 
++struct tpm_chip;
++
++struct tpm_provider {
++	void (*release_chip)(struct tpm_chip *chip);
++};
++
+ extern struct ima_namespace init_ima_ns;
+ 
+ #ifdef CONFIG_IMA
+@@ -236,6 +242,9 @@ static inline int ima_securityfs_init(struct user_namespace *user_ns,
+ 	return ima_fs_ns_init(user_ns, root);
+ }
+ 
++int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++			struct tpm_chip *chip);
++
+ #else
+ 
+ static inline void free_ima_ns(struct user_namespace *user_ns)
+@@ -253,6 +262,12 @@ static inline int ima_securityfs_init(struct user_namespace *ns,
+ 	return 0;
+ }
+ 
++static inline int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++				      struct tpm_chip *chip)
++{
++	return -EINVAL;
++}
++
+ #endif /* CONFIG_IMA_NS */
+ 
+ #endif /* _LINUX_IMA_H */
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 00f0f13fdf7a..eeab45700689 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -178,6 +178,9 @@ struct ima_namespace {
+ 	struct ima_algo_desc *ima_algo_array;
+ 	int ima_sha1_idx;
+ 	int ima_hash_algo_idx;
++
++	struct tpm_provider *tpm_provider;
++	struct mutex tpm_provider_mutex;
+ 	/*
+ 	 * Additional number of slots reserved, as needed, for SHA1
+ 	 * and IMA default algo.
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 03d8850ec6a0..fb86647e3ca9 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -49,6 +49,8 @@ int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
+ 	ns->ima_appraise = IMA_APPRAISE_ENFORCE;
+ #endif
+ 
++	mutex_init(&ns->tpm_provider_mutex);
++
+ 	if (ns != &init_ima_ns) {
+ 		ns->ima_lsm_policy_notifier.notifier_call =
+ 						ima_lsm_policy_change;
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 5d1f5219267c..9e5447524762 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -12,6 +12,33 @@
+ 
+ static struct kmem_cache *imans_cachep;
+ 
++int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++			struct tpm_chip *tpm_chip)
++{
++	struct ima_namespace *ns = get_current_ns();
++	int ret = 0;
++
++	if (!ns)
++		return -EINVAL;
++
++	if (ns_is_active(ns))
++		return -EBUSY;
++
++	mutex_lock(&ns->tpm_provider_mutex);
++
++	if (ns->ima_tpm_chip) {
++		ret = -EBUSY;
++	} else {
++		ns->tpm_provider = tpm_provider;
++		ns->ima_tpm_chip = tpm_chip;
++	}
++
++	mutex_unlock(&ns->tpm_provider_mutex);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ima_ns_set_tpm_chip);
++
+ static struct ima_config *get_parent_config(struct user_namespace *user_ns)
+ {
+ 	struct ima_namespace *ns;
+@@ -65,6 +92,9 @@ void ima_free_ima_ns(struct ima_namespace *ns)
+ 	if (ns_is_active(ns))
+ 		destroy_ima_ns(ns);
+ 
++	if (ns->ima_tpm_chip)
++		ns->tpm_provider->release_chip(ns->ima_tpm_chip);
++
+ 	kmem_cache_free(imans_cachep, ns);
+ }
+ 
+-- 
+2.36.1
+

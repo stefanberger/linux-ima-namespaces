@@ -1,0 +1,250 @@
+From c993b216a726ee8f4a765845905df9ef0914fb30 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 10 Jan 2022 12:08:56 -0500
+Subject: [PATCH 58/82] ima: move integrity_status variables into ns_status
+
+Move the integrity_status variables ima_file_status, ima_mmap_status,
+ima_bprm_status, ima_read_status, ima_creds_status into the ns_status
+so that each namespace can store its own evaluation results.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/iint.c             | 10 -------
+ security/integrity/ima/ima.h          |  6 ++--
+ security/integrity/ima/ima_appraise.c | 42 ++++++++++++++++-----------
+ security/integrity/ima/ima_main.c     |  9 ++++--
+ security/integrity/integrity.h        | 15 ++++++----
+ 5 files changed, 45 insertions(+), 37 deletions(-)
+
+diff --git a/security/integrity/iint.c b/security/integrity/iint.c
+index 717199dacb5b..9f240c45edc5 100644
+--- a/security/integrity/iint.c
++++ b/security/integrity/iint.c
+@@ -73,11 +73,6 @@ static void iint_free(struct integrity_iint_cache *iint)
+ 	iint->version = 0;
+ 	iint->flags = 0UL;
+ 	iint->atomic_flags = 0UL;
+-	iint->ima_file_status = INTEGRITY_UNKNOWN;
+-	iint->ima_mmap_status = INTEGRITY_UNKNOWN;
+-	iint->ima_bprm_status = INTEGRITY_UNKNOWN;
+-	iint->ima_read_status = INTEGRITY_UNKNOWN;
+-	iint->ima_creds_status = INTEGRITY_UNKNOWN;
+ 	iint->evm_status = INTEGRITY_UNKNOWN;
+ 	rwlock_init(&iint->ns_list_lock);
+ 	INIT_LIST_HEAD(&iint->ns_list);
+@@ -179,11 +174,6 @@ static void init_once(void *foo)
+ 	struct integrity_iint_cache *iint = (struct integrity_iint_cache *) foo;
+ 
+ 	memset(iint, 0, sizeof(*iint));
+-	iint->ima_file_status = INTEGRITY_UNKNOWN;
+-	iint->ima_mmap_status = INTEGRITY_UNKNOWN;
+-	iint->ima_bprm_status = INTEGRITY_UNKNOWN;
+-	iint->ima_read_status = INTEGRITY_UNKNOWN;
+-	iint->ima_creds_status = INTEGRITY_UNKNOWN;
+ 	iint->evm_status = INTEGRITY_UNKNOWN;
+ 	mutex_init(&iint->mutex);
+ 	rwlock_init(&iint->ns_list_lock);
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 58b4d24a04fe..29189f38ccda 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -449,7 +449,7 @@ int ima_must_appraise(struct ima_namespace *ns,
+ 		      int mask, enum ima_hooks func);
+ void ima_update_xattr(struct ima_namespace *ns,
+ 		      struct integrity_iint_cache *iint, struct file *file);
+-enum integrity_status ima_get_cache_status(struct integrity_iint_cache *iint,
++enum integrity_status ima_get_cache_status(struct ns_status *ns_status,
+ 					   enum ima_hooks func);
+ enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
+ 				 const struct evm_ima_xattr_data *xattr_value,
+@@ -493,8 +493,8 @@ static inline void ima_update_xattr(struct ima_namespace *ns,
+ {
+ }
+ 
+-static inline enum integrity_status ima_get_cache_status(struct integrity_iint_cache
+-							 *iint,
++static inline enum integrity_status ima_get_cache_status(struct ns_status
++							 *ns_status,
+ 							 enum ima_hooks func)
+ {
+ 	return INTEGRITY_UNKNOWN;
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 0eec16abdba9..aa3418005ff7 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -109,46 +109,46 @@ static int ima_fix_xattr(struct dentry *dentry,
+ }
+ 
+ /* Return specific func appraised cached result */
+-enum integrity_status ima_get_cache_status(struct integrity_iint_cache *iint,
++enum integrity_status ima_get_cache_status(struct ns_status *ns_status,
+ 					   enum ima_hooks func)
+ {
+ 	switch (func) {
+ 	case MMAP_CHECK:
+-		return iint->ima_mmap_status;
++		return ns_status->ima_mmap_status;
+ 	case BPRM_CHECK:
+-		return iint->ima_bprm_status;
++		return ns_status->ima_bprm_status;
+ 	case CREDS_CHECK:
+-		return iint->ima_creds_status;
++		return ns_status->ima_creds_status;
+ 	case FILE_CHECK:
+ 	case POST_SETATTR:
+-		return iint->ima_file_status;
++		return ns_status->ima_file_status;
+ 	case MODULE_CHECK ... MAX_CHECK - 1:
+ 	default:
+-		return iint->ima_read_status;
++		return ns_status->ima_read_status;
+ 	}
+ }
+ 
+-static void ima_set_cache_status(struct integrity_iint_cache *iint,
++static void ima_set_cache_status(struct ns_status *ns_status,
+ 				 enum ima_hooks func,
+ 				 enum integrity_status status)
+ {
+ 	switch (func) {
+ 	case MMAP_CHECK:
+-		iint->ima_mmap_status = status;
++		ns_status->ima_mmap_status = status;
+ 		break;
+ 	case BPRM_CHECK:
+-		iint->ima_bprm_status = status;
++		ns_status->ima_bprm_status = status;
+ 		break;
+ 	case CREDS_CHECK:
+-		iint->ima_creds_status = status;
++		ns_status->ima_creds_status = status;
+ 		break;
+ 	case FILE_CHECK:
+ 	case POST_SETATTR:
+-		iint->ima_file_status = status;
++		ns_status->ima_file_status = status;
+ 		break;
+ 	case MODULE_CHECK ... MAX_CHECK - 1:
+ 	default:
+-		iint->ima_read_status = status;
++		ns_status->ima_read_status = status;
+ 		break;
+ 	}
+ }
+@@ -620,7 +620,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		ima_cache_flags(iint, ns_status, func);
+ 	}
+ 
+-	ima_set_cache_status(iint, func, status);
++	ima_set_cache_status(ns_status, func, status);
+ 	return status;
+ }
+ 
+@@ -634,6 +634,7 @@ void ima_update_xattr(struct ima_namespace *ns,
+ {
+ 	struct dentry *dentry = file_dentry(file);
+ 	struct ns_status *ns_status;
++	bool found = false;
+ 	int rc = 0;
+ 
+ 	if (!ns_is_active(ns) || !(ns->ima_policy_flag & IMA_HASH))
+@@ -643,11 +644,18 @@ void ima_update_xattr(struct ima_namespace *ns,
+ 	if (test_bit(IMA_DIGSIG, &iint->atomic_flags))
+ 		return;
+ 
+-	if ((iint->ima_file_status != INTEGRITY_PASS) &&
+-	    !(iint->flags & IMA_HASH))
+-		return;
++	read_lock(&iint->ns_list_lock);
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
++		if (ns_status->ima_file_status == INTEGRITY_PASS ||
++		    (iint_flags(iint, ns_status) & IMA_HASH) != 0) {
++			found = true;
++			break;
++		}
++	}
++	read_unlock(&iint->ns_list_lock);
+ 
+-	ns_status =  ima_get_ns_status(ns, file_inode(file), iint);
++	if (!found)
++		return;
+ 
+ 	rc = ima_collect_measurement(ns, iint, ns_status, file, NULL, 0,
+ 				     ns->config.ima_hash_algo, NULL);
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 33bb18051056..80037d972ea7 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -368,7 +368,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 			rc = mmap_violation_check(func, file, &pathbuf,
+ 						  &pathname, filename);
+ 			if (!rc)
+-				rc = ima_get_cache_status(iint, func);
++				rc = ima_get_cache_status(ns_status, func);
+ 		}
+ 		goto out_locked;
+ 	}
+@@ -763,6 +763,7 @@ void ima_post_create_tmpfile(struct user_namespace *mnt_userns,
+ {
+ 	struct ima_namespace *ns = get_current_ns();
+ 	struct integrity_iint_cache *iint;
++	struct ns_status *ns_status;
+ 	int must_appraise;
+ 
+ 	if (!ns_is_active(ns) || !ns->ima_policy_flag ||
+@@ -781,7 +782,11 @@ void ima_post_create_tmpfile(struct user_namespace *mnt_userns,
+ 
+ 	/* needed for writing the security xattrs */
+ 	set_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
+-	iint->ima_file_status = INTEGRITY_PASS;
++
++	read_lock(&iint->ns_list_lock);
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
++		ns_status->ima_file_status = INTEGRITY_PASS;
++	read_unlock(&iint->ns_list_lock);
+ }
+ 
+ /**
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index ffcd207fe57e..707cbb29b14f 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -161,6 +161,11 @@ struct ns_status {
+ 	unsigned long flags;		/* flags split with iint */
+ 	unsigned long measured_pcrs;
+ 	struct ima_namespace *ns;
++	enum integrity_status ima_file_status:4;
++	enum integrity_status ima_mmap_status:4;
++	enum integrity_status ima_bprm_status:4;
++	enum integrity_status ima_read_status:4;
++	enum integrity_status ima_creds_status:4;
+ #ifdef CONFIG_IMA_NS
+ 	struct rb_node rb_node;
+ 	struct integrity_iint_cache *iint;
+@@ -177,6 +182,11 @@ static inline void ns_status_reset(struct ns_status *ns_status)
+ {
+ 	ns_status->flags = 0;
+ 	ns_status->measured_pcrs = 0;
++	ns_status->ima_file_status = INTEGRITY_UNKNOWN;
++	ns_status->ima_mmap_status = INTEGRITY_UNKNOWN;
++	ns_status->ima_bprm_status = INTEGRITY_UNKNOWN;
++	ns_status->ima_read_status = INTEGRITY_UNKNOWN;
++	ns_status->ima_creds_status = INTEGRITY_UNKNOWN;
+ }
+ 
+ static inline void ns_status_init(struct ns_status *ns_status)
+@@ -193,11 +203,6 @@ struct integrity_iint_cache {
+ 	u64 version;		/* track inode changes */
+ 	unsigned long flags;	/* flags split with ns_status */
+ 	unsigned long atomic_flags;
+-	enum integrity_status ima_file_status:4;
+-	enum integrity_status ima_mmap_status:4;
+-	enum integrity_status ima_bprm_status:4;
+-	enum integrity_status ima_read_status:4;
+-	enum integrity_status ima_creds_status:4;
+ 	enum integrity_status evm_status:4;
+ 
+ 	/*
+-- 
+2.36.1
+

@@ -1,0 +1,38 @@
+From d57cfb75ac499eae4f1afe7d23e4a1b1a424c40b Mon Sep 17 00:00:00 2001
+From: Mimi Zohar <zohar@linux.ibm.com>
+Date: Tue, 5 Jul 2022 10:10:35 -0400
+Subject: [PATCH 81/82] ima: fix violation measurement list record
+
+Although the violation digest in the IMA measurement list is always
+zeroes, the size of the digest should be based on the hash algorithm.
+Until recently the hash algorithm was hard coded to sha1.  Fix the
+violation digest size included in the IMA measurement list.
+
+This is just a cosmetic change which should not affect attestation.
+
+Reported-by: Stefan Berger <stefanb@linux.ibm.com>
+Fixes: 09091c44cb73 ("ima: use IMA default hash algorithm for integrity violations")
+Signed-off-by: Mimi Zohar <zohar@linux.ibm.com>
+---
+ security/integrity/ima/ima_template_lib.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/security/integrity/ima/ima_template_lib.c b/security/integrity/ima/ima_template_lib.c
+index fc1b53a7bb00..a26ff4251bba 100644
+--- a/security/integrity/ima/ima_template_lib.c
++++ b/security/integrity/ima/ima_template_lib.c
+@@ -335,9 +335,9 @@ static int ima_eventdigest_init_common(const u8 *digest, u32 digestsize,
+ 		/*
+ 		 * If digest is NULL, the event being recorded is a violation.
+ 		 * Make room for the digest by increasing the offset of
+-		 * IMA_DIGEST_SIZE.
++		 * hash algorithm digest size.
+ 		 */
+-		offset += IMA_DIGEST_SIZE;
++		offset += hash_digest_size[hash_algo];
+ 
+ 	return ima_write_template_field_data(buffer, offset + digestsize,
+ 					     fmt, field_data);
+-- 
+2.36.1
+

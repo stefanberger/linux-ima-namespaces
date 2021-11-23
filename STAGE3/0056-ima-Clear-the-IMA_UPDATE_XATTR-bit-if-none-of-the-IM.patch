@@ -1,0 +1,112 @@
+From a07f554a6ccd99ad364cfa90b70d69c15a9ee57a Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 7 Jan 2022 15:03:31 -0500
+Subject: [PATCH 56/82] ima: Clear the IMA_UPDATE_XATTR bit if none of the
+ IMA-ns must appraise
+
+Adjust the implementation of ima_inode_post_setattr() for the namespacing
+case. Where previously looking at the iint was sufficient, we now have
+to consider the case of shared files and therefore walk the list of
+ns_status and check for an active appraise policy on the IMA namespaces
+found in the list of ns_status. Call ima_must_appraise() for each IMA
+namespace with an appraise policy terminate the loop once the 'action'
+was found because in this case the IMA_UPDATE_XATTR will not have to be
+reset.
+
+Reset the IMA_UPDATE_XATTR flag only of any namespaces with an appraise
+policy were found but none of them had the 'action' returned from the
+ima_must_appraise() call.
+
+Since the ns_status now always needs access to the ima_namespace, make
+the pointer also accessible if CONFIG_IMA_NS is not set.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h          |  1 +
+ security/integrity/ima/ima_appraise.c | 33 +++++++++++++++++++--------
+ security/integrity/integrity.h        |  2 +-
+ 3 files changed, 26 insertions(+), 10 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 8ac39e621a58..58b4d24a04fe 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -709,6 +709,7 @@ static inline struct ns_status *ima_get_ns_status
+ 
+ 	if (list_empty(&iint->ns_list)) {
+ 		ns_status_init(ns_status);
++		ns_status->ns = &init_ima_ns;
+ 		list_add(&ns_status->ns_next, &iint->ns_list);
+ 	}
+ 
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index aa7c9e8fb39e..1f909d9aee66 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -673,22 +673,37 @@ void ima_inode_post_setattr(struct user_namespace *mnt_userns,
+ 			    struct dentry *dentry)
+ {
+ 	struct inode *inode = d_backing_inode(dentry);
+-	struct ima_namespace *ns = &init_ima_ns;
+ 	struct integrity_iint_cache *iint;
++	struct ns_status *ns_status;
++	bool found_action = false;
++	bool has_appraise = false;
+ 	int action;
+ 
+-	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode)
+-	    || !(inode->i_opflags & IOP_XATTR))
++	if (!S_ISREG(inode->i_mode) || !(inode->i_opflags & IOP_XATTR))
+ 		return;
+ 
+-	action = ima_must_appraise(ns, mnt_userns, inode, MAY_ACCESS,
+-				   POST_SETATTR);
+ 	iint = integrity_iint_find(inode);
+-	if (iint) {
+-		set_bit(IMA_CHANGE_ATTR, &iint->atomic_flags);
+-		if (!action)
+-			clear_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
++	if (!iint)
++		return;
++
++	set_bit(IMA_CHANGE_ATTR, &iint->atomic_flags);
++
++	read_lock(&iint->ns_list_lock);
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
++		if (!(ns_status->ns->ima_policy_flag & IMA_APPRAISE))
++			continue;
++		has_appraise = true;
++		action = ima_must_appraise(ns_status->ns, mnt_userns, inode,
++					   MAY_ACCESS, POST_SETATTR);
++		if (action) {
++			found_action = true;
++			break;
++		}
+ 	}
++	read_unlock(&iint->ns_list_lock);
++
++	if (has_appraise && !found_action)
++		clear_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
+ }
+ 
+ /*
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index ebd51bdcad5e..ffcd207fe57e 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -160,11 +160,11 @@ struct ns_status {
+ 	struct list_head ns_next;
+ 	unsigned long flags;		/* flags split with iint */
+ 	unsigned long measured_pcrs;
++	struct ima_namespace *ns;
+ #ifdef CONFIG_IMA_NS
+ 	struct rb_node rb_node;
+ 	struct integrity_iint_cache *iint;
+ 	struct inode *inode;
+-	struct ima_namespace *ns;
+ 	ino_t i_ino;
+ 	u32 i_generation;
+ 	struct llist_node gc_llist;	/* used while freeing */
+-- 
+2.36.1
+

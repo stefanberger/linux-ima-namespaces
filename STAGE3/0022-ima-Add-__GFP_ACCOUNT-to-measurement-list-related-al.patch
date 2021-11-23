@@ -1,0 +1,54 @@
+From d4a01a67b63ce3c9d94710c7790ed6b2783c3f6d Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 20 Dec 2021 16:11:10 -0500
+Subject: [PATCH 22/82] ima: Add __GFP_ACCOUNT to measurement list related
+ allocations
+
+Add __GPF_ACOUNT to measurement list related allocations using GR_NOFS so
+that the measurement list in an IMA namespace cannot grow unbounded but
+becomes subject to cgroup accounting.
+
+Change GFP_KERNEL in ima_add_digest_entry() to GPP_KERNEL_ACCOUNT.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_api.c   | 5 +++--
+ security/integrity/ima/ima_queue.c | 2 +-
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 23df3aaea7df..ac6fea75e3e7 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -51,12 +51,13 @@ int ima_alloc_init_template(struct ima_namespace *ns,
+ 		template_desc = ima_template_desc_current();
+ 
+ 	*entry = kzalloc(struct_size(*entry, template_data,
+-				     template_desc->num_fields), GFP_NOFS);
++				     template_desc->num_fields),
++				     GFP_NOFS | __GFP_ACCOUNT);
+ 	if (!*entry)
+ 		return -ENOMEM;
+ 
+ 	digests = kcalloc(NR_BANKS(ima_tpm_chip) + ns->ima_extra_slots,
+-			  sizeof(*ns->digests), GFP_NOFS);
++			  sizeof(*ns->digests), GFP_NOFS | __GFP_ACCOUNT);
+ 	if (!digests) {
+ 		kfree(*entry);
+ 		*entry = NULL;
+diff --git a/security/integrity/ima/ima_queue.c b/security/integrity/ima/ima_queue.c
+index f29a23622fc4..f4e6f1464c72 100644
+--- a/security/integrity/ima/ima_queue.c
++++ b/security/integrity/ima/ima_queue.c
+@@ -76,7 +76,7 @@ static int ima_add_digest_entry(struct ima_namespace *ns,
+ 	struct ima_queue_entry *qe;
+ 	unsigned int key;
+ 
+-	qe = kmalloc(sizeof(*qe), GFP_KERNEL);
++	qe = kmalloc(sizeof(*qe), GFP_KERNEL_ACCOUNT);
+ 	if (qe == NULL) {
+ 		pr_err("OUT OF MEMORY ERROR creating queue entry\n");
+ 		return -ENOMEM;
+-- 
+2.36.1
+

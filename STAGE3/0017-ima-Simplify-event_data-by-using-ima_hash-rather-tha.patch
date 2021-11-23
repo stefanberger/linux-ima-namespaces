@@ -1,0 +1,200 @@
+From 24daefaf897d44977796e57977d125de5ec18ff3 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 4 Feb 2022 22:40:25 -0500
+Subject: [PATCH 17/82] ima: Simplify event_data by using ima_hash rather than
+ iint (FIXME)
+
+It is not necessary to pass a whole integrity_iint_cache structure
+inside the ima_event_data structure since the called functions only ever
+access the ima_digest_data structure of the iint. Therefore, modify the
+ima_event_data structure to hold an ima_digest_data structure now
+and adapt all to pass this data type now.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h              |  3 ++-
+ security/integrity/ima/ima_api.c          |  9 +++++++--
+ security/integrity/ima/ima_init.c         | 12 +++++-------
+ security/integrity/ima/ima_main.c         | 17 ++++++++---------
+ security/integrity/ima/ima_template_lib.c | 20 ++++++++++----------
+ 5 files changed, 32 insertions(+), 29 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 8f9baf85993e..d72cd6e1527c 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -54,7 +54,8 @@ extern const char boot_aggregate_name[];
+ 
+ /* IMA event related data */
+ struct ima_event_data {
+-	struct integrity_iint_cache *iint;
++	struct ima_digest_data *ima_hash;
++	unsigned long iint_flags; /* iint/nsstatus flags */
+ 	struct file *file;
+ 	const unsigned char *filename;
+ 	struct evm_ima_xattr_data *xattr_value;
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index e43fa0212815..7df51dbe0766 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -143,13 +143,17 @@ void ima_add_violation(struct ima_namespace *ns,
+ {
+ 	struct ima_template_entry *entry;
+ 	struct inode *inode = file_inode(file);
+-	struct ima_event_data event_data = { .iint = iint,
++	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
+ 					     .file = file,
+ 					     .filename = filename,
+ 					     .violation = cause };
+ 	int violation = 1;
+ 	int result;
+ 
++	mutex_lock(&iint->mutex);
++	event_data.iint_flags = iint_flags(iint, NULL);
++	mutex_unlock(&iint->mutex);
++
+ 	/* can overflow, only indicator */
+ 	atomic_long_inc(&ns->ima_htable.violations);
+ 
+@@ -359,7 +363,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 	int result = -ENOMEM;
+ 	struct inode *inode = file_inode(file);
+ 	struct ima_template_entry *entry;
+-	struct ima_event_data event_data = { .iint = iint,
++	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
++					     .iint_flags = iint_flags(iint, NULL),
+ 					     .file = file,
+ 					     .filename = filename,
+ 					     .xattr_value = xattr_value,
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index 1f466b49cf4e..dd23eb5c5370 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -43,18 +43,16 @@ int ima_add_boot_aggregate(struct ima_namespace *ns)
+ 	static const char op[] = "add_boot_aggregate";
+ 	const char *audit_cause = "ENOMEM";
+ 	struct ima_template_entry *entry;
+-	struct integrity_iint_cache tmp_iint, *iint = &tmp_iint;
+-	struct ima_event_data event_data = { .iint = iint,
+-					     .filename = boot_aggregate_name };
+ 	struct ima_max_digest_data hash;
++	struct ima_event_data event_data = { .ima_hash = &hash.hdr,
++					     .filename = boot_aggregate_name };
+ 	int result = -ENOMEM;
+ 	int violation = 0;
+ 
+-	memset(iint, 0, sizeof(*iint));
+ 	memset(&hash, 0, sizeof(hash));
+-	iint->ima_hash = &hash.hdr;
+-	iint->ima_hash->algo = ima_hash_algo;
+-	iint->ima_hash->length = hash_digest_size[ima_hash_algo];
++	event_data.ima_hash = &hash.hdr;
++	event_data.ima_hash->algo = ima_hash_algo;
++	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
+ 
+ 	/*
+ 	 * With TPM 2.0 hash agility, TPM chips could support multiple TPM
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 6d4998c25bc0..1f526745c0fb 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -990,13 +990,12 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 	int ret = 0;
+ 	const char *audit_cause = "ENOMEM";
+ 	struct ima_template_entry *entry = NULL;
+-	struct integrity_iint_cache iint = {};
+-	struct ima_event_data event_data = {.iint = &iint,
++	struct ima_max_digest_data hash;
++	struct ima_event_data event_data = {.ima_hash = &hash.hdr,
+ 					    .filename = eventname,
+ 					    .buf = buf,
+ 					    .buf_len = size};
+ 	struct ima_template_desc *template;
+-	struct ima_max_digest_data hash;
+ 	char digest_hash[IMA_MAX_DIGEST_SIZE];
+ 	int digest_hash_len = hash_digest_size[ima_hash_algo];
+ 	int violation = 0;
+@@ -1035,11 +1034,11 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 	if (!pcr)
+ 		pcr = CONFIG_IMA_MEASURE_PCR_IDX;
+ 
+-	iint.ima_hash = &hash.hdr;
+-	iint.ima_hash->algo = ima_hash_algo;
+-	iint.ima_hash->length = hash_digest_size[ima_hash_algo];
++	event_data.ima_hash = &hash.hdr;
++	event_data.ima_hash->algo = ima_hash_algo;
++	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
+ 
+-	ret = ima_calc_buffer_hash(ns, buf, size, iint.ima_hash);
++	ret = ima_calc_buffer_hash(ns, buf, size, event_data.ima_hash);
+ 	if (ret < 0) {
+ 		audit_cause = "hashing_error";
+ 		goto out;
+@@ -1049,7 +1048,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 		memcpy(digest_hash, hash.hdr.digest, digest_hash_len);
+ 
+ 		ret = ima_calc_buffer_hash(ns, digest_hash, digest_hash_len,
+-					   iint.ima_hash);
++					   event_data.ima_hash);
+ 		if (ret < 0) {
+ 			audit_cause = "hashing_error";
+ 			goto out;
+@@ -1060,7 +1059,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 	}
+ 
+ 	if (digest)
+-		memcpy(digest, iint.ima_hash->digest, digest_hash_len);
++		memcpy(digest, event_data.ima_hash->digest, digest_hash_len);
+ 
+ 	if (!ns->ima_policy_flag || (func && !(action & IMA_MEASURE)))
+ 		return 1;
+diff --git a/security/integrity/ima/ima_template_lib.c b/security/integrity/ima/ima_template_lib.c
+index 9b5eae859405..6becdf24d167 100644
+--- a/security/integrity/ima/ima_template_lib.c
++++ b/security/integrity/ima/ima_template_lib.c
+@@ -351,9 +351,9 @@ int ima_eventdigest_init(struct ima_namespace *ns,
+ 	if (event_data->violation)	/* recording a violation. */
+ 		goto out;
+ 
+-	if (ima_template_hash_algo_allowed(event_data->iint->ima_hash->algo)) {
+-		cur_digest = event_data->iint->ima_hash->digest;
+-		cur_digestsize = event_data->iint->ima_hash->length;
++	if (ima_template_hash_algo_allowed(event_data->ima_hash->algo)) {
++		cur_digest = event_data->ima_hash->digest;
++		cur_digestsize = event_data->ima_hash->length;
+ 		goto out;
+ 	}
+ 
+@@ -409,10 +409,10 @@ int ima_eventdigest_ng_init(struct ima_namespace *ns,
+ 	if (event_data->violation)	/* recording a violation. */
+ 		goto out;
+ 
+-	cur_digest = event_data->iint->ima_hash->digest;
+-	cur_digestsize = event_data->iint->ima_hash->length;
++	cur_digest = event_data->ima_hash->digest;
++	cur_digestsize = event_data->ima_hash->length;
+ 
+-	hash_algo = event_data->iint->ima_hash->algo;
++	hash_algo = event_data->ima_hash->algo;
+ out:
+ 	return ima_eventdigest_init_common(cur_digest, cur_digestsize,
+ 					   DIGEST_TYPE__LAST, hash_algo,
+@@ -434,11 +434,11 @@ int ima_eventdigest_ngv2_init(struct ima_namespace *ns,
+ 	if (event_data->violation)	/* recording a violation. */
+ 		goto out;
+ 
+-	cur_digest = event_data->iint->ima_hash->digest;
+-	cur_digestsize = event_data->iint->ima_hash->length;
++	cur_digest = event_data->ima_hash->digest;
++	cur_digestsize = event_data->ima_hash->length;
+ 
+-	hash_algo = event_data->iint->ima_hash->algo;
+-	if (event_data->iint->flags & IMA_VERITY_REQUIRED)
++	hash_algo = event_data->ima_hash->algo;
++	if (event_data->iint_flags & IMA_VERITY_REQUIRED)
+ 		digest_type = DIGEST_TYPE_VERITY;
+ out:
+ 	return ima_eventdigest_init_common(cur_digest, cur_digestsize,
+-- 
+2.36.1
+

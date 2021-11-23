@@ -1,0 +1,90 @@
+From 0d92552efd7df346a5e075f9d70bc5665b4d82e8 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 1 Feb 2022 21:22:45 -0500
+Subject: [PATCH 59/82] ima: Move ima_setxattr_allowed_hash_algorithms into
+ ima_namespace
+
+Move the ima_setxattr_allowed_hash_algorithms into the ima_namespace
+structure so that each IMA namespace can select its own allowed set
+of hash algorithms for setxattr().
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h          | 5 +++--
+ security/integrity/ima/ima_appraise.c | 2 +-
+ security/integrity/ima/ima_policy.c   | 9 ++++-----
+ 3 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 29189f38ccda..a0862b72fc38 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -45,8 +45,6 @@ enum tpm_pcrs { TPM_PCR0 = 0, TPM_PCR8 = 8, TPM_PCR10 = 10 };
+ 
+ #define NR_BANKS(chip) ((chip != NULL) ? chip->nr_allocated_banks : 0)
+ 
+-/* bitset of digests algorithms allowed in the setxattr hook */
+-extern atomic_t ima_setxattr_allowed_hash_algorithms;
+ 
+ extern const char boot_aggregate_name[];
+ 
+@@ -206,6 +204,9 @@ struct ima_namespace {
+ 	/* set during initialization */
+ 	int ima_appraise;
+ 	int temp_ima_appraise;
++
++	/* bitset of digests algorithms allowed in the setxattr hook */
++	atomic_t ima_setxattr_allowed_hash_algorithms;
+ } __randomize_layout;
+ extern struct ima_namespace init_ima_ns;
+ 
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index aa3418005ff7..5dc3af4f5577 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -798,7 +798,7 @@ static int validate_hash_algo(struct ima_namespace *ns,
+ 
+ 	xattr_hash_algo = ima_get_hash_algo(ns, xattr_value, xattr_value_len);
+ 
+-	allowed_hashes = atomic_read(&ima_setxattr_allowed_hash_algorithms);
++	allowed_hashes = atomic_read(&ns->ima_setxattr_allowed_hash_algorithms);
+ 
+ 	if (allowed_hashes) {
+ 		/* success if the algorithm is allowed in the ima policy */
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index b71282729e77..07a39a866349 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -53,8 +53,6 @@
+ 
+ static int build_ima_appraise __ro_after_init;
+ 
+-atomic_t ima_setxattr_allowed_hash_algorithms;
+-
+ #define MAX_LSM_RULES 6
+ enum lsm_rule_types { LSM_OBJ_USER, LSM_OBJ_ROLE, LSM_OBJ_TYPE,
+ 	LSM_SUBJ_USER, LSM_SUBJ_ROLE, LSM_SUBJ_TYPE
+@@ -797,8 +795,9 @@ void ima_update_policy_flags(struct ima_namespace *ns)
+ 		 *   the setxattr hash policy
+ 		 */
+ 		if (entry->func == SETXATTR_CHECK) {
+-			atomic_cmpxchg(&ima_setxattr_allowed_hash_algorithms,
+-				       0, entry->allowed_algos);
++			atomic_cmpxchg
++				(&ns->ima_setxattr_allowed_hash_algorithms,
++				 0, entry->allowed_algos);
+ 			/* SETXATTR_CHECK doesn't impact ima_policy_flag */
+ 			continue;
+ 		}
+@@ -986,7 +985,7 @@ void __init ima_init_policy(struct user_namespace *user_ns)
+ 			  ARRAY_SIZE(critical_data_rules),
+ 			  IMA_DEFAULT_POLICY);
+ 
+-	atomic_set(&ima_setxattr_allowed_hash_algorithms, 0);
++	atomic_set(&ns->ima_setxattr_allowed_hash_algorithms, 0);
+ 
+ 	ima_update_policy_flags(ns);
+ }
+-- 
+2.36.1
+
