@@ -1,0 +1,42 @@
+From 983ea86b19995dea56656df474a43cd377059243 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 18 May 2022 21:20:35 -0400
+Subject: [PATCH 82/87] evm: Adjust capability check for container root user
+
+Adjust the check for capabilities inside the container so that a container
+user with CAP_SYS_ADMIN or CAP_MAC_ADMIN can also write to the evm
+securityfs files.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm_secfs.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index a38278261d1a..a72ab87b05ea 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -68,7 +68,8 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
+ 	if (!ns_is_active(ns))
+ 		return -EPERM;
+ 
+-	if (!capable(CAP_SYS_ADMIN) ||
++	if ((!mac_admin_ns_capable(current_user_ns()) &&
++	     !capable(CAP_SYS_ADMIN)) ||
+ 	    (ns->evm_initialized & EVM_SETUP_COMPLETE))
+ 		return -EPERM;
+ 
+@@ -194,7 +195,9 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 	if (!ns_is_active(ns))
+ 		return -EPERM;
+ 
+-	if (!capable(CAP_SYS_ADMIN) || ns->evm_xattrs_locked)
++	/* Allow namespace admin to write to this file */
++	if ((!mac_admin_ns_capable(current_user_ns()) &&
++	     !capable(CAP_SYS_ADMIN)) || ns->evm_xattrs_locked)
+ 		return -EPERM;
+ 
+ 	if (*ppos != 0)
+-- 
+2.37.3
+
