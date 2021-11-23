@@ -1,0 +1,28 @@
+From db58f942c79d0f5a0d93d62c31b6c4b161c2aabf Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 3 Dec 2021 10:19:15 -0500
+Subject: [PATCH 15/20] ima: Also allow MEASURE policy rules in the IMA
+ namespace
+
+Also allow MEASURE policy rules in the IMA namespace now.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_policy.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 51f2094d3f58..4f6735efb391 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -1798,7 +1798,6 @@ static int ima_parse_rule(struct ima_namespace *ns,
+ 		/* IMA namespace only accepts AUDIT rules */
+ 		if (ns != &init_ima_ns) {
+ 			switch (entry->action) {
+-			case MEASURE:
+ 			case APPRAISE:
+ 			case HASH:
+ 				result = -EINVAL;
+-- 
+2.31.1
+

@@ -1,0 +1,66 @@
+From e18a122bfc3a4f583e652072c62a0786a8f5076c Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Sun, 19 Dec 2021 19:35:27 -0500
+Subject: [PATCH 01/20] ima: Implement ima_free_measurements() for freeing of
+ an ima_namespace
+
+Implement ima_free_measurements() that is needed when an ima_namespace
+is freed.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h       |  1 +
+ security/integrity/ima/ima_ns.c    |  1 +
+ security/integrity/ima/ima_queue.c | 12 ++++++++++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 52c23bde10d4..ff746d5110fc 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -209,6 +209,7 @@ int ima_restore_measurement_entry(struct ima_namespace *ns,
+ 				  struct ima_template_entry *entry);
+ int ima_restore_measurement_list(struct ima_namespace *ns,
+ 				 loff_t bufsize, void *buf);
++void ima_free_measurements(struct ima_namespace *ns);
+ int ima_measurements_show(struct seq_file *m, void *v);
+ unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
+ int ima_init_template(void);
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 9a5105d0ea89..00ea877e0af5 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -42,6 +42,7 @@ static void destroy_ima_ns(struct ima_namespace *ns)
+ 	pr_debug("DESTROY ima_ns: %p\n", ns);
+ 	ima_free_policy_rules(ns);
+ 	ima_free_ns_status_tree(ns);
++	ima_free_measurements(ns);
+ 	kmem_cache_free(imans_cachep, ns);
+ }
+ 
+diff --git a/security/integrity/ima/ima_queue.c b/security/integrity/ima/ima_queue.c
+index 9d2cb9ab5d8c..4b0e03614c94 100644
+--- a/security/integrity/ima/ima_queue.c
++++ b/security/integrity/ima/ima_queue.c
+@@ -206,6 +206,18 @@ int ima_restore_measurement_entry(struct ima_namespace *ns,
+ 	return result;
+ }
+ 
++void ima_free_measurements(struct ima_namespace *ns)
++{
++	struct ima_queue_entry *qe, *tmp;
++
++	list_for_each_entry_safe(qe, tmp, &ns->ima_measurements, later) {
++		list_del(&qe->later);
++		if (!hlist_unhashed(&qe->hnext))
++			hlist_del(&qe->hnext);
++		kfree(qe);
++	}
++}
++
+ int __init ima_init_digests(void)
+ {
+ 	u16 digest_size;
+-- 
+2.31.1
+
