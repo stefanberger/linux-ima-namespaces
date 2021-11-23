@@ -1,0 +1,178 @@
+From f69b144aeebfee8741b897ab3025a8c36468c048 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 3 Jan 2023 18:05:51 -0500
+Subject: [PATCH 86/89] security: Pass security.* xattrs on to EVM if
+ CAP_MAC_ADMIN is set
+
+Allow the handling of all security.* xattrs in user namespaces by
+EVM if CAP_MAC_ADMIN is set and the inode is fully owned by the
+namespace. security.* xattr can now be altered in a user namespace
+if a file is fully mapped (uid and gid) in the user namespace and
+if EVM is enabled (on top of IMA namespacing being enabled) and the
+user has CAP_MAC_ADMIN in the user namespace.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/security.h   |  5 +++--
+ security/commoncap.c       | 30 +++++++++++++++++++++++++++---
+ security/security.c        |  3 ++-
+ security/selinux/hooks.c   |  3 ++-
+ security/smack/smack_lsm.c |  3 ++-
+ 5 files changed, 36 insertions(+), 8 deletions(-)
+
+diff --git a/include/linux/security.h b/include/linux/security.h
+index 32828502f09e..4a2d377a8dfc 100644
+--- a/include/linux/security.h
++++ b/include/linux/security.h
+@@ -151,7 +151,8 @@ extern int cap_capset(struct cred *new, const struct cred *old,
+ 		      const kernel_cap_t *inheritable,
+ 		      const kernel_cap_t *permitted);
+ extern int cap_bprm_creds_from_file(struct linux_binprm *bprm, struct file *file);
+-int cap_inode_setxattr(struct dentry *dentry, const char *name,
++int cap_inode_setxattr(struct mnt_idmap *idmap,
++		       struct dentry *dentry, const char *name,
+ 		       const void *value, size_t size, int flags);
+ int cap_inode_removexattr(struct mnt_idmap *idmap,
+ 			  struct dentry *dentry, const char *name);
+@@ -864,7 +865,7 @@ static inline int security_inode_setxattr(struct mnt_idmap *idmap,
+ 		struct dentry *dentry, const char *name, const void *value,
+ 		size_t size, int flags)
+ {
+-	return cap_inode_setxattr(dentry, name, value, size, flags);
++	return cap_inode_setxattr(mnt_userns, dentry, name, value, size, flags);
+ }
+ 
+ static inline int security_inode_set_acl(struct mnt_idmap *idmap,
+diff --git a/security/commoncap.c b/security/commoncap.c
+index 5b74c01a28d2..18e9c16f2f75 100644
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -974,6 +974,7 @@ int cap_bprm_creds_from_file(struct linux_binprm *bprm, struct file *file)
+ 
+ /**
+  * cap_inode_setxattr - Determine whether an xattr may be altered
++ * @idmap: idmap of the mount the inode was found from
+  * @dentry: The inode/dentry being altered
+  * @name: The name of the xattr to be changed
+  * @value: The value that the xattr will be changed to
+@@ -986,7 +987,8 @@ int cap_bprm_creds_from_file(struct linux_binprm *bprm, struct file *file)
+  * This is used to make sure security xattrs don't get updated or set by those
+  * who aren't privileged to do so.
+  */
+-int cap_inode_setxattr(struct dentry *dentry, const char *name,
++int cap_inode_setxattr(struct mnt_idmap *idmap,
++		       struct dentry *dentry, const char *name,
+ 		       const void *value, size_t size, int flags)
+ {
+ 	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
+@@ -1007,11 +1009,22 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
+ 	 * If IMA namespacing is enabled then setting security.ima is allowed
+ 	 * for users as well and the check for XATTR_NAME_IMA will be done in
+ 	 * ima_inode_setxattr() once CONIG_IMA_APPRAISE is set.
++	 * Also, all 'security.' xattrs in a use namespace will be handled
++	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
+ 	 */
+ 	if (IS_ENABLED(CONFIG_IMA_NS)) {
+ 		if (IS_ENABLED(CONFIG_IMA_APPRAISE) &&
+ 		    strcmp(name, XATTR_NAME_IMA) == 0)
+ 			return 0;
++
++		if (IS_ENABLED(CONFIG_EVM)) {
++			if (current_user_ns() != &init_user_ns &&
++			    mac_admin_ns_capable(current_user_ns()) &&
++			    privileged_wrt_inode_uidgid(current_user_ns(),
++						idmap,
++						d_backing_inode(dentry)))
++				return 0;
++		}
+ 	}
+ 
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+@@ -1042,15 +1055,16 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
+ 			  struct dentry *dentry, const char *name)
+ {
+ 	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
++	struct inode *inode;
+ 
+ 	/* Ignore non-security xattrs */
+ 	if (strncmp(name, XATTR_SECURITY_PREFIX,
+ 			XATTR_SECURITY_PREFIX_LEN) != 0)
+ 		return 0;
+ 
++	inode = d_backing_inode(dentry);
+ 	if (strcmp(name, XATTR_NAME_CAPS) == 0) {
+ 		/* security.capability gets namespaced */
+-		struct inode *inode = d_backing_inode(dentry);
+ 		if (!inode)
+ 			return -EINVAL;
+ 		if (!capable_wrt_inode_uidgid(idmap, inode, CAP_SETFCAP))
+@@ -1062,13 +1076,23 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
+ 	 * If IMA namespacing is enabled then removing security.ima is allowed
+ 	 * for users as well and the check for XATTR_NAME_IMA will be done in
+ 	 * ima_inode_removexattr() once CONIG_IMA_APPRAISE is set.
++	 * Also, all 'security.' xattrs in a use namespace will be handled
++	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
+ 	 */
+ 	if (IS_ENABLED(CONFIG_IMA_NS)) {
+ 		if (IS_ENABLED(CONFIG_IMA_APPRAISE) &&
+ 		    strcmp(name, XATTR_NAME_IMA) == 0)
+ 			return 0;
+-	}
+ 
++		if (IS_ENABLED(CONFIG_EVM)) {
++			if (current_user_ns() != &init_user_ns &&
++			    mac_admin_ns_capable(current_user_ns()) &&
++			    privileged_wrt_inode_uidgid(current_user_ns(),
++						idmap,
++						d_backing_inode(dentry)))
++				return 0;
++		}
++	}
+ 
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+ 		return -EPERM;
+diff --git a/security/security.c b/security/security.c
+index fb6bf60051cb..19a21cf822de 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -2143,7 +2143,8 @@ int security_inode_setxattr(struct mnt_idmap *idmap,
+ 			    size, flags);
+ 
+ 	if (ret == 1)
+-		ret = cap_inode_setxattr(dentry, name, value, size, flags);
++		ret = cap_inode_setxattr(idmap, dentry, name, value, size,
++					 flags);
+ 	if (ret)
+ 		return ret;
+ 	ret = ima_inode_setxattr(dentry, name, value, size);
+diff --git a/security/selinux/hooks.c b/security/selinux/hooks.c
+index d06e350fedee..08cb5da37e68 100644
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -3132,7 +3132,8 @@ static int selinux_inode_setxattr(struct mnt_idmap *idmap,
+ 	int rc = 0;
+ 
+ 	if (strcmp(name, XATTR_NAME_SELINUX)) {
+-		rc = cap_inode_setxattr(dentry, name, value, size, flags);
++		rc = cap_inode_setxattr(idmap, dentry, name, value, size,
++				        flags);
+ 		if (rc)
+ 			return rc;
+ 
+diff --git a/security/smack/smack_lsm.c b/security/smack/smack_lsm.c
+index 6e270cf3fd30..7f53381a93b0 100644
+--- a/security/smack/smack_lsm.c
++++ b/security/smack/smack_lsm.c
+@@ -1247,7 +1247,8 @@ static int smack_inode_setxattr(struct mnt_idmap *idmap,
+ 		    strncmp(value, TRANS_TRUE, TRANS_TRUE_SIZE) != 0)
+ 			rc = -EINVAL;
+ 	} else
+-		rc = cap_inode_setxattr(dentry, name, value, size, flags);
++		rc = cap_inode_setxattr(mnt_userns, dentry, name, value, size,
++					flags);
+ 
+ 	if (check_priv && !smack_privileged(CAP_MAC_ADMIN))
+ 		rc = -EPERM;
+-- 
+2.40.1
+

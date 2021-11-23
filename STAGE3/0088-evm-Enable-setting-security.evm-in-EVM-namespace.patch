@@ -1,0 +1,139 @@
+From f9641d90025f1b27a17b8b95fac7dcf47d33c692 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 19 May 2022 14:22:05 -0400
+Subject: [PATCH 88/89] evm: Enable setting security.evm in EVM namespace
+
+Modify cap_inode_setxattr() and cap_inode_removexattr() so that the
+evaluation of capabilities required to access security.evm is deferred to
+ima_inode_setxattr() and ima_inode_removexattr() respectively.
+
+Modify evm_protect_xattr(), which is called by evm_inode_setxattr() and
+evm_inode_removexattr(), so that the capabilities are evaluated there.
+Add the ns_capable() check previously executed by cap_inode_setxattr() to
+this function. Further, for allowing setting the EVM xattr inside an EVM
+namespace, also allow to use CAP_MAC_ADMIN so that regular users spawning
+an EVM namespace can also sign files in the EVM namespace if those files
+have owner and group mappings in the user namespace.
+If both CAP_SYS_ADMIN and CAP_MAC_ADMIN are missing in an EVM namespace,
+or if the file owner and group cannot be mapped then writing and removing
+of security.evm xattr is not possible.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/commoncap.c              | 11 +++++++++++
+ security/integrity/evm/evm_main.c | 23 +++++++++++++++--------
+ 2 files changed, 26 insertions(+), 8 deletions(-)
+
+diff --git a/security/commoncap.c b/security/commoncap.c
+index 18e9c16f2f75..2408d465f926 100644
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -1009,6 +1009,9 @@ int cap_inode_setxattr(struct mnt_idmap *idmap,
+ 	 * If IMA namespacing is enabled then setting security.ima is allowed
+ 	 * for users as well and the check for XATTR_NAME_IMA will be done in
+ 	 * ima_inode_setxattr() once CONIG_IMA_APPRAISE is set.
++	 * Further, setting security.evm is allowed for users and the check
++	 * for XATTR_NAME_EVM will be done in evm_inode_setxattr() if
++	 * CONFIG_EVM is set.
+ 	 * Also, all 'security.' xattrs in a use namespace will be handled
+ 	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
+ 	 */
+@@ -1018,6 +1021,9 @@ int cap_inode_setxattr(struct mnt_idmap *idmap,
+ 			return 0;
+ 
+ 		if (IS_ENABLED(CONFIG_EVM)) {
++			if (strcmp(name, XATTR_NAME_EVM) == 0)
++				return 0;
++
+ 			if (current_user_ns() != &init_user_ns &&
+ 			    mac_admin_ns_capable(current_user_ns()) &&
+ 			    privileged_wrt_inode_uidgid(current_user_ns(),
+@@ -1076,6 +1082,9 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
+ 	 * If IMA namespacing is enabled then removing security.ima is allowed
+ 	 * for users as well and the check for XATTR_NAME_IMA will be done in
+ 	 * ima_inode_removexattr() once CONIG_IMA_APPRAISE is set.
++	 * Further, setting security.evm is allowed for users and the check
++	 * for XATTR_NAME_EVM will be done in evm_inode_setxattr() if
++	 * CONFIG_EVM is set.
+ 	 * Also, all 'security.' xattrs in a use namespace will be handled
+ 	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
+ 	 */
+@@ -1085,6 +1094,8 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
+ 			return 0;
+ 
+ 		if (IS_ENABLED(CONFIG_EVM)) {
++			if (strcmp(name, XATTR_NAME_EVM) == 0)
++				return 0;
+ 			if (current_user_ns() != &init_user_ns &&
+ 			    mac_admin_ns_capable(current_user_ns()) &&
+ 			    privileged_wrt_inode_uidgid(current_user_ns(),
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 8fdbfd1585fa..e968254d8372 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -552,10 +552,18 @@ static int evm_protect_xattr(struct evm_namespace *ns,
+ 			     struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
++	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
++	struct inode *inode = d_backing_inode(dentry);
+ 	enum integrity_status evm_status;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+-		if (!capable(CAP_SYS_ADMIN))
++		if (!ns_capable(user_ns, CAP_SYS_ADMIN) &&
++		    !capable(CAP_SYS_ADMIN))
++			return -EPERM;
++		/* Allow users to set security.evm in user namespace */
++		if (!mac_admin_ns_capable(current_user_ns()) ||
++		    !privileged_wrt_inode_uidgid(current_user_ns(),
++						 idmap, inode))
+ 			return -EPERM;
+ 	} else if (!evm_protected_xattr(ns, xattr_name)) {
+ 		if (!posix_xattr_acl(xattr_name))
+@@ -636,13 +644,14 @@ int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
+ 		       size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xattr_data = xattr_value;
++	struct inode *inode = d_backing_inode(dentry);
+ 	struct evm_namespace *ns = current_evm_ns();
+ 
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (ns == &init_evm_ns &&
+-	    (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES))
++	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES &&
++	    privileged_wrt_inode_uidgid(current_user_ns(), idmap, inode))
+ 		return 0;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+@@ -651,9 +660,6 @@ int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
+ 		if (xattr_data->type != EVM_IMA_XATTR_DIGSIG &&
+ 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
+ 			return -EPERM;
+-
+-		if (ns != &init_evm_ns)
+-			return -EPERM;
+ 	}
+ 	return evm_protect_xattr(ns, idmap, dentry, xattr_name,
+ 				 xattr_value, xattr_value_len);
+@@ -671,12 +677,13 @@ int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
+ int evm_inode_removexattr(struct mnt_idmap *idmap,
+ 			  struct dentry *dentry, const char *xattr_name)
+ {
++	struct inode *inode = d_backing_inode(dentry);
+ 	struct evm_namespace *ns = current_evm_ns();
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (ns == &init_evm_ns &&
+-	    ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES &&
++	    privileged_wrt_inode_uidgid(current_user_ns(), idmap, inode))
+ 		return 0;
+ 
+ 	return evm_protect_xattr(ns, idmap, dentry, xattr_name, NULL, 0);
+-- 
+2.40.1
+

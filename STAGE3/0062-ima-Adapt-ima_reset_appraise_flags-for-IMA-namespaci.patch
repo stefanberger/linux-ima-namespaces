@@ -1,0 +1,125 @@
+From 68f291339b5234678642d9da29892310fd7a8b6b Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 7 Jan 2022 15:13:31 -0500
+Subject: [PATCH 62/89] ima: Adapt ima_reset_appraise_flags() for IMA
+ namespacing support
+
+The current implementation of ima_reset_appraise_flags() only properly
+supports IMA appraisal by the init_ima_ns. To prepare for IMA appraisal
+support for IMA namespaces modify the implementation to support IMA
+appraisal used by any IMA namespace. In particular, set the
+IMA_CHANGE_XATTR bit if any IMA namespace has an IMA appraisal policy.
+Similarly, set or clear the IMA_DIGSIG flag if any IMA namespace has an
+IMA appraisal policy.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_appraise.c | 44 ++++++++++++++++-----------
+ 1 file changed, 27 insertions(+), 17 deletions(-)
+
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index a23375c87451..11cf157d8b14 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -735,13 +735,13 @@ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
+ 	return 0;
+ }
+ 
+-static void ima_reset_appraise_flags(struct ima_namespace *ns,
+-				     struct inode *inode, int digsig)
++static void ima_reset_appraise_flags(struct inode *inode, int digsig)
+ {
+ 	struct integrity_iint_cache *iint;
+ 	struct ns_status *ns_status;
++	bool found = false;
+ 
+-	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
++	if (!S_ISREG(inode->i_mode))
+ 		return;
+ 
+ 	iint = integrity_iint_find(inode);
+@@ -749,15 +749,22 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
+ 		return;
+ 
+ 	read_lock(&iint->ns_list_lock);
+-	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
++		if (!(ns_status->ns->ima_policy_flag & IMA_APPRAISE))
++			continue;
++
+ 		ns_status->measured_pcrs = 0;
++		found = true;
++	}
+ 	read_unlock(&iint->ns_list_lock);
+ 
+-	set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
+-	if (digsig)
+-		set_bit(IMA_DIGSIG, &iint->atomic_flags);
+-	else
+-		clear_bit(IMA_DIGSIG, &iint->atomic_flags);
++	if (found) {
++		set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
++		if (digsig)
++			set_bit(IMA_DIGSIG, &iint->atomic_flags);
++		else
++			clear_bit(IMA_DIGSIG, &iint->atomic_flags);
++	}
+ }
+ 
+ /**
+@@ -829,8 +836,8 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 		       const void *xattr_value, size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xvalue = xattr_value;
+-	struct evm_namespace *evm_ns = &init_evm_ns;
+-	struct ima_namespace *ns = &init_ima_ns;
++	struct ima_namespace *ns = get_current_ns();
++	struct evm_namespace *evm_ns;
+ 	int digsig = 0;
+ 	int result;
+ 	int err;
+@@ -849,8 +856,11 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 	} else if (!strcmp(xattr_name, XATTR_NAME_EVM) && xattr_value_len > 0) {
+ 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
+ 	}
++	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
+ 	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
+-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), digsig);
++		if (!ns_is_active(ns))
++			return -EPERM;
++		ima_reset_appraise_flags(d_backing_inode(dentry), digsig);
+ 		if (result == 1)
+ 			result = 0;
+ 	}
+@@ -861,23 +871,23 @@ int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
+ 		      const char *acl_name, struct posix_acl *kacl)
+ {
+ 	struct evm_namespace *evm_ns = &init_evm_ns;
+-	struct ima_namespace *ns = &init_ima_ns;
+ 
+ 	if (evm_revalidate_status(evm_ns, acl_name))
+-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
++		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
+ 
+ 	return 0;
+ }
+ 
+ int ima_inode_removexattr(struct dentry *dentry, const char *xattr_name)
+ {
+-	struct evm_namespace *evm_ns = &init_evm_ns;
+-	struct ima_namespace *ns = &init_ima_ns;
++	struct evm_namespace *evm_ns;
+ 	int result;
+ 
++	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
++
+ 	result = ima_protect_xattr(dentry, xattr_name, NULL, 0);
+ 	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
+-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
++		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
+ 		if (result == 1)
+ 			result = 0;
+ 	}
+-- 
+2.40.1
+
