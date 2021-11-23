@@ -1,0 +1,28 @@
+From b89f0e11f0ef05f98eebec64900494c356639990 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 14:19:39 -0500
+Subject: [PATCH 47/51] ima: Allow appraisal policy rules in IMA-ns
+
+---
+ security/integrity/ima/ima_policy.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 7854dcd7d8f8..16c196181fde 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -1814,10 +1814,9 @@ static int ima_parse_rule(struct user_namespace *user_ns,
+ 			break;
+ 		}
+ 
+-		/* IMA namespace only accepts AUDIT & MEASURE rules */
++		/* IMA namespace only rejects HASH rules */
+ 		if (ns != &init_ima_ns && result == 0) {
+ 			switch (entry->action) {
+-			case APPRAISE:
+ 			case HASH:
+ 				result = -EINVAL;
+ 				goto err_audit;
+-- 
+2.31.1
+
