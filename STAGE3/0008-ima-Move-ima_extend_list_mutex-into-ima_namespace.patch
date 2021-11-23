@@ -1,0 +1,95 @@
+From e46464d7deef5366a28d6dfc1014fe6534988080 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 2 Dec 2021 14:24:13 -0500
+Subject: [PATCH 08/80] ima: Move ima_extend_list_mutex into ima_namespace
+
+Before allowing the IMA namespaces to measure and subsequently extend
+the measurement log, move the ima_extend_list_mutex into the ima_namespace.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h             |  7 +++++++
+ security/integrity/ima/ima_init_ima_ns.c |  1 +
+ security/integrity/ima/ima_queue.c       | 14 ++++----------
+ 3 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 8858a27e4784..4501325968aa 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -144,6 +144,13 @@ struct ima_namespace {
+ 	struct list_head ima_measurements;	/* list of all measurements */
+ 	unsigned long binary_runtime_size;	/* used by init_ima_ns */
+ 
++	/*
++	 * mutex protects atomicity of extending measurement list
++	 * and extending the TPM PCR aggregate. Since tpm_extend can take
++	 * long (and the tpm driver uses a mutex), we can't use the spinlock.
++	 */
++	struct mutex ima_extend_list_mutex;
++
+ 	/* securityfs support related variables */
+ 	struct mutex ima_write_mutex;
+ 	unsigned long ima_fs_flags;
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 1073bd8decb1..d0b2591f5f09 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -32,6 +32,7 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 		ns->binary_runtime_size = 0;
+ 	else
+ 		ns->binary_runtime_size = ULONG_MAX;
++	mutex_init(&ns->ima_extend_list_mutex);
+ 
+ 	mutex_init(&ns->ima_write_mutex);
+ 	ns->valid_policy = 1;
+diff --git a/security/integrity/ima/ima_queue.c b/security/integrity/ima/ima_queue.c
+index b7a3f608ee9d..70f2b2330a49 100644
+--- a/security/integrity/ima/ima_queue.c
++++ b/security/integrity/ima/ima_queue.c
+@@ -21,12 +21,6 @@
+ 
+ #define AUDIT_CAUSE_LEN_MAX 32
+ 
+-/* mutex protects atomicity of extending measurement list
+- * and extending the TPM PCR aggregate. Since tpm_extend can take
+- * long (and the tpm driver uses a mutex), we can't use the spinlock.
+- */
+-static DEFINE_MUTEX(ima_extend_list_mutex);
+-
+ /* lookup up the digest value in the hash table, and return the entry */
+ static struct ima_queue_entry *ima_lookup_digest_entry
+ 						(struct ima_namespace *ns,
+@@ -161,7 +155,7 @@ int ima_add_template_entry(struct ima_namespace *ns,
+ 	int audit_info = 1;
+ 	int result = 0, tpmresult = 0;
+ 
+-	mutex_lock(&ima_extend_list_mutex);
++	mutex_lock(&ns->ima_extend_list_mutex);
+ 	if (!violation && !IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE)) {
+ 		if (ima_lookup_digest_entry(ns, digest, entry->pcr)) {
+ 			audit_cause = "hash_exists";
+@@ -189,7 +183,7 @@ int ima_add_template_entry(struct ima_namespace *ns,
+ 		audit_info = 0;
+ 	}
+ out:
+-	mutex_unlock(&ima_extend_list_mutex);
++	mutex_unlock(&ns->ima_extend_list_mutex);
+ 	integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
+ 			    op, audit_cause, result, audit_info);
+ 	return result;
+@@ -200,9 +194,9 @@ int ima_restore_measurement_entry(struct ima_namespace *ns,
+ {
+ 	int result = 0;
+ 
+-	mutex_lock(&ima_extend_list_mutex);
++	mutex_lock(&ns->ima_extend_list_mutex);
+ 	result = ima_add_digest_entry(ns, entry, 0);
+-	mutex_unlock(&ima_extend_list_mutex);
++	mutex_unlock(&ns->ima_extend_list_mutex);
+ 	return result;
+ }
+ 
+-- 
+2.36.1
+

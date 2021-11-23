@@ -1,0 +1,690 @@
+From d79f5d733036c00802b2b9ab0dd8ba2b08e6b14a Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 10 Jan 2022 13:22:10 -0500
+Subject: [PATCH 43/80] evm: Namespace EVM and handle calls from non-init
+ EVM-ns
+
+Namespace EVM by creating an evm_namespace structure.
+Prevent calls from non-init EVM namespaces to use much of the EVM
+functionality and prevent access to EVM's variables that are relevant
+only for the initial EVM namespace. In the next steps these variables
+will be moved into the evm_namespace structure.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                       | 28 ++++++++---
+ include/linux/integrity_namespace.h       | 19 +++++++
+ security/integrity/evm/Makefile           |  2 +-
+ security/integrity/evm/evm.h              | 14 +++++-
+ security/integrity/evm/evm_crypto.c       | 10 ++--
+ security/integrity/evm/evm_init_evm_ns.c  | 21 ++++++++
+ security/integrity/evm/evm_main.c         | 61 +++++++++++++++++------
+ security/integrity/evm/evm_ns.c           | 48 ++++++++++++++++++
+ security/integrity/evm/evm_secfs.c        |  9 ++--
+ security/integrity/ima/ima_appraise.c     |  5 +-
+ security/integrity/ima/ima_template_lib.c | 18 ++++---
+ security/integrity/integrity_ns.c         | 15 ++++++
+ 12 files changed, 210 insertions(+), 40 deletions(-)
+ create mode 100644 security/integrity/evm/evm_init_evm_ns.c
+ create mode 100644 security/integrity/evm/evm_ns.c
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index ef7a6b70e124..ffc8577b40ef 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -15,9 +15,22 @@
+ struct integrity_iint_cache;
+ struct integrity_namespace;
+ 
++struct evm_namespace {
++	struct integrity_namespace *integrity_ns;
++};
++
++extern struct evm_namespace init_evm_ns;
++
++#if defined(CONFIG_IMA_NS) && defined(CONFIG_EVM)
++extern struct evm_namespace *create_evm_ns
++				(struct integrity_namespace *integrity_ns);
++extern void free_evm_ns(struct integrity_namespace *evm_ns);
++#endif
++
+ #ifdef CONFIG_EVM
+-extern int evm_set_key(void *key, size_t keylen);
+-extern enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
++extern int evm_set_key(struct evm_namespace *ns,
++		       void *key, size_t keylen);
++extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 					     struct dentry *dentry,
+ 					     const char *xattr_name,
+ 					     void *xattr_value,
+@@ -41,7 +54,8 @@ extern int evm_inode_init_security(struct inode *inode,
+ 				   struct xattr *evm);
+ extern bool evm_revalidate_status(const char *xattr_name);
+ extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
+-extern int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
++extern int evm_read_protected_xattrs(struct evm_namespace *ns,
++				     struct dentry *dentry, u8 *buffer,
+ 				     int buffer_size, char type,
+ 				     bool canonical_fmt);
+ #ifdef CONFIG_FS_POSIX_ACL
+@@ -54,14 +68,15 @@ static inline int posix_xattr_acl(const char *xattrname)
+ #endif
+ #else
+ 
+-static inline int evm_set_key(void *key, size_t keylen)
++static inline int evm_set_key(struct evm_namespace *ns,
++			      void *key, size_t keylen)
+ {
+ 	return -EOPNOTSUPP;
+ }
+ 
+ #ifdef CONFIG_INTEGRITY
+ static inline enum integrity_status evm_verifyxattr(
+-					struct integrity_namespace *ns,
++					struct evm_namespace *ns,
+ 					struct dentry *dentry,
+ 					const char *xattr_name,
+ 					void *xattr_value,
+@@ -127,7 +142,8 @@ static inline int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+ 	return false;
+ }
+ 
+-static inline int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
++static inline int evm_read_protected_xattrs(struct evm_namespace *ns,
++					    struct dentry *dentry, u8 *buffer,
+ 					    int buffer_size, char type,
+ 					    bool canonical_fmt)
+ {
+diff --git a/include/linux/integrity_namespace.h b/include/linux/integrity_namespace.h
+index 65e0edea3bf7..b83124b3bb73 100644
+--- a/include/linux/integrity_namespace.h
++++ b/include/linux/integrity_namespace.h
+@@ -17,10 +17,14 @@
+ #define INTEGRITY_KEYRING_MAX		4
+ 
+ struct ima_namespace;
++struct evm_namespace;
+ 
+ struct integrity_namespace {
+ #ifdef CONFIG_IMA
+ 	struct ima_namespace *ima_ns;
++#endif
++#ifdef CONFIG_EVM
++	struct evm_namespace *evm_ns;
+ #endif
+ 	struct key *keyring[INTEGRITY_KEYRING_MAX];
+ 	const char *keyring_name[INTEGRITY_KEYRING_MAX];
+@@ -29,6 +33,21 @@ struct integrity_namespace {
+ 
+ extern struct integrity_namespace init_integrity_ns;
+ 
++/* Functions to get evm_ns */
++#ifdef CONFIG_EVM
++static inline struct evm_namespace *integrity_ns_get_evm_ns
++					(struct integrity_namespace *ns)
++{
++	return ns->evm_ns;
++}
++#else
++static inline struct evm_namespace *integrity_ns_get_evm_ns
++					(struct integrity_namespace *ns)
++{
++	return NULL;
++}
++#endif
++
+ #ifdef CONFIG_IMA_NS
+ 
+ static inline struct integrity_namespace *current_integrity_ns(void)
+diff --git a/security/integrity/evm/Makefile b/security/integrity/evm/Makefile
+index a56f5613be79..7b530eb6d5e1 100644
+--- a/security/integrity/evm/Makefile
++++ b/security/integrity/evm/Makefile
+@@ -4,5 +4,5 @@
+ #
+ obj-$(CONFIG_EVM) += evm.o
+ 
+-evm-y := evm_main.o evm_crypto.o evm_secfs.o
++evm-y := evm_main.o evm_crypto.o evm_secfs.o evm_ns.o evm_init_evm_ns.o
+ evm-$(CONFIG_FS_POSIX_ACL) += evm_posix_acl.o
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 3a3f041e09cf..a9d2b84d392c 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -14,6 +14,7 @@
+ 
+ #include <linux/xattr.h>
+ #include <linux/security.h>
++#include <linux/integrity_namespace.h>
+ 
+ #include "../integrity.h"
+ 
+@@ -46,7 +47,7 @@ struct evm_digest {
+ 	char digest[IMA_MAX_DIGEST_SIZE];
+ } __packed;
+ 
+-int evm_init_key(void);
++int evm_init_key(struct evm_namespace *ns);
+ int evm_update_evmxattr(struct dentry *dentry,
+ 			const char *req_xattr_name,
+ 			const char *req_xattr_value,
+@@ -60,6 +61,15 @@ int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
+ 		  struct evm_digest *data);
+ int evm_init_hmac(struct inode *inode, const struct xattr *xattr,
+ 		  char *hmac_val);
+-int evm_init_secfs(struct integrity_namespace *ns);
++int evm_init_secfs(struct evm_namespace *ns);
++
++static inline struct evm_namespace *current_evm_ns(void)
++{
++	return current_integrity_ns()->evm_ns;
++}
++
++int __init evm_init_ns(void);
++int evm_init_namespace(struct evm_namespace *ns,
++		       struct integrity_namespace *integrity_ns);
+ 
+ #endif
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index a733aff02006..8bcb2865caa2 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -39,6 +39,7 @@ static const char evm_hmac[] = "hmac(sha1)";
+ 
+ /**
+  * evm_set_key() - set EVM HMAC key from the kernel
++ * @ns: The EVM namespace to set the key on
+  * @key: pointer to a buffer with the key data
+  * @size: length of the key data
+  *
+@@ -49,10 +50,13 @@ static const char evm_hmac[] = "hmac(sha1)";
+  *
+  * key length should be between 32 and 128 bytes long
+  */
+-int evm_set_key(void *key, size_t keylen)
++int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
+ {
+ 	int rc;
+ 
++	if (ns != &init_evm_ns)
++		return -EINVAL;
++
+ 	rc = -EBUSY;
+ 	if (test_and_set_bit(EVM_SET_KEY_BUSY, &evm_set_key_flags))
+ 		goto busy;
+@@ -408,7 +412,7 @@ int evm_init_hmac(struct inode *inode, const struct xattr *lsm_xattr,
+ /*
+  * Get the key from the TPM for the SHA1-HMAC
+  */
+-int evm_init_key(void)
++int evm_init_key(struct evm_namespace *ns)
+ {
+ 	struct key *evm_key;
+ 	struct encrypted_key_payload *ekp;
+@@ -421,7 +425,7 @@ int evm_init_key(void)
+ 	down_read(&evm_key->sem);
+ 	ekp = evm_key->payload.data[0];
+ 
+-	rc = evm_set_key(ekp->decrypted_data, ekp->decrypted_datalen);
++	rc = evm_set_key(ns, ekp->decrypted_data, ekp->decrypted_datalen);
+ 
+ 	/* burn the original key contents */
+ 	memset(ekp->decrypted_data, 0, ekp->decrypted_datalen);
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+new file mode 100644
+index 000000000000..92a42ce66eb6
+--- /dev/null
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -0,0 +1,21 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#include <linux/evm.h>
++
++#include "evm.h"
++
++int evm_init_namespace(struct evm_namespace *ns,
++		       struct integrity_namespace *integrity_ns)
++{
++	ns->integrity_ns = integrity_ns;
++
++	return 0;
++}
++
++int __init evm_init_ns(void)
++{
++	return evm_init_namespace(&init_evm_ns, &init_integrity_ns);
++}
++
++struct evm_namespace init_evm_ns = {
++};
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 0b77fa957d21..c0070c7a3992 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -21,7 +21,6 @@
+ #include <linux/evm.h>
+ #include <linux/magic.h>
+ #include <linux/posix_acl_xattr.h>
+-#include <linux/integrity_namespace.h>
+ 
+ #include <crypto/hash.h>
+ #include <crypto/hash_info.h>
+@@ -171,7 +170,7 @@ static int evm_find_protected_xattrs(struct dentry *dentry)
+  *
+  * Returns integrity status
+  */
+-static enum integrity_status evm_verify_hmac(struct integrity_namespace *ns,
++static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 					     struct dentry *dentry,
+ 					     const char *xattr_name,
+ 					     char *xattr_value,
+@@ -245,7 +244,8 @@ static enum integrity_status evm_verify_hmac(struct integrity_namespace *ns,
+ 		if (rc)
+ 			break;
+ 		rc = integrity_digsig_verify
+-					(ns, INTEGRITY_KEYRING_EVM,
++					(ns->integrity_ns,
++					 INTEGRITY_KEYRING_EVM,
+ 					 (const char *)xattr_data, xattr_len,
+ 					 digest.digest, digest.hdr.length);
+ 		if (!rc) {
+@@ -326,6 +326,7 @@ int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+ 
+ /**
+  * evm_read_protected_xattrs - read EVM protected xattr names, lengths, values
++ * @ns: EVM namespace instance to read protected xattrs from
+  * @dentry: dentry of the read xattrs
+  * @inode: inode of the read xattrs
+  * @buffer: buffer xattr names, lengths or values are copied to
+@@ -339,12 +340,16 @@ int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+  *
+  * Returns the total size on success, a negative value on error.
+  */
+-int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
++int evm_read_protected_xattrs(struct evm_namespace *ns,
++			      struct dentry *dentry, u8 *buffer,
+ 			      int buffer_size, char type, bool canonical_fmt)
+ {
+ 	struct xattr_list *xattr;
+ 	int rc, size, total_size = 0;
+ 
++	if (ns != &init_evm_ns)
++		return -EOPNOTSUPP;
++
+ 	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
+ 		rc = __vfs_getxattr(dentry, d_backing_inode(dentry),
+ 				    xattr->name, NULL, 0);
+@@ -395,7 +400,7 @@ int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
+ 
+ /**
+  * evm_verifyxattr - verify the integrity of the requested xattr
+- * @ns: integrity namespace to user for verification
++ * @ns: EVM namespace to use for verification
+  * @dentry: object of the verify xattr
+  * @xattr_name: requested xattr
+  * @xattr_value: requested xattr value
+@@ -410,12 +415,15 @@ int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
+  * This function requires the caller to lock the inode's i_mutex before it
+  * is executed.
+  */
+-enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
++enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 				      struct dentry *dentry,
+ 				      const char *xattr_name,
+ 				      void *xattr_value, size_t xattr_value_len,
+ 				      struct integrity_iint_cache *iint)
+ {
++	if (ns != &init_evm_ns)
++		return INTEGRITY_UNKNOWN;
++
+ 	if (!evm_key_loaded() || !evm_protected_xattr(xattr_name))
+ 		return INTEGRITY_UNKNOWN;
+ 
+@@ -437,7 +445,7 @@ EXPORT_SYMBOL_GPL(evm_verifyxattr);
+  * before EVM is initialized or in 'fix' mode.
+  */
+ static enum integrity_status evm_verify_current_integrity
+-			(struct integrity_namespace *ns, struct dentry *dentry)
++			(struct evm_namespace *ns, struct dentry *dentry)
+ {
+ 	struct inode *inode = d_backing_inode(dentry);
+ 
+@@ -544,7 +552,7 @@ static int evm_xattr_change(struct user_namespace *mnt_userns,
+  * For posix xattr acls only, permit security.evm, even if it currently
+  * doesn't exist, to be updated unless the EVM signature is immutable.
+  */
+-static int evm_protect_xattr(struct integrity_namespace *ns,
++static int evm_protect_xattr(struct evm_namespace *ns,
+ 			     struct user_namespace *mnt_userns,
+ 			     struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+@@ -633,12 +641,13 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		       size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xattr_data = xattr_value;
+-	struct integrity_namespace *ns = current_integrity_ns();
++	struct evm_namespace *ns = current_evm_ns();
+ 
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns == &init_evm_ns &&
++	    (evm_initialized & EVM_ALLOW_METADATA_WRITES))
+ 		return 0;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+@@ -647,6 +656,9 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		if (xattr_data->type != EVM_IMA_XATTR_DIGSIG &&
+ 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
+ 			return -EPERM;
++
++		if (ns != &init_evm_ns)
++			return -EPERM;
+ 	}
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name,
+ 				 xattr_value, xattr_value_len);
+@@ -664,11 +676,12 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ int evm_inode_removexattr(struct user_namespace *mnt_userns,
+ 			  struct dentry *dentry, const char *xattr_name)
+ {
+-	struct integrity_namespace *ns = current_integrity_ns();
++	struct evm_namespace *ns = current_evm_ns();
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns == &init_evm_ns &&
++	    evm_initialized & EVM_ALLOW_METADATA_WRITES)
+ 		return 0;
+ 
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name, NULL, 0);
+@@ -694,6 +707,11 @@ static void evm_reset_status(struct inode *inode)
+  */
+ bool evm_revalidate_status(const char *xattr_name)
+ {
++	struct evm_namespace *ns = current_evm_ns();
++
++	if (ns != &init_evm_ns)
++		return false;
++
+ 	if (!evm_key_loaded())
+ 		return false;
+ 
+@@ -788,7 +806,10 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ {
+ 	unsigned int ia_valid = attr->ia_valid;
+ 	enum integrity_status evm_status;
+-	struct integrity_namespace *ns = current_integrity_ns();
++	struct evm_namespace *ns = current_evm_ns();
++
++	if (ns != &init_evm_ns)
++		return 0;
+ 
+ 	/* Policy permits modification of the protected attrs even though
+ 	 * there's no HMAC key loaded
+@@ -852,9 +873,13 @@ int evm_inode_init_security(struct inode *inode,
+ 				 const struct xattr *lsm_xattr,
+ 				 struct xattr *evm_xattr)
+ {
++	struct evm_namespace *ns = current_evm_ns();
+ 	struct evm_xattr *xattr_data;
+ 	int rc;
+ 
++	if (ns != &init_evm_ns)
++		return 0;
++
+ 	if (!(evm_initialized & EVM_INIT_HMAC) ||
+ 	    !evm_protected_xattr(lsm_xattr->name))
+ 		return 0;
+@@ -894,15 +919,19 @@ static int __init init_evm(void)
+ {
+ 	int error;
+ 	struct list_head *pos, *q;
+-	struct integrity_namespace *ns = &init_integrity_ns;
++	struct evm_namespace *ns = &init_evm_ns;
++
++	error = evm_init_ns();
++	if (error)
++		goto error;
+ 
+ 	evm_init_config();
+ 
+-	error = integrity_init_keyring(ns, INTEGRITY_KEYRING_EVM);
++	error = integrity_init_keyring(ns->integrity_ns, INTEGRITY_KEYRING_EVM);
+ 	if (error)
+ 		goto error;
+ 
+-	error = evm_init_secfs(&init_integrity_ns);
++	error = evm_init_secfs(ns);
+ 	if (error < 0) {
+ 		pr_info("Error registering secfs\n");
+ 		goto error;
+diff --git a/security/integrity/evm/evm_ns.c b/security/integrity/evm/evm_ns.c
+new file mode 100644
+index 000000000000..8891d3818097
+--- /dev/null
++++ b/security/integrity/evm/evm_ns.c
+@@ -0,0 +1,48 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2016-2022 IBM Corporation
++ * Author:
++ *  Stefan Berger <stefanb@linux.ibm.com>
++ */
++
++#include <linux/evm.h>
++
++#include "evm.h"
++
++#ifdef CONFIG_IMA_NS
++
++static struct kmem_cache *evmns_cachep;
++
++struct evm_namespace *create_evm_ns(struct integrity_namespace *integrity_ns)
++{
++	struct evm_namespace *ns;
++	int ret;
++
++	ns = kmem_cache_zalloc(evmns_cachep, GFP_KERNEL);
++	if (!ns)
++		return ERR_PTR(-ENOMEM);
++
++	ret = evm_init_namespace(ns, integrity_ns);
++	if (ret) {
++		kmem_cache_free(evmns_cachep, ns);
++		ns = ERR_PTR(ret);
++	}
++
++	return ns;
++}
++
++void free_evm_ns(struct integrity_namespace *integrity_ns)
++{
++	struct evm_namespace *ns = integrity_ns->evm_ns;
++
++	kmem_cache_free(evmns_cachep, ns);
++}
++
++static int __init evmns_cache_init(void)
++{
++	evmns_cachep = KMEM_CACHE(evm_namespace, SLAB_PANIC);
++	return 0;
++}
++subsys_initcall(evmns_cache_init)
++
++#endif /* CONFIG_IMA_NS */
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index cb879067eba1..d50a22b33b5e 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -14,7 +14,7 @@
+ #include <linux/uaccess.h>
+ #include <linux/init.h>
+ #include <linux/mutex.h>
+-#include <linux/integrity_namespace.h>
++#include <linux/evm.h>
+ #include "evm.h"
+ 
+ static struct dentry *evm_dir;
+@@ -67,6 +67,7 @@ static ssize_t evm_read_key(struct file *filp, char __user *buf,
+ static ssize_t evm_write_key(struct file *file, const char __user *buf,
+ 			     size_t count, loff_t *ppos)
+ {
++	struct evm_namespace *ns = current_evm_ns();
+ 	unsigned int i;
+ 	int ret;
+ 
+@@ -91,7 +92,7 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
+ 		return -EPERM;
+ 
+ 	if (i & EVM_INIT_HMAC) {
+-		ret = evm_init_key();
++		ret = evm_init_key(ns);
+ 		if (ret != 0)
+ 			return ret;
+ 		/* Forbid further writes after the symmetric key is loaded */
+@@ -299,11 +300,11 @@ static int evm_init_xattrs(void)
+ }
+ #endif
+ 
+-int __init evm_init_secfs(struct integrity_namespace *ns)
++int __init evm_init_secfs(struct evm_namespace *ns)
+ {
+ 	int error = 0;
+ 
+-	evm_dir = securityfs_create_dir("evm", ns->integrity_dir);
++	evm_dir = securityfs_create_dir("evm", ns->integrity_ns->integrity_dir);
+ 	if (!evm_dir || IS_ERR(evm_dir))
+ 		return -EFAULT;
+ 
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 63e591b312f1..fe0b651c0a15 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -537,8 +537,9 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		goto out;
+ 	}
+ 
+-	status = evm_verifyxattr(ns->integrity_ns, dentry, XATTR_NAME_IMA,
+-				 xattr_value, rc, iint);
++	status = evm_verifyxattr(integrity_ns_get_evm_ns(ns->integrity_ns),
++				 dentry,
++				 XATTR_NAME_IMA, xattr_value, rc, iint);
+ 	switch (status) {
+ 	case INTEGRITY_PASS:
+ 	case INTEGRITY_PASS_IMMUTABLE:
+diff --git a/security/integrity/ima/ima_template_lib.c b/security/integrity/ima/ima_template_lib.c
+index 1db5206eb0c9..fc1b53a7bb00 100644
+--- a/security/integrity/ima/ima_template_lib.c
++++ b/security/integrity/ima/ima_template_lib.c
+@@ -707,7 +707,8 @@ int ima_eventinodemode_init(struct ima_namespace *ns,
+ 					     DATA_FMT_UINT, field_data);
+ }
+ 
+-static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
++static int ima_eventinodexattrs_init_common(struct ima_namespace *ns,
++					    struct ima_event_data *event_data,
+ 					    struct ima_field_data *field_data,
+ 					    char type)
+ {
+@@ -717,7 +718,8 @@ static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
+ 	if (!event_data->file)
+ 		return 0;
+ 
+-	rc = evm_read_protected_xattrs(file_dentry(event_data->file), NULL, 0,
++	rc = evm_read_protected_xattrs(integrity_ns_get_evm_ns(ns->integrity_ns),
++				       file_dentry(event_data->file), NULL, 0,
+ 				       type, ima_canonical_fmt);
+ 	if (rc < 0)
+ 		return 0;
+@@ -726,7 +728,8 @@ static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
+ 	if (!buffer)
+ 		return 0;
+ 
+-	rc = evm_read_protected_xattrs(file_dentry(event_data->file), buffer,
++	rc = evm_read_protected_xattrs(integrity_ns_get_evm_ns(ns->integrity_ns),
++				       file_dentry(event_data->file), buffer,
+ 				       rc, type, ima_canonical_fmt);
+ 	if (rc < 0) {
+ 		rc = 0;
+@@ -748,7 +751,8 @@ int ima_eventinodexattrnames_init(struct ima_namespace *ns,
+ 				  struct ima_event_data *event_data,
+ 				  struct ima_field_data *field_data)
+ {
+-	return ima_eventinodexattrs_init_common(event_data, field_data, 'n');
++	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
++						'n');
+ }
+ 
+ /*
+@@ -759,7 +763,8 @@ int ima_eventinodexattrlengths_init(struct ima_namespace *ns,
+ 				    struct ima_event_data *event_data,
+ 				    struct ima_field_data *field_data)
+ {
+-	return ima_eventinodexattrs_init_common(event_data, field_data, 'l');
++	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
++						'l');
+ }
+ 
+ /*
+@@ -770,7 +775,8 @@ int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
+ 				   struct ima_event_data *event_data,
+ 				   struct ima_field_data *field_data)
+ {
+-	return ima_eventinodexattrs_init_common(event_data, field_data, 'v');
++	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
++						'v');
+ }
+ 
+ /*
+diff --git a/security/integrity/integrity_ns.c b/security/integrity/integrity_ns.c
+index 54c316256891..0b5faa19a9c9 100644
+--- a/security/integrity/integrity_ns.c
++++ b/security/integrity/integrity_ns.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <linux/slab.h>
++#include <linux/evm.h>
+ #include <linux/ima.h>
+ #include <linux/integrity_namespace.h>
+ 
+@@ -15,6 +16,9 @@
+ struct integrity_namespace init_integrity_ns = {
+ #ifdef CONFIG_IMA
+ 	.ima_ns = &init_ima_ns,
++#endif
++#ifdef CONFIG_EVM
++	.evm_ns = &init_evm_ns,
+ #endif
+ 	.keyring = {NULL, },
+ 	.keyring_name = {
+@@ -43,6 +47,14 @@ struct integrity_namespace *create_integrity_ns(void)
+ 	if (!ns)
+ 		return ERR_PTR(-ENOMEM);
+ 
++#ifdef CONFIG_EVM
++	ns->evm_ns = create_evm_ns(ns);
++	if (IS_ERR(ns->evm_ns)) {
++		kmem_cache_free(integrityns_cachep, ns);
++		return ERR_PTR(PTR_ERR(ns->evm_ns));
++	}
++#endif
++
+ 	ns->keyring_name[INTEGRITY_KEYRING_EVM] = "_evm";
+ 	ns->keyring_name[INTEGRITY_KEYRING_IMA] = "_ima";
+ 	ns->keyring_name[INTEGRITY_KEYRING_PLATFORM] = "";
+@@ -57,6 +69,9 @@ void free_integrity_ns(struct user_namespace *user_ns)
+ 	size_t i;
+ 
+ 	free_ima_ns(user_ns);
++#ifdef CONFIG_EVM
++	free_evm_ns(ns);
++#endif
+ 	integrity_fs_free(ns);
+ 
+ 	for (i = 0; i < ARRAY_SIZE(ns->keyring); i++)
+-- 
+2.36.1
+

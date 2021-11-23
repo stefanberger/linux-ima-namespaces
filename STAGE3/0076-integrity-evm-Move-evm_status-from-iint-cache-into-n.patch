@@ -1,0 +1,326 @@
+From 61cb9cf8239fb817b9c922a569cfcb17b71206c9 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 20 May 2022 15:53:15 -0400
+Subject: [PATCH 76/80] integrity/evm: Move evm_status from iint cache into
+ ns_status
+
+To be able to track the evm_status on a per namespace basis move the
+evm_status variable from the integrity_iint_cache into the ns_status
+structure.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                   |  7 ++--
+ include/linux/ima.h                   |  3 ++
+ security/integrity/evm/evm_main.c     | 47 ++++++++++++++++++---------
+ security/integrity/iint.c             |  2 --
+ security/integrity/ima/ima.h          | 17 ----------
+ security/integrity/ima/ima_appraise.c |  3 +-
+ security/integrity/integrity.h        | 26 ++++++++++++++-
+ 7 files changed, 67 insertions(+), 38 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index cc395647874f..35b360f841e3 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -16,6 +16,7 @@
+ 
+ struct integrity_iint_cache;
+ struct integrity_namespace;
++struct ns_status;
+ 
+ struct evm_namespace {
+ 	unsigned long evm_ns_flags;
+@@ -64,7 +65,8 @@ extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 					     const char *xattr_name,
+ 					     void *xattr_value,
+ 					     size_t xattr_value_len,
+-					     struct integrity_iint_cache *iint);
++					     struct integrity_iint_cache *iint,
++					     struct ns_status *ns_status);
+ extern int evm_inode_setattr(struct dentry *dentry, struct iattr *attr);
+ extern void evm_inode_post_setattr(struct dentry *dentry,
+ 				   int ia_valid);
+@@ -113,7 +115,8 @@ static inline enum integrity_status evm_verifyxattr(
+ 					const char *xattr_name,
+ 					void *xattr_value,
+ 					size_t xattr_value_len,
+-					struct integrity_iint_cache *iint)
++					struct integrity_iint_cache *iint,
++					struct ns_status *ns_status)
+ {
+ 	return INTEGRITY_UNKNOWN;
+ }
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index 630fd175d01b..52d48b7e4f12 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -245,6 +245,9 @@ static inline int ima_securityfs_init(struct user_namespace *user_ns,
+ int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
+ 			struct tpm_chip *chip);
+ 
++struct ns_status *ima_ns_status_find(struct ima_namespace *ns,
++				     struct inode *inode);
++
+ #else
+ 
+ static inline void free_ima_ns(struct user_namespace *user_ns)
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 90de08780f8a..161de08eb165 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -21,6 +21,7 @@
+ #include <linux/evm.h>
+ #include <linux/magic.h>
+ #include <linux/posix_acl_xattr.h>
++#include <linux/ima.h>
+ 
+ #include <crypto/hash.h>
+ #include <crypto/hash_info.h>
+@@ -223,7 +224,8 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 					     const char *xattr_name,
+ 					     char *xattr_value,
+ 					     size_t xattr_value_len,
+-					     struct integrity_iint_cache *iint)
++					     struct integrity_iint_cache *iint,
++					     struct ns_status *ns_status)
+ {
+ 	struct evm_ima_xattr_data *xattr_data = NULL;
+ 	struct signature_v2_hdr *hdr;
+@@ -232,9 +234,9 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 	struct inode *inode;
+ 	int rc, xattr_len, evm_immutable = 0;
+ 
+-	if (iint && (iint->evm_status == INTEGRITY_PASS ||
+-		     iint->evm_status == INTEGRITY_PASS_IMMUTABLE))
+-		return iint->evm_status;
++	if (ns_status && (ns_status->evm_status == INTEGRITY_PASS ||
++			  ns_status->evm_status == INTEGRITY_PASS_IMMUTABLE))
++		return ns_status->evm_status;
+ 
+ 	/* if status is not PASS, try to check again - against -ENOMEM */
+ 
+@@ -328,8 +330,8 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 	pr_debug("digest: (%d) [%*phN]\n", digest.hdr.length, digest.hdr.length,
+ 		  digest.digest);
+ out:
+-	if (iint)
+-		iint->evm_status = evm_status;
++	if (ns_status)
++		ns_status->evm_status = evm_status;
+ 	kfree(xattr_data);
+ 	return evm_status;
+ }
+@@ -470,7 +472,8 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 				      struct dentry *dentry,
+ 				      const char *xattr_name,
+ 				      void *xattr_value, size_t xattr_value_len,
+-				      struct integrity_iint_cache *iint)
++				      struct integrity_iint_cache *iint,
++				      struct ns_status *ns_status)
+ {
+ 	if (!evm_key_loaded(ns) || !evm_protected_xattr(ns, xattr_name))
+ 		return INTEGRITY_UNKNOWN;
+@@ -481,7 +484,7 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 			return INTEGRITY_UNKNOWN;
+ 	}
+ 	return evm_verify_hmac(ns, dentry, xattr_name, xattr_value,
+-				 xattr_value_len, iint);
++				 xattr_value_len, iint, ns_status);
+ }
+ EXPORT_SYMBOL_GPL(evm_verifyxattr);
+ 
+@@ -499,7 +502,7 @@ static enum integrity_status evm_verify_current_integrity
+ 
+ 	if (!evm_key_loaded(ns) || !S_ISREG(inode->i_mode) || evm_fixmode)
+ 		return INTEGRITY_PASS;
+-	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL);
++	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL, NULL);
+ }
+ 
+ /*
+@@ -735,13 +738,27 @@ int evm_inode_removexattr(struct user_namespace *mnt_userns,
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name, NULL, 0);
+ }
+ 
+-static void evm_reset_status(struct inode *inode)
++static void evm_reset_status(struct evm_namespace *ns,
++			     struct inode *inode)
+ {
+ 	struct integrity_iint_cache *iint;
++	struct ima_namespace *ima_ns = NULL;
++	struct ns_status *ns_status;
++
++#ifdef CONFIG_IMA_NS
++	ima_ns = ns->integrity_ns->ima_ns;
++	if (!ima_ns)
++		return;
++#endif
+ 
+ 	iint = integrity_iint_find(inode);
+-	if (iint)
+-		iint->evm_status = INTEGRITY_UNKNOWN;
++	if (!iint)
++		return;
++
++	ns_status = ima_find_ns_status(ima_ns, inode, iint);
++	if (!ns_status)
++		return;
++	ns_status->evm_status = INTEGRITY_UNKNOWN;
+ }
+ 
+ /**
+@@ -792,7 +809,7 @@ void evm_inode_post_setxattr(struct dentry *dentry, const char *xattr_name,
+ 	if (!evm_revalidate_status(ns, xattr_name))
+ 		return;
+ 
+-	evm_reset_status(dentry->d_inode);
++	evm_reset_status(ns, dentry->d_inode);
+ 
+ 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
+ 		return;
+@@ -821,7 +838,7 @@ void evm_inode_post_removexattr(struct dentry *dentry, const char *xattr_name)
+ 	if (!evm_revalidate_status(ns, xattr_name))
+ 		return;
+ 
+-	evm_reset_status(dentry->d_inode);
++	evm_reset_status(ns, dentry->d_inode);
+ 
+ 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
+ 		return;
+@@ -909,7 +926,7 @@ void evm_inode_post_setattr(struct dentry *dentry, int ia_valid)
+ 	if (!evm_revalidate_status(ns, NULL))
+ 		return;
+ 
+-	evm_reset_status(dentry->d_inode);
++	evm_reset_status(ns, dentry->d_inode);
+ 
+ 	if (!(ns->evm_initialized & EVM_INIT_HMAC))
+ 		return;
+diff --git a/security/integrity/iint.c b/security/integrity/iint.c
+index 9f240c45edc5..ad264dee95d2 100644
+--- a/security/integrity/iint.c
++++ b/security/integrity/iint.c
+@@ -73,7 +73,6 @@ static void iint_free(struct integrity_iint_cache *iint)
+ 	iint->version = 0;
+ 	iint->flags = 0UL;
+ 	iint->atomic_flags = 0UL;
+-	iint->evm_status = INTEGRITY_UNKNOWN;
+ 	rwlock_init(&iint->ns_list_lock);
+ 	INIT_LIST_HEAD(&iint->ns_list);
+ 	kmem_cache_free(iint_cache, iint);
+@@ -174,7 +173,6 @@ static void init_once(void *foo)
+ 	struct integrity_iint_cache *iint = (struct integrity_iint_cache *) foo;
+ 
+ 	memset(iint, 0, sizeof(*iint));
+-	iint->evm_status = INTEGRITY_UNKNOWN;
+ 	mutex_init(&iint->mutex);
+ 	rwlock_init(&iint->ns_list_lock);
+ 	INIT_LIST_HEAD(&iint->ns_list);
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 865422226989..7ca5796f8098 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -662,10 +662,6 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
+ 				    struct inode *inode,
+ 				    struct integrity_iint_cache *iint);
+ 
+-struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
+-				     struct inode *inode,
+-				     struct integrity_iint_cache *iint);
+-
+ void ima_free_ns_status_tree(struct ima_namespace *ns);
+ 
+ static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
+@@ -720,19 +716,6 @@ static inline struct ns_status *ima_get_ns_status
+ 	return ns_status;
+ }
+ 
+-static inline struct ns_status *ima_find_ns_status
+-					(struct ima_namespace *ns,
+-					 struct inode *inode,
+-					 struct integrity_iint_cache *iint)
+-{
+-	struct ns_status *ns_status = &iint->ns_status;
+-
+-	if (list_empty(&iint->ns_list))
+-		return NULL;
+-
+-	return ns_status;
+-}
+-
+ static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
+ {
+ 	return &init_ima_ns;
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index d5b2212f07e9..49af7522ac47 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -544,7 +544,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 
+ 	status = evm_verifyxattr(integrity_ns_get_evm_ns(ns->integrity_ns),
+ 				 dentry,
+-				 XATTR_NAME_IMA, xattr_value, rc, iint);
++				 XATTR_NAME_IMA, xattr_value, rc,
++				 iint, ns_status);
+ 	switch (status) {
+ 	case INTEGRITY_PASS:
+ 	case INTEGRITY_PASS_IMMUTABLE:
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index 707cbb29b14f..51975d1c3842 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -166,6 +166,7 @@ struct ns_status {
+ 	enum integrity_status ima_bprm_status:4;
+ 	enum integrity_status ima_read_status:4;
+ 	enum integrity_status ima_creds_status:4;
++	enum integrity_status evm_status:4;
+ #ifdef CONFIG_IMA_NS
+ 	struct rb_node rb_node;
+ 	struct integrity_iint_cache *iint;
+@@ -187,6 +188,7 @@ static inline void ns_status_reset(struct ns_status *ns_status)
+ 	ns_status->ima_bprm_status = INTEGRITY_UNKNOWN;
+ 	ns_status->ima_read_status = INTEGRITY_UNKNOWN;
+ 	ns_status->ima_creds_status = INTEGRITY_UNKNOWN;
++	ns_status->evm_status = INTEGRITY_UNKNOWN;
+ }
+ 
+ static inline void ns_status_init(struct ns_status *ns_status)
+@@ -203,7 +205,6 @@ struct integrity_iint_cache {
+ 	u64 version;		/* track inode changes */
+ 	unsigned long flags;	/* flags split with ns_status */
+ 	unsigned long atomic_flags;
+-	enum integrity_status evm_status:4;
+ 
+ 	/*
+ 	 * Lock and list of ns_status for files shared by different
+@@ -380,3 +381,26 @@ static inline bool __init trust_moklist(void)
+ 	return false;
+ }
+ #endif
++
++// FIXME: this should be integrity_find_ns_status()
++#ifdef CONFIG_IMA_NS
++
++struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
++				     struct inode *inode,
++				     struct integrity_iint_cache *iint);
++
++#else
++
++static inline struct ns_status *ima_find_ns_status
++					(struct ima_namespace *ns,
++					 struct inode *inode,
++					 struct integrity_iint_cache *iint)
++{
++	struct ns_status *ns_status = &iint->ns_status;
++
++	if (list_empty(&iint->ns_list))
++		return NULL;
++
++	return ns_status;
++}
++#endif
+-- 
+2.36.1
+

@@ -1,0 +1,87 @@
+From 6e24a7da6f37390aa1663e9ecd114d386505bdf5 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 11:10:22 -0500
+Subject: [PATCH 71/80] A debug patch
+
+---
+ security/integrity/ima/ima.h           | 16 ++++++++++++++++
+ security/integrity/ima/ima_main.c      | 11 +++++++++++
+ security/integrity/ima/ima_ns_status.c |  1 +
+ 3 files changed, 28 insertions(+)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index eeab45700689..865422226989 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -740,4 +740,20 @@ static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
+ 
+ #endif /* CONFIG_IMA_NS */
+ 
++static inline int filename_contains(struct file *file, const char *needle)
++{
++	char *pathbuf = NULL;
++	char filename[NAME_MAX];
++	const char *pathname = NULL;
++	int b = 0;
++
++	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
++	if (pathbuf) {
++		b = (strstr(pathname, needle) != NULL);
++		__putname(pathbuf);
++	}
++	return b;
++}
++
++
+ #endif /* __LINUX_IMA_H */
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 5829fe3f7c67..559030afb541 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -265,6 +265,9 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action = ima_get_action(ns, file_mnt_user_ns(file), inode, cred, secid,
+ 				mask, func, &pcr, &template_desc, NULL,
+ 				&allowed_algos);
++	if (ns != &init_ima_ns)
++		pr_debug("actions: 0x%x  ns:%p (init_ima_ns: %p)\n", action, ns, &init_ima_ns);
++
+ 	violation_check = ((func == FILE_CHECK || func == MMAP_CHECK) &&
+ 			   (ns->ima_policy_flag & IMA_MEASURE));
+ 	if (!action && !violation_check)
+@@ -349,6 +352,13 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action &= IMA_DO_MASK;
+ 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
+ 
++	if (ns != &init_ima_ns
++#ifdef CONFIG_IMA_NS
++	    || (!list_empty(&iint->ns_list) && !list_is_singular(&iint->ns_list))
++#endif
++	)
++		pr_debug("flags: 0x%lx actions: 0x%x  ns:%p (init_ima_ns: %p)\n", flags, action, ns, &init_ima_ns);
++
+ 	/* If target pcr is already measured, unset IMA_MEASURE action */
+ 	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr)))
+ 		action ^= IMA_MEASURE;
+@@ -485,6 +495,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			case -EACCES:
+ 				/* return this error at the end but continue */
+ 				ret = -EACCES;
++				pr_debug("-EACCESS by ns: %p (init_ima_ns: %p)\n", ns, &init_ima_ns);
+ 				break;
+ 			default:
+ 				/* should not happen */
+diff --git a/security/integrity/ima/ima_ns_status.c b/security/integrity/ima/ima_ns_status.c
+index f97ccbb958ff..4b1a831fd359 100644
+--- a/security/integrity/ima/ima_ns_status.c
++++ b/security/integrity/ima/ima_ns_status.c
+@@ -359,6 +359,7 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
+ 			/* Same inode but stale iint: free it and get new */
+ 			ns_status_unlink(ns, ns_status);
+ 			ns_status_free(ns, ns_status);
++			printk(KERN_INFO "UNLIKELY CASE!\n");
+ 		} else if (inode->i_ino == ns_status->i_ino &&
+ 			   inode->i_generation == ns_status->i_generation) {
+ 			goto unlock;
+-- 
+2.36.1
+

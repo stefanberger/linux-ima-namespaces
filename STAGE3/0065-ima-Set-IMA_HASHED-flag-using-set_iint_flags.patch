@@ -1,0 +1,31 @@
+From 159e68737a8b72e74d1aa0bee64f493eacda9392 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 24 Jan 2022 09:51:54 -0500
+Subject: [PATCH 65/80] ima: Set IMA_HASHED flag using set_iint_flags()
+
+Set the IMA_HASHED flag using set_iint_flags(). This change prepares for
+moving the IMA_HASHED flag from the iint into the ns_status.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_main.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index c7839c55b21b..5829fe3f7c67 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -360,7 +360,9 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		if ((xattr_value && xattr_len > 2) &&
+ 		    (xattr_value->type == EVM_IMA_XATTR_DIGSIG))
+ 			set_bit(IMA_DIGSIG, &iint->atomic_flags);
+-		iint->flags |= IMA_HASHED;
++		flags = iint_flags(iint, ns_status);
++		flags |= IMA_HASHED;
++		set_iint_flags(iint, ns_status, flags);
+ 		action ^= IMA_HASH;
+ 		set_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
+ 	}
+-- 
+2.36.1
+

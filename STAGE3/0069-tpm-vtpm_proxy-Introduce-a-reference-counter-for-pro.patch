@@ -1,0 +1,82 @@
+From 63994593817f560568339c46dabea099a08bcc39 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 8 Apr 2022 12:48:03 -0400
+Subject: [PATCH 69/80] tpm: vtpm_proxy: Introduce a reference counter for
+ proxy_dev
+
+Introduce a reference counter for the proxy_dev that is needed in the
+following patch where the tpm_chip is passed to an IMA namespace and
+may only later on be released.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ drivers/char/tpm/tpm_vtpm_proxy.c | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/char/tpm/tpm_vtpm_proxy.c b/drivers/char/tpm/tpm_vtpm_proxy.c
+index 5c865987ba5c..e2a2274ace7b 100644
+--- a/drivers/char/tpm/tpm_vtpm_proxy.c
++++ b/drivers/char/tpm/tpm_vtpm_proxy.c
+@@ -26,6 +26,7 @@
+ #define VTPM_PROXY_REQ_COMPLETE_FLAG  BIT(0)
+ 
+ struct proxy_dev {
++	struct kref kref;
+ 	struct tpm_chip *chip;
+ 
+ 	u32 flags;                   /* public API flags */
+@@ -494,6 +495,7 @@ static struct proxy_dev *vtpm_proxy_create_proxy_dev(void)
+ 	if (proxy_dev == NULL)
+ 		return ERR_PTR(-ENOMEM);
+ 
++	kref_init(&proxy_dev->kref);
+ 	init_waitqueue_head(&proxy_dev->wq);
+ 	mutex_init(&proxy_dev->buf_lock);
+ 	INIT_WORK(&proxy_dev->work, vtpm_proxy_work);
+@@ -518,12 +520,24 @@ static struct proxy_dev *vtpm_proxy_create_proxy_dev(void)
+ /*
+  * Undo what has been done in vtpm_create_proxy_dev
+  */
+-static inline void vtpm_proxy_delete_proxy_dev(struct proxy_dev *proxy_dev)
++static inline void vtpm_proxy_delete_proxy_dev(struct kref *kref)
+ {
++	struct proxy_dev *proxy_dev;
++
++	proxy_dev = container_of(kref, struct proxy_dev, kref);
++
+ 	put_device(&proxy_dev->chip->dev); /* frees chip */
+ 	kfree(proxy_dev);
+ }
+ 
++/*
++ * Release a reference to proxy_dev
++ */
++static inline void vtpm_proxy_put_proxy_dev(struct proxy_dev *proxy_dev)
++{
++	kref_put(&proxy_dev->kref, vtpm_proxy_delete_proxy_dev);
++}
++
+ /*
+  * Create a /dev/tpm%d and 'server side' file descriptor pair
+  *
+@@ -580,7 +594,7 @@ static struct file *vtpm_proxy_create_device(
+ 	put_unused_fd(fd);
+ 
+ err_delete_proxy_dev:
+-	vtpm_proxy_delete_proxy_dev(proxy_dev);
++	vtpm_proxy_put_proxy_dev(proxy_dev);
+ 
+ 	return ERR_PTR(rc);
+ }
+@@ -602,7 +616,7 @@ static void vtpm_proxy_delete_device(struct proxy_dev *proxy_dev)
+ 	if (proxy_dev->state & STATE_REGISTERED_FLAG)
+ 		tpm_chip_unregister(proxy_dev->chip);
+ 
+-	vtpm_proxy_delete_proxy_dev(proxy_dev);
++	vtpm_proxy_put_proxy_dev(proxy_dev);
+ }
+ 
+ /*
+-- 
+2.36.1
+

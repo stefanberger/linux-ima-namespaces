@@ -1,0 +1,73 @@
+From 6bcf7f279dfaa9c232712b8bec7af7dd7f03d1df Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 29 Jun 2022 10:50:47 -0400
+Subject: [PATCH 34/80] ima: Reuse existing hash on file rather than hashing
+ file again
+
+Rather than hashing a whole file again try to find an existing
+hash of the same type on the file and reuse it.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_api.c | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index f7dcc945abae..bd2779051cf8 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -241,6 +241,31 @@ static int ima_get_verity_digest(struct integrity_iint_cache *iint,
+ 	return 0;
+ }
+ 
++static int iint_find_hash(struct integrity_iint_cache *iint,
++			  enum hash_algo algo,
++			  struct ima_max_digest_data *hash,
++			  u64 *i_version)
++{
++	struct ima_digest_data *ima_hash;
++	struct ns_status *ns_status;
++	int length = 0;
++
++	read_lock(&iint->ns_list_lock);
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
++		if (iint_flags(iint, ns_status) & IMA_COLLECTED &&
++		    ns_status->ima_hash->algo == algo) {
++			ima_hash = ns_status->ima_hash;
++			length = sizeof(*ima_hash) + ima_hash->length;
++			memcpy(hash, ima_hash, length);
++			*i_version = iint->version;
++			break;
++		}
++	}
++	read_unlock(&iint->ns_list_lock);
++
++	return length;
++}
++
+ /*
+  * ima_collect_measurement - collect file measurement
+  *
+@@ -278,6 +303,10 @@ int ima_collect_measurement(struct ima_namespace *ns,
+ 	if (iint_flags(iint, ns_status) & IMA_COLLECTED)
+ 		goto out;
+ 
++	length = iint_find_hash(iint, algo, &hash, &i_version);
++	if (length > 0)
++		goto skip_hashcalc;
++
+ 	/*
+ 	 * Detecting file change is based on i_version. On filesystems
+ 	 * which do not support i_version, support was originally limited
+@@ -313,6 +342,8 @@ int ima_collect_measurement(struct ima_namespace *ns,
+ 		goto out;
+ 
+ 	length = sizeof(hash.hdr) + hash.hdr.length;
++
++skip_hashcalc:
+ 	tmpbuf = krealloc(ns_status->ima_hash, length, GFP_NOFS);
+ 	if (!tmpbuf) {
+ 		result = -ENOMEM;
+-- 
+2.36.1
+

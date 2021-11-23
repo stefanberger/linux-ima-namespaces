@@ -1,0 +1,208 @@
+From ee34683443a986dc3b202bbde103d3a5d1066843 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 18 May 2022 11:09:57 -0400
+Subject: [PATCH 75/80] evm: Move EVM securityfs variables into evm_namespace
+ or onto stack
+
+Move EVM securityfs related variable into evm_namespace if they are
+accessed again after the initialization, otherwise move them into the
+initialization function where they can reside on the stack since they are
+not needed anymore later on, also not for teardown of an instance of
+securityfs.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                      |  7 ++++
+ security/integrity/evm/evm_init_evm_ns.c |  4 ++
+ security/integrity/evm/evm_secfs.c       | 53 +++++++++++-------------
+ 3 files changed, 36 insertions(+), 28 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 900ae90c2b5e..cc395647874f 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -40,6 +40,13 @@ struct evm_namespace {
+ 
+ 	/* List of EVM protected security xattrs */
+ 	struct list_head evm_config_xattrnames;
++
++	/* EVM securityfs */
++#ifdef CONFIG_EVM_ADD_XATTRS
++	struct dentry *evm_xattrs;
++	struct mutex xattr_list_mutex;
++	int evm_xattrs_locked;
++#endif
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index 434faa41ef62..adce710332dc 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -16,6 +16,10 @@ int evm_init_namespace(struct evm_namespace *ns,
+ 
+ 	INIT_LIST_HEAD(&ns->evm_config_xattrnames);
+ 
++#ifdef CONFIG_EVM_ADD_XATTRS
++	mutex_init(&ns->xattr_list_mutex);
++#endif
++
+ 	error = evm_init_config(ns);
+ 	if (error)
+ 		return error;
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index 685e950f1a55..6ed906949d4c 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -17,16 +17,6 @@
+ #include <linux/evm.h>
+ #include "evm.h"
+ 
+-static struct dentry *evm_dir;
+-static struct dentry *evm_init_tpm;
+-static struct dentry *evm_symlink;
+-
+-#ifdef CONFIG_EVM_ADD_XATTRS
+-static struct dentry *evm_xattrs;
+-static DEFINE_MUTEX(xattr_list_mutex);
+-static int evm_xattrs_locked;
+-#endif
+-
+ /**
+  * evm_read_key - read() for <securityfs>/evm
+  *
+@@ -140,7 +130,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ 	if (*ppos != 0)
+ 		return 0;
+ 
+-	rc = mutex_lock_interruptible(&xattr_list_mutex);
++	rc = mutex_lock_interruptible(&ns->xattr_list_mutex);
+ 	if (rc)
+ 		return -ERESTARTSYS;
+ 
+@@ -153,7 +143,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ 
+ 	temp = kmalloc(size + 1, GFP_KERNEL);
+ 	if (!temp) {
+-		mutex_unlock(&xattr_list_mutex);
++		mutex_unlock(&ns->xattr_list_mutex);
+ 		return -ENOMEM;
+ 	}
+ 
+@@ -165,7 +155,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ 		offset += strlen(xattr->name) + 1;
+ 	}
+ 
+-	mutex_unlock(&xattr_list_mutex);
++	mutex_unlock(&ns->xattr_list_mutex);
+ 	rc = simple_read_from_buffer(buf, count, ppos, temp, strlen(temp));
+ 
+ 	kfree(temp);
+@@ -192,7 +182,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 	struct iattr newattrs;
+ 	struct inode *inode;
+ 
+-	if (!capable(CAP_SYS_ADMIN) || evm_xattrs_locked)
++	if (!capable(CAP_SYS_ADMIN) || ns->evm_xattrs_locked)
+ 		return -EPERM;
+ 
+ 	if (*ppos != 0)
+@@ -230,12 +220,12 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 	audit_log_untrustedstring(ab, xattr->name);
+ 
+ 	if (strcmp(xattr->name, ".") == 0) {
+-		evm_xattrs_locked = 1;
++		ns->evm_xattrs_locked = 1;
+ 		newattrs.ia_mode = S_IFREG | 0440;
+ 		newattrs.ia_valid = ATTR_MODE;
+-		inode = evm_xattrs->d_inode;
++		inode = ns->evm_xattrs->d_inode;
+ 		inode_lock(inode);
+-		err = simple_setattr(&init_user_ns, evm_xattrs, &newattrs);
++		err = simple_setattr(&init_user_ns, ns->evm_xattrs, &newattrs);
+ 		inode_unlock(inode);
+ 		if (!err)
+ 			err = count;
+@@ -256,7 +246,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 	 * the mutex in evm_calc_hmac_or_hash(), evm_find_protected_xattrs()
+ 	 * and evm_protected_xattr().
+ 	 */
+-	mutex_lock(&xattr_list_mutex);
++	mutex_lock(&ns->xattr_list_mutex);
+ 	list_for_each_entry(tmp, &ns->evm_config_xattrnames, list) {
+ 		if (strcmp(xattr->name, tmp->name) == 0) {
+ 			err = -EEXIST;
+@@ -264,12 +254,12 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 				tmp->enabled = true;
+ 				err = count;
+ 			}
+-			mutex_unlock(&xattr_list_mutex);
++			mutex_unlock(&ns->xattr_list_mutex);
+ 			goto out;
+ 		}
+ 	}
+ 	list_add_tail_rcu(&xattr->list, &ns->evm_config_xattrnames);
+-	mutex_unlock(&xattr_list_mutex);
++	mutex_unlock(&ns->xattr_list_mutex);
+ 
+ 	audit_log_format(ab, " res=0");
+ 	audit_log_end(ab);
+@@ -289,17 +279,19 @@ static const struct file_operations evm_xattr_ops = {
+ 	.write		= evm_write_xattrs,
+ };
+ 
+-static int evm_init_xattrs(void)
++static int evm_init_xattrs(struct evm_namespace *ns,
++			   struct dentry *parent)
+ {
+-	evm_xattrs = securityfs_create_file("evm_xattrs", 0660, evm_dir, NULL,
+-					    &evm_xattr_ops);
+-	if (!evm_xattrs || IS_ERR(evm_xattrs))
++	ns->evm_xattrs = securityfs_create_file("evm_xattrs", 0660, parent,
++						NULL, &evm_xattr_ops);
++	if (!ns->evm_xattrs || IS_ERR(ns->evm_xattrs))
+ 		return -EFAULT;
+ 
+ 	return 0;
+ }
+ #else
+-static int evm_init_xattrs(void)
++static int evm_init_xattrs(struct evm_namespace *ns,
++			   struct dentry *parent)
+ {
+ 	return 0;
+ }
+@@ -307,14 +299,19 @@ static int evm_init_xattrs(void)
+ 
+ int __init evm_init_secfs(struct evm_namespace *ns)
+ {
++	struct dentry *evm_dir;
++	struct dentry *evm_init_tpm = NULL;
++	struct dentry *evm_symlink = NULL;
+ 	int error = 0;
+ 
+-	evm_dir = securityfs_create_dir("evm", ns->integrity_ns->integrity_dir);
++	evm_dir = securityfs_create_dir("evm",
++					ns->integrity_ns->integrity_dir);
+ 	if (!evm_dir || IS_ERR(evm_dir))
+ 		return -EFAULT;
+ 
+ 	evm_init_tpm = securityfs_create_file("evm", 0660,
+-					      evm_dir, NULL, &evm_key_ops);
++					      evm_dir, NULL,
++					      &evm_key_ops);
+ 	if (!evm_init_tpm || IS_ERR(evm_init_tpm)) {
+ 		error = -EFAULT;
+ 		goto out;
+@@ -327,7 +324,7 @@ int __init evm_init_secfs(struct evm_namespace *ns)
+ 		goto out;
+ 	}
+ 
+-	if (evm_init_xattrs() != 0) {
++	if (evm_init_xattrs(ns, evm_dir) != 0) {
+ 		error = -EFAULT;
+ 		goto out;
+ 	}
+-- 
+2.36.1
+

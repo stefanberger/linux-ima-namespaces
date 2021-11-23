@@ -1,0 +1,124 @@
+From 43ec1cad79785569d07f9115f46ddc4ea78dfcef Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Sat, 1 Jan 2022 23:36:12 -0500
+Subject: [PATCH 40/80] integrity: Move keyring_name array into
+ integrity_namespace
+
+Move the keyring_name array into integrity_namespace and initialize it
+there for the host as before. Also initialize it for the integrity
+namespaces where keyring names prefixed with "_" are always going to be
+used.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/integrity_namespace.h |  1 +
+ security/integrity/digsig.c         | 23 ++++++-----------------
+ security/integrity/integrity_ns.c   | 16 ++++++++++++++++
+ 3 files changed, 23 insertions(+), 17 deletions(-)
+
+diff --git a/include/linux/integrity_namespace.h b/include/linux/integrity_namespace.h
+index 521f44b1d19e..263b489b0ca8 100644
+--- a/include/linux/integrity_namespace.h
++++ b/include/linux/integrity_namespace.h
+@@ -23,6 +23,7 @@ struct integrity_namespace {
+ 	struct ima_namespace *ima_ns;
+ #endif
+ 	struct key *keyring[INTEGRITY_KEYRING_MAX];
++	const char *keyring_name[INTEGRITY_KEYRING_MAX];
+ };
+ 
+ extern struct integrity_namespace init_integrity_ns;
+diff --git a/security/integrity/digsig.c b/security/integrity/digsig.c
+index f233e7b76e13..ed89144b4b7b 100644
+--- a/security/integrity/digsig.c
++++ b/security/integrity/digsig.c
+@@ -20,18 +20,6 @@
+ 
+ #include "integrity.h"
+ 
+-static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
+-#ifndef CONFIG_INTEGRITY_TRUSTED_KEYRING
+-	"_evm",
+-	"_ima",
+-#else
+-	".evm",
+-	".ima",
+-#endif
+-	".platform",
+-	".machine",
+-};
+-
+ #ifdef CONFIG_IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY
+ #define restrict_link_to_ima restrict_link_by_builtin_and_secondary_trusted
+ #else
+@@ -46,12 +34,13 @@ static struct key *integrity_keyring_from_id(struct integrity_namespace *ns,
+ 
+ 	if (!ns->keyring[id]) {
+ 		ns->keyring[id] =
+-			request_key(&key_type_keyring, keyring_name[id], NULL);
++			request_key(&key_type_keyring, ns->keyring_name[id],
++				    NULL);
+ 		if (IS_ERR(ns->keyring[id])) {
+ 			int err = PTR_ERR(ns->keyring[id]);
+ 			if (ns == &init_integrity_ns)
+-				pr_err("no %s keyring: %d\n", keyring_name[id],
+-				       err);
++				pr_err("no %s keyring: %d\n",
++				       ns->keyring_name[id], err);
+ 			ns->keyring[id] = NULL;
+ 			return ERR_PTR(err);
+ 		}
+@@ -107,14 +96,14 @@ static int __init __integrity_init_keyring(struct integrity_namespace *ns,
+ 	const struct cred *cred = current_cred();
+ 	int err = 0;
+ 
+-	ns->keyring[id] = keyring_alloc(keyring_name[id], KUIDT_INIT(0),
++	ns->keyring[id] = keyring_alloc(ns->keyring_name[id], KUIDT_INIT(0),
+ 					KGIDT_INIT(0), cred, perm,
+ 					KEY_ALLOC_NOT_IN_QUOTA, restriction,
+ 					NULL);
+ 	if (IS_ERR(ns->keyring[id])) {
+ 		err = PTR_ERR(ns->keyring[id]);
+ 		pr_info("Can't allocate %s keyring (%d)\n",
+-			keyring_name[id], err);
++			ns->keyring_name[id], err);
+ 		ns->keyring[id] = NULL;
+ 	} else {
+ 		if (id == INTEGRITY_KEYRING_PLATFORM)
+diff --git a/security/integrity/integrity_ns.c b/security/integrity/integrity_ns.c
+index a1eced79d6bc..b78718c7b501 100644
+--- a/security/integrity/integrity_ns.c
++++ b/security/integrity/integrity_ns.c
+@@ -15,6 +15,17 @@ struct integrity_namespace init_integrity_ns = {
+ 	.ima_ns = &init_ima_ns,
+ #endif
+ 	.keyring = {NULL, },
++	.keyring_name = {
++#ifndef CONFIG_INTEGRITY_TRUSTED_KEYRING
++		"_evm",
++		"_ima",
++#else
++		".evm",
++		".ima",
++#endif
++		".platform",
++		".machine",
++	},
+ };
+ EXPORT_SYMBOL(init_integrity_ns);
+ 
+@@ -30,6 +41,11 @@ struct integrity_namespace *create_integrity_ns(void)
+ 	if (!ns)
+ 		return ERR_PTR(-ENOMEM);
+ 
++	ns->keyring_name[INTEGRITY_KEYRING_EVM] = "_evm";
++	ns->keyring_name[INTEGRITY_KEYRING_IMA] = "_ima";
++	ns->keyring_name[INTEGRITY_KEYRING_PLATFORM] = "";
++	ns->keyring_name[INTEGRITY_KEYRING_MACHINE] = "";
++
+ 	return ns;
+ }
+ 
+-- 
+2.36.1
+

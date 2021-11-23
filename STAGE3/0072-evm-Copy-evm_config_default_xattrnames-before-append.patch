@@ -1,0 +1,182 @@
+From dda3ebcbd4c9269f0abfe533683f7c0fa9fbc668 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 17 May 2022 14:26:45 -0400
+Subject: [PATCH 72/80] evm: Copy evm_config_default_xattrnames before
+ appending to list
+
+Make a copy of each element in evm_config_deault_xattrs before
+appending it to a list so that each element can be appended
+to a namespace-specific list later on. Extend the xattr_list
+structure with a boolean indicating whether the name was allocated
+and needs to be freed. Static strings have allocated = false.
+
+Implement function to free an xattr_list struct and a function
+to free a list of xattr_lists.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm.h       |  2 +
+ security/integrity/evm/evm_main.c  | 66 +++++++++++++++++++++++++-----
+ security/integrity/evm/evm_secfs.c |  1 +
+ 3 files changed, 59 insertions(+), 10 deletions(-)
+
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 40482a8473d8..8bb8a7fdee2d 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -30,6 +30,7 @@
+ struct xattr_list {
+ 	struct list_head list;
+ 	char *name;
++	bool name_allocated;	/* name was kmalloc'ed and must be kfree'd */
+ 	bool enabled;
+ };
+ 
+@@ -70,6 +71,7 @@ static inline struct evm_namespace *current_evm_ns(void)
+ int __init evm_init_ns(void);
+ int evm_init_namespace(struct evm_namespace *ns,
+ 		       struct integrity_namespace *integrity_ns);
++void evm_xattr_list_free_list(struct list_head *head);
+ 
+ static inline
+ struct evm_namespace *evm_ns_from_file(const struct file *filp)
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 80f3472adfd5..a4dbb04518df 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -32,7 +32,7 @@ static const char * const integrity_status_msg[] = {
+ 	"no_xattrs", "unknown"
+ };
+ 
+-static struct xattr_list evm_config_default_xattrnames[] = {
++static const struct xattr_list evm_config_default_xattrnames[] = {
+ 	{.name = XATTR_NAME_SELINUX,
+ #ifdef CONFIG_SECURITY_SELINUX
+ 	 .enabled = true
+@@ -75,6 +75,47 @@ static struct xattr_list evm_config_default_xattrnames[] = {
+ 
+ LIST_HEAD(evm_config_xattrnames);
+ 
++static struct xattr_list *xattr_list_dup(const struct xattr_list *s)
++{
++	struct xattr_list *d = kzalloc(sizeof(*s), GFP_KERNEL);
++
++	if (s->name_allocated) {
++		d->name = kstrdup(s->name, GFP_KERNEL);
++		if (!d->name) {
++			kfree(d);
++			return NULL;
++		}
++	} else {
++		d->name = s->name;
++	}
++	d->name_allocated = s->name_allocated;
++	d->enabled = s->enabled;
++
++	return d;
++}
++
++static void xattr_list_free(struct xattr_list *s)
++{
++	if (!s)
++		return;
++
++	if (s->name_allocated)
++		kfree(s->name);
++	kfree(s);
++}
++
++void evm_xattr_list_free_list(struct list_head *head)
++{
++	struct list_head *pos, *q;
++	struct xattr_list *xattr_list;
++
++	list_for_each_safe(pos, q, head) {
++		list_del(pos);
++		xattr_list = list_entry(pos, struct xattr_list, list);
++		xattr_list_free(xattr_list);
++	}
++}
++
+ static int evm_fixmode __ro_after_init;
+ static int __init evm_set_fixmode(char *str)
+ {
+@@ -87,8 +128,9 @@ static int __init evm_set_fixmode(char *str)
+ }
+ __setup("evm=", evm_set_fixmode);
+ 
+-static void __init evm_init_config(struct evm_namespace *ns)
++static int __init evm_init_config(struct evm_namespace *ns)
+ {
++	struct xattr_list *xattr_list;
+ 	int i, xattrs;
+ 
+ 	xattrs = ARRAY_SIZE(evm_config_default_xattrnames);
+@@ -98,14 +140,19 @@ static void __init evm_init_config(struct evm_namespace *ns)
+ 		pr_info("%s%s\n", evm_config_default_xattrnames[i].name,
+ 			!evm_config_default_xattrnames[i].enabled ?
+ 			" (disabled)" : "");
+-		list_add_tail(&evm_config_default_xattrnames[i].list,
+-			      &evm_config_xattrnames);
++		xattr_list = xattr_list_dup(&evm_config_default_xattrnames[i]);
++		if (!xattr_list)
++			return -ENOMEM;
++
++		list_add_tail(&xattr_list->list, &evm_config_xattrnames);
+ 	}
+ 
+ #ifdef CONFIG_EVM_ATTR_FSUUID
+ 	ns->evm_hmac_attrs |= EVM_ATTR_FSUUID;
+ #endif
+ 	pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
++
++	return 0;
+ }
+ 
+ static bool evm_key_loaded(struct evm_namespace *ns)
+@@ -912,14 +959,15 @@ void __init evm_load_x509(struct integrity_namespace *ns)
+ static int __init init_evm(void)
+ {
+ 	int error;
+-	struct list_head *pos, *q;
+ 	struct evm_namespace *ns = &init_evm_ns;
+ 
+ 	error = evm_init_ns();
+ 	if (error)
+ 		goto error;
+ 
+-	evm_init_config(ns);
++	error = evm_init_config(ns);
++	if (error)
++		goto error;
+ 
+ 	error = integrity_init_keyring(ns->integrity_ns, INTEGRITY_KEYRING_EVM);
+ 	if (error)
+@@ -933,10 +981,8 @@ static int __init init_evm(void)
+ 
+ error:
+ 	if (error != 0) {
+-		if (!list_empty(&evm_config_xattrnames)) {
+-			list_for_each_safe(pos, q, &evm_config_xattrnames)
+-				list_del(pos);
+-		}
++		if (!list_empty(&evm_config_xattrnames))
++			evm_xattr_list_free_list(&evm_config_xattrnames);
+ 	}
+ 
+ 	return error;
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index 606f99dd392d..38e2bd4ce81a 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -217,6 +217,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 		xattr->name = NULL;
+ 		goto out;
+ 	}
++	xattr->name_allocated = true;
+ 
+ 	/* Remove any trailing newline */
+ 	len = strlen(xattr->name);
+-- 
+2.36.1
+

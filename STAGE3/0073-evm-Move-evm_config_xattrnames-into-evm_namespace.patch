@@ -1,0 +1,311 @@
+From 76b9321317584625888002861e722f722bf5c7cf Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 17 May 2022 15:02:39 -0400
+Subject: [PATCH 73/80] evm: Move evm_config_xattrnames into evm_namespace
+
+Move evm_config_xattrnames into evm_namespace. Have the whole list freed
+when an evm_namespace is freed.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                      |  9 ++++--
+ security/integrity/evm/evm.h             |  3 --
+ security/integrity/evm/evm_crypto.c      |  2 +-
+ security/integrity/evm/evm_init_evm_ns.c |  2 ++
+ security/integrity/evm/evm_main.c        | 41 +++++++++++++-----------
+ security/integrity/evm/evm_ns.c          |  1 +
+ security/integrity/evm/evm_secfs.c       | 10 +++---
+ 7 files changed, 39 insertions(+), 29 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 7f9213e1139d..900ae90c2b5e 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -37,6 +37,9 @@ struct evm_namespace {
+ 	struct mutex mutex;
+ 	struct crypto_shash *hmac_tfm;
+ 	struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
++
++	/* List of EVM protected security xattrs */
++	struct list_head evm_config_xattrnames;
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+@@ -74,7 +77,8 @@ extern int evm_inode_init_security(struct inode *inode,
+ 				   struct xattr *evm);
+ extern bool evm_revalidate_status(struct evm_namespace *ns,
+ 				  const char *xattr_name);
+-extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
++extern int evm_protected_xattr_if_enabled(struct evm_namespace *ns,
++					  const char *req_xattr_name);
+ extern int evm_read_protected_xattrs(struct evm_namespace *ns,
+ 				     struct dentry *dentry, u8 *buffer,
+ 				     int buffer_size, char type,
+@@ -159,7 +163,8 @@ static inline bool evm_revalidate_status(struct evm_namespace *ns,
+ 	return false;
+ }
+ 
+-static inline int evm_protected_xattr_if_enabled(const char *req_xattr_name)
++static inline int evm_protected_xattr_if_enabled(struct evm_namespace *ns,
++						 const char *req_xattr_name)
+ {
+ 	return false;
+ }
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 8bb8a7fdee2d..ad9f628a4088 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -38,9 +38,6 @@ struct xattr_list {
+ 
+ extern int evm_hmac_attrs;
+ 
+-/* List of EVM protected security xattrs */
+-extern struct list_head evm_config_xattrnames;
+-
+ struct evm_digest {
+ 	struct ima_digest_data hdr;
+ 	char digest[IMA_MAX_DIGEST_SIZE];
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index b61446216390..de91299a3ade 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -241,7 +241,7 @@ static int evm_calc_hmac_or_hash(struct evm_namespace *ns,
+ 	data->hdr.length = crypto_shash_digestsize(desc->tfm);
+ 
+ 	error = -ENODATA;
+-	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
++	list_for_each_entry_lockless(xattr, &ns->evm_config_xattrnames, list) {
+ 		bool is_ima = false;
+ 
+ 		if (strcmp(xattr->name, XATTR_NAME_IMA) == 0)
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index 73b87e0f052c..bf4add631191 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -12,6 +12,8 @@ int evm_init_namespace(struct evm_namespace *ns,
+ 
+ 	mutex_init(&ns->mutex);
+ 
++	INIT_LIST_HEAD(&ns->evm_config_xattrnames);
++
+ 	return 0;
+ }
+ 
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index a4dbb04518df..cf25afc1722e 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -73,8 +73,6 @@ static const struct xattr_list evm_config_default_xattrnames[] = {
+ 	},
+ };
+ 
+-LIST_HEAD(evm_config_xattrnames);
+-
+ static struct xattr_list *xattr_list_dup(const struct xattr_list *s)
+ {
+ 	struct xattr_list *d = kzalloc(sizeof(*s), GFP_KERNEL);
+@@ -144,7 +142,7 @@ static int __init evm_init_config(struct evm_namespace *ns)
+ 		if (!xattr_list)
+ 			return -ENOMEM;
+ 
+-		list_add_tail(&xattr_list->list, &evm_config_xattrnames);
++		list_add_tail(&xattr_list->list, &ns->evm_config_xattrnames);
+ 	}
+ 
+ #ifdef CONFIG_EVM_ATTR_FSUUID
+@@ -178,7 +176,8 @@ static bool evm_hmac_disabled(struct evm_namespace *ns)
+ 	return true;
+ }
+ 
+-static int evm_find_protected_xattrs(struct dentry *dentry)
++static int evm_find_protected_xattrs(struct evm_namespace *ns,
++				     struct dentry *dentry)
+ {
+ 	struct inode *inode = d_backing_inode(dentry);
+ 	struct xattr_list *xattr;
+@@ -188,7 +187,7 @@ static int evm_find_protected_xattrs(struct dentry *dentry)
+ 	if (!(inode->i_opflags & IOP_XATTR))
+ 		return -EOPNOTSUPP;
+ 
+-	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
++	list_for_each_entry_lockless(xattr, &ns->evm_config_xattrnames, list) {
+ 		error = __vfs_getxattr(dentry, inode, xattr->name, NULL, 0);
+ 		if (error < 0) {
+ 			if (error == -ENODATA)
+@@ -240,7 +239,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 	if (rc <= 0) {
+ 		evm_status = INTEGRITY_FAIL;
+ 		if (rc == -ENODATA) {
+-			rc = evm_find_protected_xattrs(dentry);
++			rc = evm_find_protected_xattrs(ns, dentry);
+ 			if (rc > 0)
+ 				evm_status = INTEGRITY_NOLABEL;
+ 			else if (rc == 0)
+@@ -330,7 +329,8 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 	return evm_status;
+ }
+ 
+-static int evm_protected_xattr_common(const char *req_xattr_name,
++static int evm_protected_xattr_common(struct evm_namespace *ns,
++				      const char *req_xattr_name,
+ 				      bool all_xattrs)
+ {
+ 	int namelen;
+@@ -338,7 +338,7 @@ static int evm_protected_xattr_common(const char *req_xattr_name,
+ 	struct xattr_list *xattr;
+ 
+ 	namelen = strlen(req_xattr_name);
+-	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
++	list_for_each_entry_lockless(xattr, &ns->evm_config_xattrnames, list) {
+ 		if (!all_xattrs && !xattr->enabled)
+ 			continue;
+ 
+@@ -358,14 +358,16 @@ static int evm_protected_xattr_common(const char *req_xattr_name,
+ 	return found;
+ }
+ 
+-static int evm_protected_xattr(const char *req_xattr_name)
++static int evm_protected_xattr(struct evm_namespace *ns,
++			       const char *req_xattr_name)
+ {
+-	return evm_protected_xattr_common(req_xattr_name, false);
++	return evm_protected_xattr_common(ns, req_xattr_name, false);
+ }
+ 
+-int evm_protected_xattr_if_enabled(const char *req_xattr_name)
++int evm_protected_xattr_if_enabled(struct evm_namespace *ns,
++				   const char *req_xattr_name)
+ {
+-	return evm_protected_xattr_common(req_xattr_name, true);
++	return evm_protected_xattr_common(ns, req_xattr_name, true);
+ }
+ 
+ /**
+@@ -394,7 +396,7 @@ int evm_read_protected_xattrs(struct evm_namespace *ns,
+ 	if (ns != &init_evm_ns)
+ 		return -EOPNOTSUPP;
+ 
+-	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
++	list_for_each_entry_lockless(xattr, &ns->evm_config_xattrnames, list) {
+ 		rc = __vfs_getxattr(dentry, d_backing_inode(dentry),
+ 				    xattr->name, NULL, 0);
+ 		if (rc < 0 && rc == -ENODATA)
+@@ -465,7 +467,7 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 				      void *xattr_value, size_t xattr_value_len,
+ 				      struct integrity_iint_cache *iint)
+ {
+-	if (!evm_key_loaded(ns) || !evm_protected_xattr(xattr_name))
++	if (!evm_key_loaded(ns) || !evm_protected_xattr(ns, xattr_name))
+ 		return INTEGRITY_UNKNOWN;
+ 
+ 	if (!iint) {
+@@ -603,7 +605,7 @@ static int evm_protect_xattr(struct evm_namespace *ns,
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+ 		if (!capable(CAP_SYS_ADMIN))
+ 			return -EPERM;
+-	} else if (!evm_protected_xattr(xattr_name)) {
++	} else if (!evm_protected_xattr(ns, xattr_name)) {
+ 		if (!posix_xattr_acl(xattr_name))
+ 			return 0;
+ 		evm_status = evm_verify_current_integrity(ns, dentry);
+@@ -756,7 +758,8 @@ bool evm_revalidate_status(struct evm_namespace *ns, const char *xattr_name)
+ 	if (!xattr_name)
+ 		return true;
+ 
+-	if (!evm_protected_xattr(xattr_name) && !posix_xattr_acl(xattr_name) &&
++	if (!evm_protected_xattr(ns, xattr_name) &&
++	    !posix_xattr_acl(xattr_name) &&
+ 	    strcmp(xattr_name, XATTR_NAME_EVM))
+ 		return false;
+ 
+@@ -922,7 +925,7 @@ int evm_inode_init_security(struct inode *inode,
+ 	int rc;
+ 
+ 	if (!(ns->evm_initialized & EVM_INIT_HMAC) ||
+-	    !evm_protected_xattr(lsm_xattr->name))
++	    !evm_protected_xattr(ns, lsm_xattr->name))
+ 		return 0;
+ 
+ 	xattr_data = kzalloc(sizeof(*xattr_data), GFP_NOFS);
+@@ -981,8 +984,8 @@ static int __init init_evm(void)
+ 
+ error:
+ 	if (error != 0) {
+-		if (!list_empty(&evm_config_xattrnames))
+-			evm_xattr_list_free_list(&evm_config_xattrnames);
++		if (!list_empty(&ns->evm_config_xattrnames))
++			evm_xattr_list_free_list(&ns->evm_config_xattrnames);
+ 	}
+ 
+ 	return error;
+diff --git a/security/integrity/evm/evm_ns.c b/security/integrity/evm/evm_ns.c
+index c330174e9c27..84269524b141 100644
+--- a/security/integrity/evm/evm_ns.c
++++ b/security/integrity/evm/evm_ns.c
+@@ -36,6 +36,7 @@ void free_evm_ns(struct integrity_namespace *integrity_ns)
+ 	struct evm_namespace *ns = integrity_ns->evm_ns;
+ 
+ 	evm_ns_free_crypto(ns);
++	evm_xattr_list_free_list(&ns->evm_config_xattrnames);
+ 	kmem_cache_free(evmns_cachep, ns);
+ }
+ 
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index 38e2bd4ce81a..685e950f1a55 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -131,6 +131,7 @@ static const struct file_operations evm_key_ops = {
+ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ 			       size_t count, loff_t *ppos)
+ {
++	struct evm_namespace *ns = evm_ns_from_file(filp);
+ 	char *temp;
+ 	int offset = 0;
+ 	ssize_t rc, size = 0;
+@@ -143,7 +144,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ 	if (rc)
+ 		return -ERESTARTSYS;
+ 
+-	list_for_each_entry(xattr, &evm_config_xattrnames, list) {
++	list_for_each_entry(xattr, &ns->evm_config_xattrnames, list) {
+ 		if (!xattr->enabled)
+ 			continue;
+ 
+@@ -156,7 +157,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ 		return -ENOMEM;
+ 	}
+ 
+-	list_for_each_entry(xattr, &evm_config_xattrnames, list) {
++	list_for_each_entry(xattr, &ns->evm_config_xattrnames, list) {
+ 		if (!xattr->enabled)
+ 			continue;
+ 
+@@ -184,6 +185,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
+ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 				size_t count, loff_t *ppos)
+ {
++	struct evm_namespace *ns = evm_ns_from_file(file);
+ 	int len, err;
+ 	struct xattr_list *xattr, *tmp;
+ 	struct audit_buffer *ab;
+@@ -255,7 +257,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 	 * and evm_protected_xattr().
+ 	 */
+ 	mutex_lock(&xattr_list_mutex);
+-	list_for_each_entry(tmp, &evm_config_xattrnames, list) {
++	list_for_each_entry(tmp, &ns->evm_config_xattrnames, list) {
+ 		if (strcmp(xattr->name, tmp->name) == 0) {
+ 			err = -EEXIST;
+ 			if (!tmp->enabled) {
+@@ -266,7 +268,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
+ 			goto out;
+ 		}
+ 	}
+-	list_add_tail_rcu(&xattr->list, &evm_config_xattrnames);
++	list_add_tail_rcu(&xattr->list, &ns->evm_config_xattrnames);
+ 	mutex_unlock(&xattr_list_mutex);
+ 
+ 	audit_log_format(ab, " res=0");
+-- 
+2.36.1
+

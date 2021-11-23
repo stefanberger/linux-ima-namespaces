@@ -1,0 +1,111 @@
+From 5a8077b67d2002ae95dcfcc5fb54a36c2f3c1948 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 13 May 2022 11:08:27 -0400
+Subject: [PATCH 48/80] evm: Move evm_hmac_attrs into evm_namespace
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                 | 2 ++
+ security/integrity/evm/evm_crypto.c | 9 +++++----
+ security/integrity/evm/evm_main.c   | 9 ++++-----
+ 3 files changed, 11 insertions(+), 9 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 3b3c99862c3b..acb9cb653a95 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -29,6 +29,8 @@ struct evm_namespace {
+ 
+ 	unsigned long evm_set_key_flags;
+ #define EVM_SET_KEY_BUSY 0
++
++	int evm_hmac_attrs;
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index e4988b744743..3da06357464b 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -137,7 +137,8 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+  * (Additional directory/file metadata needs to be added for more complete
+  * protection.)
+  */
+-static void hmac_add_misc(struct shash_desc *desc, struct inode *inode,
++static void hmac_add_misc(struct evm_namespace *ns,
++			  struct shash_desc *desc, struct inode *inode,
+ 			  char type, char *digest)
+ {
+ 	struct h_misc {
+@@ -168,7 +169,7 @@ static void hmac_add_misc(struct shash_desc *desc, struct inode *inode,
+ 	hmac_misc.gid = from_kgid(&init_user_ns, inode->i_gid);
+ 	hmac_misc.mode = inode->i_mode;
+ 	crypto_shash_update(desc, (const u8 *)&hmac_misc, sizeof(hmac_misc));
+-	if ((evm_hmac_attrs & EVM_ATTR_FSUUID) &&
++	if ((ns->evm_hmac_attrs & EVM_ATTR_FSUUID) &&
+ 	    type != EVM_XATTR_PORTABLE_DIGSIG)
+ 		crypto_shash_update(desc, (u8 *)&inode->i_sb->s_uuid, UUID_SIZE);
+ 	crypto_shash_final(desc, digest);
+@@ -292,7 +293,7 @@ static int evm_calc_hmac_or_hash(struct evm_namespace *ns,
+ 			dump_security_xattr(xattr->name, xattr_value,
+ 					    xattr_size);
+ 	}
+-	hmac_add_misc(desc, inode, type, data->digest);
++	hmac_add_misc(ns, desc, inode, type, data->digest);
+ 
+ 	/* Portable EVM signatures must include an IMA hash */
+ 	if (type == EVM_XATTR_PORTABLE_DIGSIG && !ima_present)
+@@ -401,7 +402,7 @@ int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
+ 	}
+ 
+ 	crypto_shash_update(desc, lsm_xattr->value, lsm_xattr->value_len);
+-	hmac_add_misc(desc, inode, EVM_XATTR_HMAC, hmac_val);
++	hmac_add_misc(ns, desc, inode, EVM_XATTR_HMAC, hmac_val);
+ 	kfree(desc);
+ 	return 0;
+ }
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 68bf7969153c..80f3472adfd5 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -31,7 +31,6 @@ static const char * const integrity_status_msg[] = {
+ 	"pass", "pass_immutable", "fail", "fail_immutable", "no_label",
+ 	"no_xattrs", "unknown"
+ };
+-int evm_hmac_attrs;
+ 
+ static struct xattr_list evm_config_default_xattrnames[] = {
+ 	{.name = XATTR_NAME_SELINUX,
+@@ -88,7 +87,7 @@ static int __init evm_set_fixmode(char *str)
+ }
+ __setup("evm=", evm_set_fixmode);
+ 
+-static void __init evm_init_config(void)
++static void __init evm_init_config(struct evm_namespace *ns)
+ {
+ 	int i, xattrs;
+ 
+@@ -104,9 +103,9 @@ static void __init evm_init_config(void)
+ 	}
+ 
+ #ifdef CONFIG_EVM_ATTR_FSUUID
+-	evm_hmac_attrs |= EVM_ATTR_FSUUID;
++	ns->evm_hmac_attrs |= EVM_ATTR_FSUUID;
+ #endif
+-	pr_info("HMAC attrs: 0x%x\n", evm_hmac_attrs);
++	pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
+ }
+ 
+ static bool evm_key_loaded(struct evm_namespace *ns)
+@@ -920,7 +919,7 @@ static int __init init_evm(void)
+ 	if (error)
+ 		goto error;
+ 
+-	evm_init_config();
++	evm_init_config(ns);
+ 
+ 	error = integrity_init_keyring(ns->integrity_ns, INTEGRITY_KEYRING_EVM);
+ 	if (error)
+-- 
+2.36.1
+

@@ -1,0 +1,77 @@
+From 333024c885e8bf2c693f09889d88c3808bf02d39 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 24 Jan 2022 09:02:00 -0500
+Subject: [PATCH 14/80] ima: Get flags using iint_flags before checking
+ IMA_MEASURE
+
+Get the iint/ns_status flags using iint_flags() before checking for the
+IMA_MEASURE flag. This change prepares the flag for moving it into the
+ns_status structure.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h          | 2 ++
+ security/integrity/ima/ima_appraise.c | 4 +++-
+ security/integrity/ima/ima_main.c     | 2 +-
+ 3 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 331d53e11b3f..82cfdc13d5ec 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -404,6 +404,7 @@ int ima_policy_show(struct seq_file *m, void *v);
+ #ifdef CONFIG_IMA_APPRAISE
+ int ima_check_blacklist(struct ima_namespace *ns,
+ 			struct integrity_iint_cache *iint,
++			struct ns_status *ns_status,
+ 			const struct modsig *modsig, int pcr);
+ int ima_appraise_measurement(struct ima_namespace *ns,
+ 			     enum ima_hooks func,
+@@ -426,6 +427,7 @@ int ima_read_xattr(struct dentry *dentry,
+ #else
+ static inline int ima_check_blacklist(struct ima_namespace *ns,
+ 				      struct integrity_iint_cache *iint,
++				      struct ns_status *ns_status,
+ 				      const struct modsig *modsig, int pcr)
+ {
+ 	return 0;
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 9e27dc988d86..db2004affd00 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -450,8 +450,10 @@ static int modsig_verify(enum ima_hooks func, const struct modsig *modsig,
+  */
+ int ima_check_blacklist(struct ima_namespace *ns,
+ 			struct integrity_iint_cache *iint,
++			struct ns_status *ns_status,
+ 			const struct modsig *modsig, int pcr)
+ {
++	unsigned long flags = iint_flags(iint, ns_status);
+ 	enum hash_algo hash_algo;
+ 	const u8 *digest = NULL;
+ 	u32 digestsize = 0;
+@@ -464,7 +466,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
+ 		ima_get_modsig_digest(modsig, &hash_algo, &digest, &digestsize);
+ 
+ 		rc = is_binary_blacklisted(digest, digestsize);
+-		if ((rc == -EPERM) && (iint->flags & IMA_MEASURE))
++		if ((rc == -EPERM) && (flags & IMA_MEASURE))
+ 			process_buffer_measurement(ns, &init_user_ns, NULL,
+ 						   digest, digestsize,
+ 						   "blacklisted-hash", NONE,
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 55cb45f6891d..1d6e4477971a 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -387,7 +387,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 				      xattr_value, xattr_len, modsig, pcr,
+ 				      template_desc, ns_status);
+ 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
+-		rc = ima_check_blacklist(ns, iint, modsig, pcr);
++		rc = ima_check_blacklist(ns, iint, ns_status, modsig, pcr);
+ 		if (rc != -EPERM) {
+ 			inode_lock(inode);
+ 			rc = ima_appraise_measurement(ns, func, iint, file,
+-- 
+2.36.1
+

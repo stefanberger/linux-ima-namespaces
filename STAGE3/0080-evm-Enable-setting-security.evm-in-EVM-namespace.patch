@@ -1,0 +1,124 @@
+From c323a7f6778652153e0434632547688babbf8025 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 19 May 2022 14:22:05 -0400
+Subject: [PATCH 80/80] evm: Enable setting security.evm in EVM namespace
+
+Modify cap_inode_setxattr() and cap_inode_removexattr() so that the
+evaluation of capabilities required to access security.evm is deferred to
+ima_inode_setxattr() and ima_inode_removexattr() respectively.
+
+Modify evm_protect_xattr(), which is called by evm_inode_setxattr() and
+evm_inode_removexattr(), so that the capabilities are evaluated there.
+Add the ns_capable() check previously executed by cap_inode_setxattr() to
+this function. Further, for allowing setting the EVM xattr inside an EVM
+namespace, also allow to use CAP_MAC_ADMIN so that regular users spawning
+an EVM namespace can also sign files in the EVM namespace if those files
+have owner and group mappings in the user namespace.
+If both CAP_SYS_ADMIN and CAP_MAC_ADMIN are missing in an EVM namespace,
+or if the file owner and group cannot be mapped then writing and removing
+of security.evm xattr is not possible.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/commoncap.c              |  8 ++++++--
+ security/integrity/evm/evm_main.c | 23 +++++++++++++++--------
+ 2 files changed, 21 insertions(+), 10 deletions(-)
+
+diff --git a/security/commoncap.c b/security/commoncap.c
+index baf647293ab3..2b690b6967d5 100644
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -1011,8 +1011,10 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
+ 
+ 	/*
+ 	 * For XATTR_NAME_IMA the check will be done in ima_inode_setxattr()
++	 * For XATTR_NAME_EVM the check will be done in evm_inode_setxattr()
+ 	 */
+-	if (strcmp(name, XATTR_NAME_IMA) == 0)
++	if (strcmp(name, XATTR_NAME_IMA) == 0 ||
++	    strcmp(name, XATTR_NAME_EVM) == 0)
+ 		return 0;
+ 
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+@@ -1061,8 +1063,10 @@ int cap_inode_removexattr(struct user_namespace *mnt_userns,
+ 
+ 	/*
+ 	 * For XATTR_NAME_IMA the check will be done in ima_inode_removexattr()
++	 * For XATTR_NAME_EVM the check will be done in evm_inode_removexattr()
+ 	 */
+-	if (strcmp(name, XATTR_NAME_IMA) == 0)
++	if (strcmp(name, XATTR_NAME_IMA) == 0 ||
++	    strcmp(name, XATTR_NAME_EVM) == 0)
+ 		return 0;
+ 
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index b94581c20f79..d80475b7a07f 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -608,10 +608,18 @@ static int evm_protect_xattr(struct evm_namespace *ns,
+ 			     struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
++	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
++	struct inode *inode = d_backing_inode(dentry);
+ 	enum integrity_status evm_status;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+-		if (!capable(CAP_SYS_ADMIN))
++		if (!ns_capable(user_ns, CAP_SYS_ADMIN) &&
++		    !capable(CAP_SYS_ADMIN))
++			return -EPERM;
++		/* Allow users to set security.evm in user namespace */
++		if (!mac_admin_ns_capable(current_user_ns()) ||
++		    !privileged_wrt_inode_uidgid(current_user_ns(),
++						 user_ns, inode))
+ 			return -EPERM;
+ 	} else if (!evm_protected_xattr(ns, xattr_name)) {
+ 		if (!posix_xattr_acl(xattr_name))
+@@ -692,13 +700,14 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		       size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xattr_data = xattr_value;
++	struct inode *inode = d_backing_inode(dentry);
+ 	struct evm_namespace *ns = current_evm_ns();
+ 
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (ns == &init_evm_ns &&
+-	    (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES))
++	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES &&
++	    privileged_wrt_inode_uidgid(current_user_ns(), mnt_userns, inode))
+ 		return 0;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+@@ -707,9 +716,6 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		if (xattr_data->type != EVM_IMA_XATTR_DIGSIG &&
+ 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
+ 			return -EPERM;
+-
+-		if (ns != &init_evm_ns)
+-			return -EPERM;
+ 	}
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name,
+ 				 xattr_value, xattr_value_len);
+@@ -727,12 +733,13 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ int evm_inode_removexattr(struct user_namespace *mnt_userns,
+ 			  struct dentry *dentry, const char *xattr_name)
+ {
++	struct inode *inode = d_backing_inode(dentry);
+ 	struct evm_namespace *ns = current_evm_ns();
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (ns == &init_evm_ns &&
+-	    ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES &&
++	    privileged_wrt_inode_uidgid(current_user_ns(), mnt_userns, inode))
+ 		return 0;
+ 
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name, NULL, 0);
+-- 
+2.36.1
+

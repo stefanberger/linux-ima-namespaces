@@ -1,0 +1,87 @@
+From b3523e8841ec675a4c7faa46223b84c373f27718 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 13 May 2022 10:58:41 -0400
+Subject: [PATCH 49/80] evm: Move mutex into evm_namespace
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                      |  2 ++
+ security/integrity/evm/evm_crypto.c      | 10 ++++------
+ security/integrity/evm/evm_init_evm_ns.c |  2 ++
+ 3 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index acb9cb653a95..e287f4370b81 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -31,6 +31,8 @@ struct evm_namespace {
+ #define EVM_SET_KEY_BUSY 0
+ 
+ 	int evm_hmac_attrs;
++
++	struct mutex mutex;
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index 3da06357464b..6d3f8e7fe657 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -26,8 +26,6 @@
+ static struct crypto_shash *hmac_tfm;
+ static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
+ 
+-static DEFINE_MUTEX(mutex);
+-
+ static const char evm_hmac[] = "hmac(sha1)";
+ 
+ /**
+@@ -90,7 +88,7 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+ 
+ 	if (*tfm)
+ 		goto alloc;
+-	mutex_lock(&mutex);
++	mutex_lock(&ns->mutex);
+ 	if (*tfm)
+ 		goto unlock;
+ 
+@@ -98,20 +96,20 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
+ 	if (IS_ERR(tmp_tfm)) {
+ 		pr_err("Can not allocate %s (reason: %ld)\n", algo,
+ 		       PTR_ERR(tmp_tfm));
+-		mutex_unlock(&mutex);
++		mutex_unlock(&ns->mutex);
+ 		return ERR_CAST(tmp_tfm);
+ 	}
+ 	if (type == EVM_XATTR_HMAC) {
+ 		rc = crypto_shash_setkey(tmp_tfm, ns->evmkey, ns->evmkey_len);
+ 		if (rc) {
+ 			crypto_free_shash(tmp_tfm);
+-			mutex_unlock(&mutex);
++			mutex_unlock(&ns->mutex);
+ 			return ERR_PTR(rc);
+ 		}
+ 	}
+ 	*tfm = tmp_tfm;
+ unlock:
+-	mutex_unlock(&mutex);
++	mutex_unlock(&ns->mutex);
+ alloc:
+ 	desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(*tfm),
+ 			GFP_KERNEL);
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index 6840319ce042..73b87e0f052c 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -10,6 +10,8 @@ int evm_init_namespace(struct evm_namespace *ns,
+ 	ns->integrity_ns = integrity_ns;
+ 	ns->evmkey_len = MAX_KEY_SIZE;
+ 
++	mutex_init(&ns->mutex);
++
+ 	return 0;
+ }
+ 
+-- 
+2.36.1
+

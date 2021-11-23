@@ -1,0 +1,87 @@
+From b3a99e02cfe639b67dba2afa11668d4437527860 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 19:49:50 -0500
+Subject: [PATCH 54/80] security/ima: Enable setting security.ima in IMA
+ namespace
+
+Modify cap_inode_setxattr() and cap_inode_removexattr() so that the
+evaluation of capabilities required to access security.ima is deferred to
+ima_inode_setxattr() and ima_inode_removexattr() respectively.
+
+Modify ima_protect_xattr(), which is called by ima_inode_setxattr() and
+ima_inode_removexattr(), so that the capabilities are evaluated there.
+Add the ns_capable() check previously executed by cap_inode_setxattr() to
+this function. Further, for allowing setting the IMA xattr inside an IMA
+namespace, also allow to use CAP_MAC_ADMIN so that regular users spawning
+an IMA namespace can also sign files in the IMA namespace if those files
+have owner and group mappings in the user namespace.
+If both CAP_SYS_ADMIN and CAP_MAC_ADMIN are missing in an IMA namespace,
+or of the file owner and group cannot be mapped then writing and removing
+of security.ima xattr is not possible.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/commoncap.c                  | 12 ++++++++++++
+ security/integrity/ima/ima_appraise.c | 15 ++++++++++++---
+ 2 files changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/security/commoncap.c b/security/commoncap.c
+index 5fc8986c3c77..baf647293ab3 100644
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -1009,6 +1009,12 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
+ 	if (strcmp(name, XATTR_NAME_CAPS) == 0)
+ 		return 0;
+ 
++	/*
++	 * For XATTR_NAME_IMA the check will be done in ima_inode_setxattr()
++	 */
++	if (strcmp(name, XATTR_NAME_IMA) == 0)
++		return 0;
++
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+ 		return -EPERM;
+ 	return 0;
+@@ -1053,6 +1059,12 @@ int cap_inode_removexattr(struct user_namespace *mnt_userns,
+ 		return 0;
+ 	}
+ 
++	/*
++	 * For XATTR_NAME_IMA the check will be done in ima_inode_removexattr()
++	 */
++	if (strcmp(name, XATTR_NAME_IMA) == 0)
++		return 0;
++
+ 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+ 		return -EPERM;
+ 	return 0;
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 31357bb19cdd..aa7c9e8fb39e 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -699,10 +699,19 @@ void ima_inode_post_setattr(struct user_namespace *mnt_userns,
+ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
++	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
++	struct inode *inode = d_backing_inode(dentry);
++
+ 	if (strcmp(xattr_name, XATTR_NAME_IMA) == 0) {
+-		if (!capable(CAP_SYS_ADMIN))
+-			return -EPERM;
+-		return 1;
++		if (ns_capable(user_ns, CAP_SYS_ADMIN) ||
++		    capable(CAP_SYS_ADMIN))
++			return 1;
++		/* Allow users to set security.ima in user namespace */
++		if (mac_admin_ns_capable(current_user_ns()) &&
++		    privileged_wrt_inode_uidgid(current_user_ns(),
++						user_ns, inode))
++			return 1;
++		return -EPERM;
+ 	}
+ 	return 0;
+ }
+-- 
+2.36.1
+

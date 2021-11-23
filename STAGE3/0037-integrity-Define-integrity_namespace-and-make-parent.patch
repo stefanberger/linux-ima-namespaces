@@ -1,0 +1,298 @@
+From 1d4b3d39530e31e7b2cc558e7af3ba6c647f2441 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 24 Jan 2022 20:53:10 -0500
+Subject: [PATCH 37/80] integrity: Define integrity_namespace and make parent
+ of ima_namespace
+
+Define an integrity_namespace and make it the parent of the ima_namespace.
+
+Replace the pointer to the IMA namespace in the user_namespace with a
+pointer to the integrity_namespace that will be there right from the
+beginning.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/ima.h                 |  1 +
+ include/linux/integrity_namespace.h | 38 ++++++++++++++++++++++
+ include/linux/user_namespace.h      |  6 ++--
+ kernel/user.c                       |  4 +--
+ kernel/user_namespace.c             | 18 +++++++++--
+ security/integrity/Makefile         |  2 +-
+ security/integrity/ima/ima.h        |  7 ++--
+ security/integrity/ima/ima_ns.c     |  2 +-
+ security/integrity/integrity_ns.c   | 50 +++++++++++++++++++++++++++++
+ 9 files changed, 117 insertions(+), 11 deletions(-)
+ create mode 100644 include/linux/integrity_namespace.h
+ create mode 100644 security/integrity/integrity_ns.c
+
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index 68fc3f04c6e0..68f02c5d797c 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -12,6 +12,7 @@
+ #include <linux/security.h>
+ #include <linux/kexec.h>
+ #include <linux/user_namespace.h>
++#include <linux/integrity_namespace.h>
+ #include <crypto/hash_info.h>
+ struct linux_binprm;
+ 
+diff --git a/include/linux/integrity_namespace.h b/include/linux/integrity_namespace.h
+new file mode 100644
+index 000000000000..a5b852a72fc6
+--- /dev/null
++++ b/include/linux/integrity_namespace.h
+@@ -0,0 +1,38 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (C) 2021 IBM Corporation
++ * Author: Stefan Berger <stefanb@us.ibm.com>
++ */
++
++#ifndef _LINUX_INTEGRITY_NAMESPACE_H
++#define _LINUX_INTEGRITY_NAMESPACE_H
++
++struct ima_namespace;
++
++struct integrity_namespace {
++#ifdef CONFIG_IMA
++	struct ima_namespace *ima_ns;
++#endif
++};
++
++extern struct integrity_namespace init_integrity_ns;
++
++#ifdef CONFIG_IMA_NS
++
++struct integrity_namespace *create_integrity_ns(void);
++void free_integrity_ns(struct user_namespace *user_ns);
++
++#else
++
++static inline struct integrity_namespace *create_integrity_ns(void)
++{
++	return NULL;
++}
++
++static inline void free_integrity_ns(struct user_namespace *user_ns)
++{
++}
++
++#endif /* CONFIG_IMA_NS */
++
++#endif /* _LINUX_INTEGRITY_NAMESPACE_H */
+diff --git a/include/linux/user_namespace.h b/include/linux/user_namespace.h
+index ecee744a3450..b350202e808b 100644
+--- a/include/linux/user_namespace.h
++++ b/include/linux/user_namespace.h
+@@ -37,7 +37,7 @@ struct uid_gid_map { /* 64 bytes -- 1 cache line */
+ #define USERNS_INIT_FLAGS USERNS_SETGROUPS_ALLOWED
+ 
+ struct ucounts;
+-struct ima_namespace;
++struct integrity_namespace;
+ 
+ enum ucount_type {
+ 	UCOUNT_USER_NAMESPACES,
+@@ -101,8 +101,8 @@ struct user_namespace {
+ #endif
+ 	struct ucounts		*ucounts;
+ 	long ucount_max[UCOUNT_COUNTS];
+-#ifdef CONFIG_IMA_NS
+-	struct ima_namespace	*ima_ns;
++#ifdef CONFIG_INTEGRITY
++	struct integrity_namespace *integrity_ns;
+ #endif
+ 	uuid_t uuid;
+ } __randomize_layout;
+diff --git a/kernel/user.c b/kernel/user.c
+index e5d1f4b9b8ba..1adcdf581907 100644
+--- a/kernel/user.c
++++ b/kernel/user.c
+@@ -19,7 +19,7 @@
+ #include <linux/export.h>
+ #include <linux/user_namespace.h>
+ #include <linux/proc_ns.h>
+-#include <linux/ima.h>
++#include <linux/integrity_namespace.h>
+ 
+ /*
+  * userns count is 1 for root user, 1 for init_uts_ns,
+@@ -69,7 +69,7 @@ struct user_namespace init_user_ns = {
+ 	.keyring_sem = __RWSEM_INITIALIZER(init_user_ns.keyring_sem),
+ #endif
+ #ifdef CONFIG_IMA_NS
+-	.ima_ns = &init_ima_ns,
++	.integrity_ns = &init_integrity_ns,
+ #endif
+ };
+ EXPORT_SYMBOL_GPL(init_user_ns);
+diff --git a/kernel/user_namespace.c b/kernel/user_namespace.c
+index 7e8289943288..d502cf275f35 100644
+--- a/kernel/user_namespace.c
++++ b/kernel/user_namespace.c
+@@ -20,7 +20,7 @@
+ #include <linux/fs_struct.h>
+ #include <linux/bsearch.h>
+ #include <linux/sort.h>
+-#include <linux/ima.h>
++#include <linux/integrity_namespace.h>
+ 
+ static struct kmem_cache *user_ns_cachep __read_mostly;
+ static DEFINE_MUTEX(userns_state_mutex);
+@@ -154,9 +154,23 @@ int create_user_ns(struct cred *new)
+ 	if (!setup_userns_sysctls(ns))
+ 		goto fail_keyring;
+ 
++#ifdef CONFIG_IMA_NS
++	ns->integrity_ns = create_integrity_ns();
++	if (IS_ERR(ns->integrity_ns)) {
++		ret = PTR_ERR(ns->integrity_ns);
++		goto fail_userns_sysctls;
++	}
++#endif
++
+ 	set_cred_user_ns(new, ns);
+ 	uuid_gen(&ns->uuid);
+ 	return 0;
++
++#ifdef CONFIG_IMA_NS
++fail_userns_sysctls:
++	retire_userns_sysctls(ns);
++#endif
++
+ fail_keyring:
+ #ifdef CONFIG_PERSISTENT_KEYRINGS
+ 	key_put(ns->persistent_keyring_register);
+@@ -210,7 +224,7 @@ static void free_user_ns(struct work_struct *work)
+ 			kfree(ns->projid_map.forward);
+ 			kfree(ns->projid_map.reverse);
+ 		}
+-		free_ima_ns(ns);
++		free_integrity_ns(ns);
+ 		retire_userns_sysctls(ns);
+ 		key_free_user_ns(ns);
+ 		ns_free_inum(&ns->ns);
+diff --git a/security/integrity/Makefile b/security/integrity/Makefile
+index d0ffe37dc1d6..5e97aaedf3d0 100644
+--- a/security/integrity/Makefile
++++ b/security/integrity/Makefile
+@@ -5,7 +5,7 @@
+ 
+ obj-$(CONFIG_INTEGRITY) += integrity.o
+ 
+-integrity-y := iint.o
++integrity-y := iint.o integrity_ns.o
+ integrity-$(CONFIG_INTEGRITY_AUDIT) += integrity_audit.o
+ integrity-$(CONFIG_INTEGRITY_SIGNATURE) += digsig.o
+ integrity-$(CONFIG_INTEGRITY_ASYMMETRIC_KEYS) += digsig_asymmetric.o
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 4cbeda41b683..235727339ff5 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -21,6 +21,7 @@
+ #include <linux/tpm.h>
+ #include <linux/audit.h>
+ #include <linux/user_namespace.h>
++#include <linux/integrity_namespace.h>
+ #include <crypto/hash_info.h>
+ 
+ #include "../integrity.h"
+@@ -72,6 +73,8 @@ struct ima_field_data {
+ 	u32 len;
+ };
+ 
++struct ima_namespace;
++
+ /* IMA template field definition */
+ struct ima_template_field {
+ 	const char field_id[IMA_TEMPLATE_FIELD_ID_MAX_LEN];
+@@ -621,14 +624,14 @@ static inline struct ima_namespace
+ *ima_ns_from_user_ns(struct user_namespace *user_ns)
+ {
+ 	/* Pairs with smp_store_releases() in user_ns_set_ima_ns(). */
+-	return smp_load_acquire(&user_ns->ima_ns);
++	return smp_load_acquire(&user_ns->integrity_ns->ima_ns);
+ }
+ 
+ static inline void user_ns_set_ima_ns(struct user_namespace *user_ns,
+ 				      struct ima_namespace *ns)
+ {
+ 	/* Pairs with smp_load_acquire() in ima_ns_from_user_ns() */
+-	smp_store_release(&user_ns->ima_ns, ns);
++	smp_store_release(&user_ns->integrity_ns->ima_ns, ns);
+ }
+ 
+ static inline struct ima_namespace *get_current_ns(void)
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 1fc1c083ba32..696ea4a72555 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -72,7 +72,7 @@ void free_ima_ns(struct user_namespace *user_ns)
+ 
+ 	ima_free_ima_ns(ns);
+ 
+-	user_ns->ima_ns = NULL;
++	user_ns->integrity_ns->ima_ns = NULL;
+ }
+ 
+ static int __init imans_cache_init(void)
+diff --git a/security/integrity/integrity_ns.c b/security/integrity/integrity_ns.c
+new file mode 100644
+index 000000000000..da9858677ca9
+--- /dev/null
++++ b/security/integrity/integrity_ns.c
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (C) 2021 IBM Corporation
++ *
++ * Authors:
++ * Stefan Berger <stefanb@us.ibm.com>
++ */
++
++#include <linux/ima.h>
++#include <linux/integrity_namespace.h>
++
++struct integrity_namespace init_integrity_ns = {
++#ifdef CONFIG_IMA
++	.ima_ns = &init_ima_ns,
++#endif
++};
++EXPORT_SYMBOL(init_integrity_ns);
++
++#ifdef CONFIG_IMA_NS
++
++static struct kmem_cache *integrityns_cachep;
++
++struct integrity_namespace *create_integrity_ns(void)
++{
++	struct integrity_namespace *ns;
++
++	ns = kmem_cache_zalloc(integrityns_cachep, GFP_KERNEL);
++	if (!ns)
++		return ERR_PTR(-ENOMEM);
++
++	return ns;
++}
++
++void free_integrity_ns(struct user_namespace *user_ns)
++{
++	struct integrity_namespace *ns = user_ns->integrity_ns;
++
++	free_ima_ns(user_ns);
++
++	kmem_cache_free(integrityns_cachep, ns);
++}
++
++static int __init integrityns_cache_init(void)
++{
++	integrityns_cachep = KMEM_CACHE(integrity_namespace, SLAB_PANIC);
++	return 0;
++}
++subsys_initcall(integrityns_cache_init)
++
++#endif
+-- 
+2.36.1
+

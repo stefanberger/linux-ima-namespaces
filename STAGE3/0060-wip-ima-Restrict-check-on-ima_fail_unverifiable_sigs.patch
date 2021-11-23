@@ -1,0 +1,29 @@
+From 6cf310acd90d881700a30e460df327f9bcdc5aaf Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 2 Feb 2022 15:40:41 -0500
+Subject: [PATCH 60/80] wip: ima: Restrict check on ima_fail_unverifiable_sigs
+ to init_ima_ns
+
+Restrict the check on ima_fail_unverifiable_sigs to the init_ima_ns.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_policy.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 07a39a866349..3b8e45940f37 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -731,7 +731,7 @@ int ima_match_policy(struct ima_namespace *ns,
+ 		if (entry->action & IMA_APPRAISE) {
+ 			action |= get_subaction(entry, func);
+ 			action &= ~IMA_HASH;
+-			if (ima_fail_unverifiable_sigs)
++			if (ns == &init_ima_ns && ima_fail_unverifiable_sigs)
+ 				action |= IMA_FAIL_UNVERIFIABLE_SIGS;
+ 
+ 			if (allowed_algos &&
+-- 
+2.36.1
+

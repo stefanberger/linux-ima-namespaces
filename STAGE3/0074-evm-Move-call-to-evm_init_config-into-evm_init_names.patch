@@ -1,0 +1,113 @@
+From c7bb907867ba51f08e1d0173a226e4deac47c8c8 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 17 May 2022 21:31:43 -0400
+Subject: [PATCH 74/80] evm: Move call to evm_init_config into
+ evm_init_namespace
+
+Move the call to evm_init_config() into evm_init_namespace() so that this
+function is now called for the init_evm_ns and all EVM namespaces as
+well.
+
+Restrict the display of info using pr_info to only be print when the
+init_evm_ns is initialized. Since init_evm_ns and EVM namespaces share the
+same data this displays the same information as EVM namespaces would.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm.h             |  1 +
+ security/integrity/evm/evm_init_evm_ns.c |  6 ++++++
+ security/integrity/evm/evm_main.c        | 21 +++++++++++----------
+ 3 files changed, 18 insertions(+), 10 deletions(-)
+
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index ad9f628a4088..71a71ec34289 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -68,6 +68,7 @@ static inline struct evm_namespace *current_evm_ns(void)
+ int __init evm_init_ns(void);
+ int evm_init_namespace(struct evm_namespace *ns,
+ 		       struct integrity_namespace *integrity_ns);
++int evm_init_config(struct evm_namespace *ns);
+ void evm_xattr_list_free_list(struct list_head *head);
+ 
+ static inline
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index bf4add631191..434faa41ef62 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -7,6 +7,8 @@
+ int evm_init_namespace(struct evm_namespace *ns,
+ 		       struct integrity_namespace *integrity_ns)
+ {
++	int error;
++
+ 	ns->integrity_ns = integrity_ns;
+ 	ns->evmkey_len = MAX_KEY_SIZE;
+ 
+@@ -14,6 +16,10 @@ int evm_init_namespace(struct evm_namespace *ns,
+ 
+ 	INIT_LIST_HEAD(&ns->evm_config_xattrnames);
+ 
++	error = evm_init_config(ns);
++	if (error)
++		return error;
++
+ 	return 0;
+ }
+ 
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index cf25afc1722e..90de08780f8a 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -126,18 +126,22 @@ static int __init evm_set_fixmode(char *str)
+ }
+ __setup("evm=", evm_set_fixmode);
+ 
+-static int __init evm_init_config(struct evm_namespace *ns)
++int evm_init_config(struct evm_namespace *ns)
+ {
+ 	struct xattr_list *xattr_list;
+ 	int i, xattrs;
+ 
+ 	xattrs = ARRAY_SIZE(evm_config_default_xattrnames);
+ 
+-	pr_info("Initialising EVM extended attributes:\n");
++	if (ns == &init_evm_ns)
++		pr_info("Initialising EVM extended attributes:\n");
++
+ 	for (i = 0; i < xattrs; i++) {
+-		pr_info("%s%s\n", evm_config_default_xattrnames[i].name,
+-			!evm_config_default_xattrnames[i].enabled ?
+-			" (disabled)" : "");
++		if (ns == &init_evm_ns)
++			pr_info("%s%s\n",
++				evm_config_default_xattrnames[i].name,
++				!evm_config_default_xattrnames[i].enabled ?
++				" (disabled)" : "");
+ 		xattr_list = xattr_list_dup(&evm_config_default_xattrnames[i]);
+ 		if (!xattr_list)
+ 			return -ENOMEM;
+@@ -148,7 +152,8 @@ static int __init evm_init_config(struct evm_namespace *ns)
+ #ifdef CONFIG_EVM_ATTR_FSUUID
+ 	ns->evm_hmac_attrs |= EVM_ATTR_FSUUID;
+ #endif
+-	pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
++	if (ns == &init_evm_ns)
++		pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
+ 
+ 	return 0;
+ }
+@@ -968,10 +973,6 @@ static int __init init_evm(void)
+ 	if (error)
+ 		goto error;
+ 
+-	error = evm_init_config(ns);
+-	if (error)
+-		goto error;
+-
+ 	error = integrity_init_keyring(ns->integrity_ns, INTEGRITY_KEYRING_EVM);
+ 	if (error)
+ 		goto error;
+-- 
+2.36.1
+

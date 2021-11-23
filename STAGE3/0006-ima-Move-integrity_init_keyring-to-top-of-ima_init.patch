@@ -1,0 +1,35 @@
+From 4545487ac66ef4dd01dffb9ba087afca65d44e5c Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 22 Dec 2021 15:53:44 -0500
+Subject: [PATCH 06/80] ima: Move integrity_init_keyring() to top of ima_init()
+
+To preserve '__init' on integrity_init_keyring() and the function it calls,
+keep it in ima_ns_init() but move integrity_init_keyring() to the top of
+ima_init() before ima_ns_init().
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_init.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index cd7a7146b98c..5260071b76c0 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -116,11 +116,11 @@ int __init ima_init(void)
+ {
+ 	int rc;
+ 
+-	rc = ima_ns_init();
++	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
+ 	if (rc)
+ 		return rc;
+ 
+-	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
++	rc = ima_ns_init();
+ 	if (rc)
+ 		return rc;
+ 
+-- 
+2.36.1
+

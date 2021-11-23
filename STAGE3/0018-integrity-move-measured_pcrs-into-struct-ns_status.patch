@@ -1,0 +1,165 @@
+From d979e7b23da26f3f92cb05a880624c534745c92a Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 24 May 2022 18:15:44 -0400
+Subject: [PATCH 18/80] integrity: move measured_pcrs into struct ns_status
+
+Move the measured_pcrs field from integrity_iint_cache into ns_status
+struct so we can track the usage of PCRs on a per-namespace basis.
+
+In some cases, when the measured_pcrs field is reset, it is necessary to
+walk the list of ns_status connected to an iint and reset the measured_pcrs
+field in all ns_status structures.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/iint.c             | 1 -
+ security/integrity/ima/ima_api.c      | 4 ++--
+ security/integrity/ima/ima_appraise.c | 8 +++++++-
+ security/integrity/ima/ima_main.c     | 7 +++----
+ security/integrity/ima/ima_policy.c   | 2 +-
+ security/integrity/integrity.h        | 3 ++-
+ 6 files changed, 15 insertions(+), 10 deletions(-)
+
+diff --git a/security/integrity/iint.c b/security/integrity/iint.c
+index b0996bd0ee67..adcb474dd6a6 100644
+--- a/security/integrity/iint.c
++++ b/security/integrity/iint.c
+@@ -82,7 +82,6 @@ static void iint_free(struct integrity_iint_cache *iint)
+ 	iint->ima_read_status = INTEGRITY_UNKNOWN;
+ 	iint->ima_creds_status = INTEGRITY_UNKNOWN;
+ 	iint->evm_status = INTEGRITY_UNKNOWN;
+-	iint->measured_pcrs = 0;
+ 	rwlock_init(&iint->ns_list_lock);
+ 	INIT_LIST_HEAD(&iint->ns_list);
+ 	kmem_cache_free(iint_cache, iint);
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 316ac1ebc6d3..1809e16f4074 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -376,7 +376,7 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 	 * appraisal, but a file measurement from earlier might already exist in
+ 	 * the measurement list.
+ 	 */
+-	if (iint->measured_pcrs & (0x1 << pcr) && !modsig)
++	if ((ns_status->measured_pcrs & (0x1 << pcr)) && !modsig)
+ 		return;
+ 
+ 	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);
+@@ -389,7 +389,7 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 	result = ima_store_template(ns, entry, violation, inode, filename, pcr);
+ 	if ((!result || result == -EEXIST) && !(file->f_flags & O_DIRECT)) {
+ 		set_iint_flags(iint, ns_status, flags | IMA_MEASURED);
+-		iint->measured_pcrs |= (0x1 << pcr);
++		ns_status->measured_pcrs |= (0x1 << pcr);
+ 	}
+ 	if (result < 0)
+ 		ima_free_template_entry(entry);
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index db2004affd00..5c856fb76455 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -690,6 +690,7 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
+ 				     struct inode *inode, int digsig)
+ {
+ 	struct integrity_iint_cache *iint;
++	struct ns_status *ns_status;
+ 
+ 	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
+ 		return;
+@@ -697,7 +698,12 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
+ 	iint = integrity_iint_find(inode);
+ 	if (!iint)
+ 		return;
+-	iint->measured_pcrs = 0;
++
++	read_lock(&iint->ns_list_lock);
++	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
++		ns_status->measured_pcrs = 0;
++	read_unlock(&iint->ns_list_lock);
++
+ 	set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
+ 	if (digsig)
+ 		set_bit(IMA_DIGSIG, &iint->atomic_flags);
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 1f526745c0fb..66af0e325dd0 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -169,6 +169,7 @@ static void mask_iint_ns_status_flags(struct integrity_iint_cache *iint,
+ 		list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
+ 			flags = iint_flags(iint, ns_status) & mask;
+ 			set_iint_flags(iint, ns_status, flags);
++			ns_status->measured_pcrs = 0;
+ 		}
+ 	}
+ 	read_unlock(&iint->ns_list_lock);
+@@ -194,8 +195,6 @@ static void ima_check_last_writer(struct ima_namespace *ns,
+ 			mask_iint_ns_status_flags
+ 					(iint,
+ 					 ~(IMA_DONE_MASK | IMA_NEW_FILE));
+-			iint->measured_pcrs = 0;
+-
+ 			if (update)
+ 				ima_update_xattr(ns, iint, file);
+ 		}
+@@ -315,7 +314,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	     !(inode->i_sb->s_iflags & SB_I_UNTRUSTED_MOUNTER) &&
+ 	     !(action & IMA_FAIL_UNVERIFIABLE_SIGS))) {
+ 		flags &= ~IMA_DONE_MASK;
+-		iint->measured_pcrs = 0;
++		ns_status->measured_pcrs = 0;
+ 	}
+ 
+ 	/* Determine if already appraised/measured based on bitmask
+@@ -327,7 +326,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
+ 
+ 	/* If target pcr is already measured, unset IMA_MEASURE action */
+-	if ((action & IMA_MEASURE) && (iint->measured_pcrs & (0x1 << pcr)))
++	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr)))
+ 		action ^= IMA_MEASURE;
+ 
+ 	/* HASH sets the digital signature and update flags, nothing else */
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 5e3d5e1c97f4..23866814d981 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -49,7 +49,7 @@
+ #define DONT_HASH	0x0200
+ 
+ #define INVALID_PCR(a) (((a) < 0) || \
+-	(a) >= (sizeof_field(struct integrity_iint_cache, measured_pcrs) * 8))
++	(a) >= (sizeof_field(struct ns_status, measured_pcrs) * 8))
+ 
+ static int temp_ima_appraise;
+ static int build_ima_appraise __ro_after_init;
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index 0634320a6bc2..8b98ffa66bec 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -159,6 +159,7 @@ struct ima_file_id {
+ struct ns_status {
+ 	struct list_head ns_next;
+ 	unsigned long flags;		/* flags split with iint */
++	unsigned long measured_pcrs;
+ #ifdef CONFIG_IMA_NS
+ 	struct rb_node rb_node;
+ 	struct integrity_iint_cache *iint;
+@@ -174,6 +175,7 @@ struct ns_status {
+ static inline void ns_status_reset(struct ns_status *ns_status)
+ {
+ 	ns_status->flags = 0;
++	ns_status->measured_pcrs = 0;
+ }
+ 
+ static inline void ns_status_init(struct ns_status *ns_status)
+@@ -189,7 +191,6 @@ struct integrity_iint_cache {
+ 	struct inode *inode;	/* back pointer to inode in question */
+ 	u64 version;		/* track inode changes */
+ 	unsigned long flags;	/* flags split with ns_status */
+-	unsigned long measured_pcrs;
+ 	unsigned long atomic_flags;
+ 	enum integrity_status ima_file_status:4;
+ 	enum integrity_status ima_mmap_status:4;
+-- 
+2.36.1
+

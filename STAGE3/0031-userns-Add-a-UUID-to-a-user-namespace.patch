@@ -1,0 +1,49 @@
+From e42821cbf12c9d8fe2ad54513ddc57d5e941d19f Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 6 Apr 2022 12:45:27 -0400
+Subject: [PATCH 31/80] userns: Add a UUID to a user namespace
+
+Add a UUID to a user namespace to use it for logging IMA related events
+so they can be identified where they came from.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/user_namespace.h | 2 ++
+ kernel/user_namespace.c        | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/include/linux/user_namespace.h b/include/linux/user_namespace.h
+index 019e8cf7b633..ecee744a3450 100644
+--- a/include/linux/user_namespace.h
++++ b/include/linux/user_namespace.h
+@@ -10,6 +10,7 @@
+ #include <linux/rwsem.h>
+ #include <linux/sysctl.h>
+ #include <linux/err.h>
++#include <linux/uuid.h>
+ 
+ #define UID_GID_MAP_MAX_BASE_EXTENTS 5
+ #define UID_GID_MAP_MAX_EXTENTS 340
+@@ -103,6 +104,7 @@ struct user_namespace {
+ #ifdef CONFIG_IMA_NS
+ 	struct ima_namespace	*ima_ns;
+ #endif
++	uuid_t uuid;
+ } __randomize_layout;
+ 
+ struct ucounts {
+diff --git a/kernel/user_namespace.c b/kernel/user_namespace.c
+index d2f2eb790d95..7e8289943288 100644
+--- a/kernel/user_namespace.c
++++ b/kernel/user_namespace.c
+@@ -155,6 +155,7 @@ int create_user_ns(struct cred *new)
+ 		goto fail_keyring;
+ 
+ 	set_cred_user_ns(new, ns);
++	uuid_gen(&ns->uuid);
+ 	return 0;
+ fail_keyring:
+ #ifdef CONFIG_PERSISTENT_KEYRINGS
+-- 
+2.36.1
+

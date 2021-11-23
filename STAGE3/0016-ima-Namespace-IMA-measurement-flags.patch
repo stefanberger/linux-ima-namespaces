@@ -1,0 +1,36 @@
+From 74d181a98cff4f7b6f7df574c3d144ff26d7d660 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 3 Dec 2021 10:41:45 -0500
+Subject: [PATCH 16/80] ima: Namespace IMA measurement flags
+
+Support IMA measurements in IMA namespaces by moving the IMA_MEASURE
+and IMA_MEASURED flags from the iint into the per namespace ns_status
+structure.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 82cfdc13d5ec..8f9baf85993e 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -550,10 +550,11 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ #define	POLICY_FILE_FLAGS	S_IWUSR
+ #endif /* CONFIG_IMA_READ_POLICY */
+ 
+-#define IMA_NS_STATUS_ACTIONS   IMA_AUDIT
+-#define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED)
++#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
++#define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
++				 IMA_MEASURE | IMA_MEASURED)
+ 
+-#define IMA_IINT_FLAGS		(IMA_MEASURE | IMA_APPRAISE | IMA_HASH)
++#define IMA_IINT_FLAGS		(IMA_APPRAISE | IMA_HASH)
+ 
+ static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
+ 				       struct ns_status *ns_status)
+-- 
+2.36.1
+

@@ -1,0 +1,177 @@
+From 3ecd80c33996dc8a8fb151b019f6b709572d20d9 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 13:58:00 -0500
+Subject: [PATCH 53/80] ima: Namespace all IMA-appraise related iint flags
+
+Namespace all IMA-appraise related iint flags.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h          |  9 +++++--
+ security/integrity/ima/ima_appraise.c | 39 +++++++++++++++------------
+ security/integrity/ima/ima_main.c     |  2 +-
+ 3 files changed, 30 insertions(+), 20 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 028b35476d5c..8ac39e621a58 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -586,10 +586,15 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ #define	POLICY_FILE_FLAGS	S_IWUSR
+ #endif /* CONFIG_IMA_READ_POLICY */
+ 
+-#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
++#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE | IMA_APPRAISE)
+ #define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
+ 				 IMA_MEASURE | IMA_MEASURED | IMA_COLLECTED | \
+-				 IMA_PERMIT_DIRECTIO)
++				 IMA_PERMIT_DIRECTIO | IMA_DIGSIG_REQUIRED | \
++				 IMA_MODSIG_ALLOWED | IMA_CHECK_BLACKLIST | \
++				 IMA_APPRAISE | IMA_APPRAISED | \
++				 IMA_FILE_APPRAISED | IMA_MMAP_APPRAISED | \
++				 IMA_BPRM_APPRAISED | IMA_READ_APPRAISED | \
++				 IMA_CREDS_APPRAISED | IMA_READ_APPRAISED)
+ 
+ #define IMA_IINT_FLAGS		(IMA_APPRAISE | IMA_HASH)
+ 
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 062f49e92be0..31357bb19cdd 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -154,27 +154,31 @@ static void ima_set_cache_status(struct integrity_iint_cache *iint,
+ }
+ 
+ static void ima_cache_flags(struct integrity_iint_cache *iint,
++			    struct ns_status *ns_status,
+ 			     enum ima_hooks func)
+ {
++	unsigned long flags = iint_flags(iint, ns_status);
++
+ 	switch (func) {
+ 	case MMAP_CHECK:
+-		iint->flags |= (IMA_MMAP_APPRAISED | IMA_APPRAISED);
++		flags |= (IMA_MMAP_APPRAISED | IMA_APPRAISED);
+ 		break;
+ 	case BPRM_CHECK:
+-		iint->flags |= (IMA_BPRM_APPRAISED | IMA_APPRAISED);
++		flags |= (IMA_BPRM_APPRAISED | IMA_APPRAISED);
+ 		break;
+ 	case CREDS_CHECK:
+-		iint->flags |= (IMA_CREDS_APPRAISED | IMA_APPRAISED);
++		flags |= (IMA_CREDS_APPRAISED | IMA_APPRAISED);
+ 		break;
+ 	case FILE_CHECK:
+ 	case POST_SETATTR:
+-		iint->flags |= (IMA_FILE_APPRAISED | IMA_APPRAISED);
++		flags |= (IMA_FILE_APPRAISED | IMA_APPRAISED);
+ 		break;
+ 	case MODULE_CHECK ... MAX_CHECK - 1:
+ 	default:
+-		iint->flags |= (IMA_READ_APPRAISED | IMA_APPRAISED);
++		flags |= (IMA_READ_APPRAISED | IMA_APPRAISED);
+ 		break;
+ 	}
++	set_iint_flags(iint, ns_status, flags);
+ }
+ 
+ enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
+@@ -299,8 +303,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 		fallthrough;
+ 	case IMA_XATTR_DIGEST:
+ 		if (*status != INTEGRITY_PASS_IMMUTABLE) {
+-			if (iint->flags & IMA_DIGSIG_REQUIRED) {
+-				if (iint->flags & IMA_VERITY_REQUIRED)
++			if (iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) {
++				if (iint_flags(iint, ns_status) & IMA_VERITY_REQUIRED)
+ 					*cause = "verity-signature-required";
+ 				else
+ 					*cause = "IMA-signature-required";
+@@ -333,7 +337,7 @@ static int xattr_verify(struct ima_namespace *ns,
+ 		set_bit(IMA_DIGSIG, &iint->atomic_flags);
+ 
+ 		mask = IMA_DIGSIG_REQUIRED | IMA_VERITY_REQUIRED;
+-		if ((iint->flags & mask) == mask) {
++		if ((iint_flags(iint, ns_status) & mask) == mask) {
+ 			*cause = "verity-signature-required";
+ 			*status = INTEGRITY_FAIL;
+ 			break;
+@@ -373,8 +377,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 	case IMA_VERITY_DIGSIG:
+ 		set_bit(IMA_DIGSIG, &iint->atomic_flags);
+ 
+-		if (iint->flags & IMA_DIGSIG_REQUIRED) {
+-			if (!(iint->flags & IMA_VERITY_REQUIRED)) {
++		if (iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) {
++			if (!(iint_flags(iint, ns_status) & IMA_VERITY_REQUIRED)) {
+ 				*cause = "IMA-signature-required";
+ 				*status = INTEGRITY_FAIL;
+ 				break;
+@@ -468,10 +472,10 @@ int ima_check_blacklist(struct ima_namespace *ns,
+ 	u32 digestsize = 0;
+ 	int rc = 0;
+ 
+-	if (!(iint->flags & IMA_CHECK_BLACKLIST))
++	if (flags & IMA_CHECK_BLACKLIST)
+ 		return 0;
+ 
+-	if (iint->flags & IMA_MODSIG_ALLOWED && modsig) {
++	if ((flags & IMA_MODSIG_ALLOWED) && modsig) {
+ 		ima_get_modsig_digest(modsig, &hash_algo, &digest, &digestsize);
+ 
+ 		rc = is_binary_blacklisted(digest, digestsize);
+@@ -506,8 +510,9 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 	struct dentry *dentry = file_dentry(file);
+ 	struct inode *inode = d_backing_inode(dentry);
+ 	enum integrity_status status = INTEGRITY_UNKNOWN;
++	unsigned long flags = iint_flags(iint, ns_status);
+ 	int rc = xattr_len;
+-	bool try_modsig = iint->flags & IMA_MODSIG_ALLOWED && modsig;
++	bool try_modsig = flags & IMA_MODSIG_ALLOWED && modsig;
+ 
+ 	/* If not appraising a modsig, we need an xattr. */
+ 	if (!(inode->i_opflags & IOP_XATTR) && !try_modsig)
+@@ -518,8 +523,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		if (rc && rc != -ENODATA)
+ 			goto out;
+ 
+-		if (iint->flags & IMA_DIGSIG_REQUIRED) {
+-			if (iint->flags & IMA_VERITY_REQUIRED)
++		if (iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) {
++			if (iint_flags(iint, ns_status) & IMA_VERITY_REQUIRED)
+ 				cause = "verity-signature-required";
+ 			else
+ 				cause = "IMA-signature-required";
+@@ -531,7 +536,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		if (file->f_mode & FMODE_CREATED)
+ 			iint->flags |= IMA_NEW_FILE;
+ 		if ((iint->flags & IMA_NEW_FILE) &&
+-		    (!(iint->flags & IMA_DIGSIG_REQUIRED) ||
++		    (!(iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) ||
+ 		     (inode->i_size == 0)))
+ 			status = INTEGRITY_PASS;
+ 		goto out;
+@@ -612,7 +617,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
+ 				    op, cause, rc, 0);
+ 	} else {
+-		ima_cache_flags(iint, func);
++		ima_cache_flags(iint, ns_status, func);
+ 	}
+ 
+ 	ima_set_cache_status(iint, func, status);
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index d69a92b07fcd..6d29f1e02e6a 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -370,7 +370,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		 * an additional measurement list entry, if needed, based on the
+ 		 * template format and whether the file was already measured.
+ 		 */
+-		if (iint->flags & IMA_MODSIG_ALLOWED) {
++		if (flags & IMA_MODSIG_ALLOWED) {
+ 			rc = ima_read_modsig(func, buf, size, &modsig);
+ 
+ 			if (!rc && ima_template_has_modsig(template_desc) &&
+-- 
+2.36.1
+

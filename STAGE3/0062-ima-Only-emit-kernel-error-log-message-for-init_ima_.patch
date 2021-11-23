@@ -1,0 +1,60 @@
+From a8588f28127bfcae1ad8281c25380b194031a0a1 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 31 Jan 2022 13:13:14 -0500
+Subject: [PATCH 62/80] ima: Only emit kernel error log message for init_ima_ns
+
+Modify ima_parse_appraise_algos() so that it only emits error messages
+due to unknown hash algorithms when parsing for the init_ima_ns.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_policy.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 3b8e45940f37..6f6cf09f80b1 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -1365,7 +1365,8 @@ static bool ima_validate_rule(struct ima_rule_entry *entry)
+ 	return true;
+ }
+ 
+-static unsigned int ima_parse_appraise_algos(char *arg)
++static unsigned int ima_parse_appraise_algos(struct ima_namespace *ns,
++					     char *arg)
+ {
+ 	unsigned int res = 0;
+ 	int idx;
+@@ -1375,14 +1376,16 @@ static unsigned int ima_parse_appraise_algos(char *arg)
+ 		idx = match_string(hash_algo_name, HASH_ALGO__LAST, token);
+ 
+ 		if (idx < 0) {
+-			pr_err("unknown hash algorithm \"%s\"",
+-			       token);
++			if (ns == &init_ima_ns)
++				pr_err("unknown hash algorithm \"%s\"",
++				       token);
+ 			return 0;
+ 		}
+ 
+ 		if (!crypto_has_alg(hash_algo_name[idx], 0, 0)) {
+-			pr_err("unavailable hash algorithm \"%s\", check your kernel configuration",
+-			       token);
++			if (ns == &init_ima_ns)
++				pr_err("unavailable hash algorithm \"%s\", check your kernel configuration",
++				       token);
+ 			return 0;
+ 		}
+ 
+@@ -1842,7 +1845,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
+ 			}
+ 
+ 			entry->allowed_algos =
+-				ima_parse_appraise_algos(args[0].from);
++				ima_parse_appraise_algos(ns, args[0].from);
+ 			/* invalid or empty list of algorithms */
+ 			if (!entry->allowed_algos) {
+ 				result = -EINVAL;
+-- 
+2.36.1
+
