@@ -1,0 +1,109 @@
+From bd6386857100513ae31f746531d9b628995cf601 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.vnet.ibm.com>
+Date: Sat, 29 Jul 2017 16:25:21 -0400
+Subject: [PATCH 57/59] ima: Implement support for transfer and release of
+ tpm_chip
+
+Implement functions to transfer a TPM chip to IMA and release
+it afterwards.
+
+Signed-off-by: Stefan Berger <stefanb@linux.vnet.ibm.com>
+---
+ include/linux/ima.h             | 14 ++++++++++++++
+ security/integrity/ima/ima.h    |  2 ++
+ security/integrity/ima/ima_ns.c | 20 ++++++++++++++++++++
+ 3 files changed, 36 insertions(+)
+
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index 77aa4b3a8c15..004944cac06b 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -16,6 +16,12 @@
+ #include <crypto/hash_info.h>
+ struct linux_binprm;
+ 
++struct tpm_chip;
++
++struct tpm_provider {
++    void (*release_chip)(struct tpm_chip *chip);
++};
++
+ extern struct ima_namespace init_ima_ns;
+ 
+ #ifdef CONFIG_IMA
+@@ -44,6 +50,8 @@ extern int ima_measure_critical_data(const char *event_label,
+ 				     const void *buf, size_t buf_len,
+ 				     bool hash, u8 *digest, size_t digest_len);
+ extern int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root);
++extern int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++			       struct tpm_chip *chip);
+ 
+ #ifdef CONFIG_IMA_APPRAISE_BOOTPARAM
+ extern void ima_appraise_parse_cmdline(void);
+@@ -143,6 +151,12 @@ static inline int ima_measure_critical_data(const char *event_label,
+ 	return -ENOENT;
+ }
+ 
++static inline int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++				      struct tpm_chip *chip)
++{
++	return -ENODEV;
++}
++
+ #endif /* CONFIG_IMA */
+ 
+ #ifdef CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 553b9d85b3fc..c9b4d17a4c32 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -176,6 +176,8 @@ struct ima_namespace {
+ 	struct ima_algo_desc *ima_algo_array;
+ 	int ima_sha1_idx;
+ 	int ima_hash_algo_idx;
++
++	struct tpm_provider *tpm_provider;
+ 	/*
+ 	 * Additional number of slots reserved, as needed, for SHA1
+ 	 * and IMA default algo.
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 729fc6949fcb..a7264937bb16 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -12,6 +12,24 @@
+ 
+ static struct kmem_cache *imans_cachep;
+ 
++int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++			struct tpm_chip *tpm_chip)
++{
++	struct ima_namespace *ns = get_current_ns();
++
++	if (!ns)
++		return -EINVAL;
++
++	if (ns_is_active(ns) || ns->ima_tpm_chip)
++		return -EBUSY;
++
++	ns->tpm_provider = tpm_provider;
++	ns->ima_tpm_chip = tpm_chip;
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(ima_ns_set_tpm_chip);
++
+ static struct ima_config *get_parent_config(struct user_namespace *user_ns)
+ {
+ 	struct ima_namespace *ns;
+@@ -47,6 +65,8 @@ struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
+ /* destroy_ima_ns() must only be called after ima_init_namespace() was called */
+ static void destroy_ima_ns(struct ima_namespace *ns)
+ {
++	if (ns->ima_tpm_chip)
++		ns->tpm_provider->release_chip(ns->ima_tpm_chip);
+ 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
+ 	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
+ 	kfree(ns->arch_policy_entry);
+-- 
+2.31.1
+

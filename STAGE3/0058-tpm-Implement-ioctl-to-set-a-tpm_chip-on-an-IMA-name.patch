@@ -1,0 +1,207 @@
+From a4633759aa708640ce60078be112340a935552c6 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.vnet.ibm.com>
+Date: Sat, 29 Jul 2017 16:25:21 -0400
+Subject: [PATCH 58/59] tpm: Implement ioctl to set a tpm_chip on an IMA
+ namespace
+
+Implement an ioctl for the 'server side' that is to be called
+on the anonymous file descriptor returned from the operation on
+/dev/vtpmx. The ioctl enables the setting of a tpm_chip on an
+ima_namespace. This operation may be rejected if a tpm_chip is
+already set or a chip was already tried to be accessed.
+
+The tpm_chip is later on release when the IMA namespace is torn down,
+which may take a while since user namespace teardown is only occurring
+much later than when for example a container is terminated. Therefore,
+seemingly stale TPM device (/dev/tpmX and /dev/tpmrmX) may be kept
+around for a while until the user namespace is freed.
+
+Signed-off-by: Stefan Berger <stefanb@linux.vnet.ibm.com>
+---
+ drivers/char/tpm/tpm_vtpm_proxy.c | 91 ++++++++++++++++++++++++++++++-
+ include/linux/ima.h               |  6 ++
+ include/uapi/linux/vtpm_proxy.h   |  6 ++
+ 3 files changed, 102 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/char/tpm/tpm_vtpm_proxy.c b/drivers/char/tpm/tpm_vtpm_proxy.c
+index 91c772e38bb5..5d5978bc6455 100644
+--- a/drivers/char/tpm/tpm_vtpm_proxy.c
++++ b/drivers/char/tpm/tpm_vtpm_proxy.c
+@@ -20,6 +20,7 @@
+ #include <linux/anon_inodes.h>
+ #include <linux/poll.h>
+ #include <linux/compat.h>
++#include <linux/ima.h>
+ 
+ #include "tpm.h"
+ 
+@@ -32,19 +33,23 @@ struct proxy_dev {
+ 
+ 	wait_queue_head_t wq;
+ 
+-	struct mutex buf_lock;       /* protect buffer and flags */
++	struct mutex buf_lock;       /* protect buffer, flags, and file */
+ 
+ 	long state;                  /* internal state */
+ #define STATE_OPENED_FLAG        BIT(0)
+ #define STATE_WAIT_RESPONSE_FLAG BIT(1)  /* waiting for emulator response */
+ #define STATE_REGISTERED_FLAG	 BIT(2)
+ #define STATE_DRIVER_COMMAND     BIT(3)  /* sending a driver specific command */
++#define STATE_USED_BY_IMA_NS     BIT(4)  /* used by an IMA namespace */
+ 
+ 	size_t req_len;              /* length of queued TPM request */
+ 	size_t resp_len;             /* length of queued TPM response */
+ 	u8 buffer[TPM_BUFSIZE];      /* request/response buffer */
+ 
+ 	struct work_struct work;     /* task that retrieves TPM timeouts */
++
++	/* Reference to /dev/vtpmx file held while IMA-ns uses chip */
++	struct file *file;
+ };
+ 
+ /* all supported flags */
+@@ -53,11 +58,90 @@ struct proxy_dev {
+ static struct workqueue_struct *workqueue;
+ 
+ static void vtpm_proxy_delete_device(struct proxy_dev *proxy_dev);
++static void vtpm_proxy_fops_undo_open(struct proxy_dev *proxy_dev);
++static struct tpm_provider vtpm_tpm_provider;
+ 
+ /*
+  * Functions related to 'server side'
+  */
+ 
++/**
++ * Tell IMA to use the tpm_chip for the IMA namespace associated
++ * with the current process.
++ */
++static int vtpm_proxy_set_chip_imans(struct proxy_dev *proxy_dev,
++				     struct file *filp)
++{
++	int rc;
++
++	if (!proxy_dev)
++		return -EINVAL;
++
++	mutex_lock(&proxy_dev->buf_lock);
++
++	if (proxy_dev->flags & STATE_USED_BY_IMA_NS) {
++		rc = -EBUSY;
++		goto unlock;
++	}
++
++	rc = ima_ns_set_tpm_chip(&vtpm_tpm_provider, proxy_dev->chip);
++	if (!rc) {
++		/* lock access to it */
++		proxy_dev->file = get_file(filp);
++		proxy_dev->flags |= STATE_USED_BY_IMA_NS;
++	}
++
++unlock:
++	mutex_unlock(&proxy_dev->buf_lock);
++
++	return rc;
++}
++
++/**
++ * vtpm_proxy_release_chip - kernel subsystem releases chip
++ */
++void vtpm_proxy_release_chip(struct tpm_chip *chip)
++{
++	struct proxy_dev *proxy_dev = dev_get_drvdata(&chip->dev);
++
++	if (!proxy_dev)
++		return;
++
++	/* notify 'server side' application with a HUP */
++	vtpm_proxy_fops_undo_open(proxy_dev);
++
++	/*
++	 * release reference we're holding since vtpm_set_chip_imans
++	 */
++	mutex_lock(&proxy_dev->buf_lock);
++
++	fput(proxy_dev->file);
++	proxy_dev->flags &= ~STATE_USED_BY_IMA_NS;
++
++	mutex_unlock(&proxy_dev->buf_lock);
++}
++
++static long vtpm_proxy_ioctl_connect_to_ima_ns(struct file *filp)
++{
++	struct proxy_dev *proxy_dev = filp->private_data;
++
++	return vtpm_proxy_set_chip_imans(proxy_dev, filp);
++}
++
++/**
++ * vtpm_proxy_fops_ioctl - ioctl command on 'server side'
++ */
++static long vtpm_proxy_fops_ioctl(struct file *filp, unsigned int ioctl,
++				  unsigned long arg)
++{
++	switch (ioctl) {
++	case VTPM_PROXY_IOC_CONNECT_TO_IMA_NS:
++		return vtpm_proxy_ioctl_connect_to_ima_ns(filp);
++	default:
++		return -ENOIOCTLCMD;
++	}
++}
++
+ /**
+  * vtpm_proxy_fops_read - Read TPM commands on 'server side'
+  *
+@@ -248,6 +332,7 @@ static const struct file_operations vtpm_proxy_fops = {
+ 	.write = vtpm_proxy_fops_write,
+ 	.poll = vtpm_proxy_fops_poll,
+ 	.release = vtpm_proxy_fops_release,
++	.unlocked_ioctl = vtpm_proxy_fops_ioctl,
+ };
+ 
+ /*
+@@ -693,6 +778,10 @@ static void vtpmx_cleanup(void)
+ 	misc_deregister(&vtpmx_miscdev);
+ }
+ 
++static struct tpm_provider vtpm_tpm_provider = {
++	.release_chip = vtpm_proxy_release_chip,
++};
++
+ static int __init vtpm_module_init(void)
+ {
+ 	int rc;
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index 004944cac06b..9c9904f7096d 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -267,6 +267,12 @@ static inline int ima_securityfs_init(struct user_namespace *ns,
+ 	return 0;
+ }
+ 
++static inline int ima_namespace_set_tpm_chip(struct ima_namespace *ns,
++					     struct tpm_provider *tpm_provider,
++					     struct tpm_chip *chip)
++{
++	return -ENODEV;
++}
+ #endif /* CONFIG_IMA_NS */
+ 
+ #endif /* _LINUX_IMA_H */
+diff --git a/include/uapi/linux/vtpm_proxy.h b/include/uapi/linux/vtpm_proxy.h
+index 31a30f33ac46..2f8ce6b56aef 100644
+--- a/include/uapi/linux/vtpm_proxy.h
++++ b/include/uapi/linux/vtpm_proxy.h
+@@ -51,4 +51,10 @@ struct vtpm_proxy_new_dev {
+ #define TPM2_CC_SET_LOCALITY	0x20001000
+ #define TPM_ORD_SET_LOCALITY	0x20001000
+ 
++/*
++ * ioctl for the file descriptor 'fd' returned by VTPM_PROXY_IOC_NEW_DEV
++ * Used it to connect a tpm_chip to an IMA namespace.
++ */
++#define VTPM_PROXY_IOC_CONNECT_TO_IMA_NS  _IO(0xa1, 0x10)
++
+ #endif /* _UAPI_LINUX_VTPM_PROXY_H */
+-- 
+2.31.1
+
