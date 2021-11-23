@@ -1,0 +1,70 @@
+From 285d1f37e8931bf1456b403e50932889445a2606 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 19 May 2022 16:55:44 -0400
+Subject: [PATCH 51/89] evm: Introduce EVM_NS_ACTIVE flag to indicate active
+ namespace
+
+Introduce the flag EVM_NS_ACTIVE to indicate an active EVM namespace.
+Also introduce IMA_NS_DISABLED to indiate that an EVM namespace is
+disabled.
+
+Implement ns_is_active() to test whether an EVM namespace is active and
+can be used.
+
+Implement ns_is_disabled() to test whether an EVM namespace is disabled.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                      | 5 +++++
+ security/integrity/evm/evm.h             | 9 +++++++++
+ security/integrity/evm/evm_init_evm_ns.c | 1 +
+ 3 files changed, 15 insertions(+)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 043959390d50..933fed28f0e0 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -17,6 +17,11 @@ struct integrity_iint_cache;
+ struct integrity_namespace;
+ 
+ struct evm_namespace {
++	unsigned long evm_ns_flags;
++/* Bit numbers for above flags; use BIT() to get flag */
++#define EVM_NS_ACTIVE			1
++#define EVM_NS_DISABLED			2
++
+ 	struct integrity_namespace *integrity_ns;
+ 	int evm_initialized;
+ };
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index aea39ff4940f..f7a951d8345c 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -75,5 +75,14 @@ struct evm_namespace *evm_ns_from_file(const struct file *filp)
+ 	return file_sb_user_ns(filp)->integrity_ns->evm_ns;
+ }
+ 
++static inline bool ns_is_active(struct evm_namespace *ns)
++{
++	return (ns && test_bit(EVM_NS_ACTIVE, &ns->evm_ns_flags));
++}
++
++static inline bool ns_is_disabled(struct evm_namespace *ns)
++{
++	return (ns && test_bit(EVM_NS_DISABLED, &ns->evm_ns_flags));
++}
+ 
+ #endif
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index 92a42ce66eb6..7cb0261b48b8 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -18,4 +18,5 @@ int __init evm_init_ns(void)
+ }
+ 
+ struct evm_namespace init_evm_ns = {
++	.evm_ns_flags = BIT(EVM_NS_ACTIVE),
+ };
+-- 
+2.40.1
+

@@ -1,0 +1,92 @@
+From 6c46ccf1ef33b4d6fe4c251467a7550acb453dcf Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 2 Feb 2022 12:12:41 -0500
+Subject: [PATCH 32/89] ima: Move ima_buf_template into ima_namespace
+
+Move ima_buf_template into ima_namespace. Adjust all functions that
+access this variable to use the ima_namespace pointer.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h          |  3 ++-
+ security/integrity/ima/ima_main.c     |  2 +-
+ security/integrity/ima/ima_template.c | 12 +++++-------
+ 3 files changed, 8 insertions(+), 9 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index d5727c870472..963967175294 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -198,6 +198,7 @@ struct ima_namespace {
+ 
+ 	struct ima_template_desc *ima_template;
+ 	int template_setup_done;
++	struct ima_template_desc *ima_buf_template;
+ } __randomize_layout;
+ extern struct ima_namespace init_ima_ns;
+ 
+@@ -258,7 +259,7 @@ int template_desc_init_fields(const char *template_fmt,
+ 			      int *num_fields);
+ struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
+ 						    const char *template_name);
+-struct ima_template_desc *ima_template_desc_buf(void);
++struct ima_template_desc *ima_template_desc_buf(struct ima_namespace *ns);
+ struct ima_template_desc *lookup_template_desc(const char *name);
+ bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
+ int ima_restore_measurement_entry(struct ima_namespace *ns,
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 33c480351c44..68d67d0c4495 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -1057,7 +1057,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 	if (!ns->ima_policy_flag && !digest)
+ 		return -ENOENT;
+ 
+-	template = ima_template_desc_buf();
++	template = ima_template_desc_buf(ns);
+ 	if (!template) {
+ 		ret = -EINVAL;
+ 		audit_cause = "ima_template_desc_buf";
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index c138a4110e19..512c12fb51df 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -78,8 +78,6 @@ static const struct ima_template_field supported_fields[] = {
+ #define MAX_TEMPLATE_NAME_LEN \
+ 	sizeof("d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode")
+ 
+-static struct ima_template_desc *ima_buf_template;
+-
+ /**
+  * ima_template_has_modsig - Check whether template has modsig-related fields.
+  * @ima_template: IMA template to check.
+@@ -289,13 +287,13 @@ struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
+ 	return ns->ima_template;
+ }
+ 
+-struct ima_template_desc *ima_template_desc_buf(void)
++struct ima_template_desc *ima_template_desc_buf(struct ima_namespace *ns)
+ {
+-	if (!ima_buf_template) {
++	if (!ns->ima_buf_template) {
+ 		ima_init_template_list();
+-		ima_buf_template = lookup_template_desc("ima-buf");
++		ns->ima_buf_template = lookup_template_desc("ima-buf");
+ 	}
+-	return ima_buf_template;
++	return ns->ima_buf_template;
+ }
+ 
+ int ima_init_template(struct ima_namespace *ns, const char *template_name)
+@@ -317,7 +315,7 @@ int ima_init_template(struct ima_namespace *ns, const char *template_name)
+ 		return result;
+ 	}
+ 
+-	template = ima_template_desc_buf();
++	template = ima_template_desc_buf(ns);
+ 	if (!template) {
+ 		pr_err("Failed to get ima-buf template\n");
+ 		return -EINVAL;
+-- 
+2.40.1
+

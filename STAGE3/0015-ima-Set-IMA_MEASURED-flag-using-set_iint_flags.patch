@@ -1,0 +1,76 @@
+From 60303500a2574de92fedc3765298a68284e9ace9 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 24 May 2022 19:12:31 -0400
+Subject: [PATCH 15/89] ima: Set IMA_MEASURED flag using set_iint_flags
+
+Set the IMA_MEASURED flag using the set_iint_flags() function. This
+prepares the flag for moving it into the ns_status structure.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h      | 3 ++-
+ security/integrity/ima/ima_api.c  | 6 ++++--
+ security/integrity/ima/ima_main.c | 2 +-
+ 3 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 30a7f79f8be1..c7f8cc6dec1e 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -359,7 +359,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 			   const unsigned char *filename,
+ 			   struct evm_ima_xattr_data *xattr_value,
+ 			   int xattr_len, const struct modsig *modsig, int pcr,
+-			   struct ima_template_desc *template_desc);
++			   struct ima_template_desc *template_desc,
++			   struct ns_status *ns_status);
+ int process_buffer_measurement(struct ima_namespace *ns,
+ 			       struct mnt_idmap *idmap,
+ 			       struct inode *inode, const void *buf, int size,
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 4a20f98edd56..8068d83b31da 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -348,7 +348,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 			   struct file *file, const unsigned char *filename,
+ 			   struct evm_ima_xattr_data *xattr_value,
+ 			   int xattr_len, const struct modsig *modsig, int pcr,
+-			   struct ima_template_desc *template_desc)
++			   struct ima_template_desc *template_desc,
++			   struct ns_status *ns_status)
+ {
+ 	static const char op[] = "add_template_measure";
+ 	static const char audit_cause[] = "ENOMEM";
+@@ -362,6 +363,7 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 					     .xattr_len = xattr_len,
+ 					     .modsig = modsig };
+ 	int violation = 0;
++	unsigned long flags = iint_flags(iint, ns_status);
+ 
+ 	/*
+ 	 * We still need to store the measurement in the case of MODSIG because
+@@ -381,7 +383,7 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 
+ 	result = ima_store_template(ns, entry, violation, inode, filename, pcr);
+ 	if ((!result || result == -EEXIST) && !(file->f_flags & O_DIRECT)) {
+-		iint->flags |= IMA_MEASURED;
++		set_iint_flags(iint, ns_status, flags | IMA_MEASURED);
+ 		iint->measured_pcrs |= (0x1 << pcr);
+ 	}
+ 	if (result < 0)
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index a6333ae503e0..5ed20795d671 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -393,7 +393,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	if (action & IMA_MEASURE)
+ 		ima_store_measurement(ns, iint, file, pathname,
+ 				      xattr_value, xattr_len, modsig, pcr,
+-				      template_desc);
++				      template_desc, ns_status);
+ 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
+ 		rc = ima_check_blacklist(ns, iint, modsig, pcr);
+ 		if (rc != -EPERM) {
+-- 
+2.40.1
+
