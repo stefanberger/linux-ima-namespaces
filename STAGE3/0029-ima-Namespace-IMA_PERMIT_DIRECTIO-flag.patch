@@ -1,0 +1,47 @@
+From 6df67bf6611077a73aa933603ce136bcdd95cc5f Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 5 Jan 2022 20:59:38 -0500
+Subject: [PATCH 29/40] ima: Namespace IMA_PERMIT_DIRECTIO flag
+
+Namespace the IMA_PERMIT_DIRECTIO flag that can be set by a
+namespace-specific policy and therefore each namespace has to be treated
+independently in regards to this flags, and so move it into the
+ns_status flags.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h      | 3 ++-
+ security/integrity/ima/ima_main.c | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 4869c3a58868..2f5e69402edd 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -568,7 +568,8 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ 
+ #define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
+ #define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
+-				 IMA_MEASURE | IMA_MEASURED)
++				 IMA_MEASURE | IMA_MEASURED | \
++				 IMA_PERMIT_DIRECTIO)
+ 
+ static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
+ 				       struct ns_status *ns_status)
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 811b7f4ad444..152a5408b636 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -396,7 +396,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	if (action & IMA_AUDIT)
+ 		ima_audit_measurement(iint, pathname, ns_status);
+ 
+-	if ((file->f_flags & O_DIRECT) && (iint->flags & IMA_PERMIT_DIRECTIO))
++	if ((file->f_flags & O_DIRECT) &&
++	    (iint_flags(iint, ns_status) & IMA_PERMIT_DIRECTIO))
+ 		rc = 0;
+ 
+ 	/* Ensure the digest was generated using an allowed algorithm */
+-- 
+2.31.1
+

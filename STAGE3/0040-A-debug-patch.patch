@@ -1,0 +1,48 @@
+From f3648b3f189a7d62fb9c717f6ff7beab0987b375 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 11:10:22 -0500
+Subject: [PATCH 40/40] A debug patch
+
+---
+ security/integrity/ima/ima_main.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 498a91708e9f..a604b86cda89 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -252,6 +252,9 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action = ima_get_action(ns, file_mnt_user_ns(file), inode, cred, secid,
+ 				mask, func, &pcr, &template_desc, NULL,
+ 				&allowed_algos);
++	if (ns != &init_ima_ns)
++		pr_debug("actions: 0x%x  ns:%p (init_ima_ns: %p)\n", action, ns, &init_ima_ns);
++
+ 	violation_check = ((func == FILE_CHECK || func == MMAP_CHECK) &&
+ 			   (ns->ima_policy_flag & IMA_MEASURE));
+ 	if (!action && !violation_check)
+@@ -334,6 +337,13 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action &= IMA_DO_MASK;
+ 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
+ 
++	if (ns != &init_ima_ns
++#ifdef CONFIG_IMA_NS
++	    || (!list_empty(&iint->ns_list) && !list_is_singular(&iint->ns_list))
++#endif
++	)
++		pr_debug("flags: 0x%lx actions: 0x%x  ns:%p (init_ima_ns: %p)\n", flags, action, ns, &init_ima_ns);
++
+ 	/* If target pcr is already measured, unset IMA_MEASURE action */
+ 	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr)))
+ 		action ^= IMA_MEASURE;
+@@ -465,6 +475,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			case -EACCES:
+ 				/* return this error at the end but continue */
+ 				ret = -EACCES;
++				pr_debug("-EACCESS by ns: %p (init_ima_ns: %p)\n", ns, &init_ima_ns);
+ 				break;
+ 			default:
+ 				/* should not happen */
+-- 
+2.31.1
+

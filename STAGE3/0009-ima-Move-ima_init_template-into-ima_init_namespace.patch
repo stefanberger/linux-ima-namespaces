@@ -1,0 +1,77 @@
+From 18cb7ce69d2a7032c4424053654dc33334dbe329 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 16 Dec 2021 08:47:33 -0500
+Subject: [PATCH 09/40] ima: Move ima_init_template() into ima_init_namespace()
+
+To preserve the order of initilization, move ima_init_template()
+and ima_load_kexec_buffer() into ima_init_namespace() and only call them
+for initialization of init_ima_ns.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_init.c        |  7 -------
+ security/integrity/ima/ima_init_ima_ns.c | 12 ++++++++++++
+ security/integrity/ima/ima_template.c    |  2 +-
+ 3 files changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index 768b2d4fe527..214e5040cd8c 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -127,13 +127,6 @@ int __init ima_init(void)
+ 	if (rc)
+ 		return rc;
+ 
+-	rc = ima_init_template();
+-	if (rc != 0)
+-		return rc;
+-
+-	/* It can be called before ima_init_digests(), it does not use TPM. */
+-	ima_load_kexec_buffer();
+-
+ 	rc = ima_init_digests(&init_ima_ns);
+ 	if (rc != 0)
+ 		return rc;
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 25541168ce19..3c142c410bbc 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -57,10 +57,22 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 	if (rc < 0)
+ 		goto err_deregister_notifier;
+ 
++	if (ns == &init_ima_ns) {
++		rc = ima_init_template();
++		if (rc != 0)
++			goto err_deinit_crypto;
++
++		/* It can be called before ima_init_digests(), it does not use TPM. */
++		ima_load_kexec_buffer();
++	}
++
+ 	atomic_set(&ns->active, 1);
+ 
+ 	return 0;
+ 
++err_deinit_crypto:
++	ima_deinit_crypto(ns);
++
+ err_deregister_notifier:
+ 	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
+ 
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index 334ff1cc7087..115e9494ab9f 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -282,7 +282,7 @@ struct ima_template_desc *ima_template_desc_buf(void)
+ 	return ima_buf_template;
+ }
+ 
+-int __init ima_init_template(void)
++int ima_init_template(void)
+ {
+ 	struct ima_template_desc *template = ima_template_desc_current();
+ 	int result;
+-- 
+2.31.1
+
