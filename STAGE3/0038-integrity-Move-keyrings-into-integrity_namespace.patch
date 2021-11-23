@@ -1,0 +1,887 @@
+From 4e91f68fa3c74d86ae8b3653de0cca76bdc6f186 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Sat, 1 Jan 2022 19:08:06 -0500
+Subject: [PATCH 38/81] integrity: Move keyrings into integrity_namespace
+
+Define an integrity_namespace structure and move the keyrings into it.
+Also define an init_integrity_ns that holds the hosts keyrings.
+
+Create the integrity_namespace when creating the user_namespace.
+The reason for this is that runc causes a call to evm_inode_setattr()
+soon after creating a user namespace. The get_intgerity_ns() there must
+not result in NULL pointer. The integrity_namespace needs access to
+keyrings (_evm, _ima) that may be there independent of SecurityFS or an
+IMA namespace.
+
+Reference the init_integrity_ns from the init_ima_ns.
+
+Pass a pointer to the integrity_namespace structure through the APIs
+so that the keyrings can be accessed through this structure now.
+
+Define current_integrity_ns() for configurations when CONFIG_IMA_NS is
+defined or not defined.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                           | 14 ++--
+ include/linux/integrity_namespace.h           | 21 ++++++
+ security/integrity/digsig.c                   | 73 +++++++++++--------
+ security/integrity/evm/evm_main.c             | 48 +++++++-----
+ security/integrity/iint.c                     |  7 +-
+ security/integrity/ima/ima.h                  |  5 +-
+ security/integrity/ima/ima_appraise.c         | 28 ++++---
+ security/integrity/ima/ima_init.c             | 10 ++-
+ security/integrity/ima/ima_init_ima_ns.c      |  2 +
+ security/integrity/ima/ima_ns.c               |  2 +
+ security/integrity/integrity.h                | 44 ++++++-----
+ security/integrity/integrity_ns.c             |  6 ++
+ .../platform_certs/platform_keyring.c         |  9 ++-
+ 13 files changed, 174 insertions(+), 95 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index 4c374be70247..ef7a6b70e124 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -13,10 +13,12 @@
+ #include <linux/xattr.h>
+ 
+ struct integrity_iint_cache;
++struct integrity_namespace;
+ 
+ #ifdef CONFIG_EVM
+ extern int evm_set_key(void *key, size_t keylen);
+-extern enum integrity_status evm_verifyxattr(struct dentry *dentry,
++extern enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
++					     struct dentry *dentry,
+ 					     const char *xattr_name,
+ 					     void *xattr_value,
+ 					     size_t xattr_value_len,
+@@ -58,10 +60,12 @@ static inline int evm_set_key(void *key, size_t keylen)
+ }
+ 
+ #ifdef CONFIG_INTEGRITY
+-static inline enum integrity_status evm_verifyxattr(struct dentry *dentry,
+-						    const char *xattr_name,
+-						    void *xattr_value,
+-						    size_t xattr_value_len,
++static inline enum integrity_status evm_verifyxattr(
++					struct integrity_namespace *ns,
++					struct dentry *dentry,
++					const char *xattr_name,
++					void *xattr_value,
++					size_t xattr_value_len,
+ 					struct integrity_iint_cache *iint)
+ {
+ 	return INTEGRITY_UNKNOWN;
+diff --git a/include/linux/integrity_namespace.h b/include/linux/integrity_namespace.h
+index a5b852a72fc6..521f44b1d19e 100644
+--- a/include/linux/integrity_namespace.h
++++ b/include/linux/integrity_namespace.h
+@@ -7,23 +7,44 @@
+ #ifndef _LINUX_INTEGRITY_NAMESPACE_H
+ #define _LINUX_INTEGRITY_NAMESPACE_H
+ 
++#include <linux/cred.h>
++#include <linux/user_namespace.h>
++
++#define INTEGRITY_KEYRING_EVM		0
++#define INTEGRITY_KEYRING_IMA		1
++#define INTEGRITY_KEYRING_PLATFORM	2
++#define INTEGRITY_KEYRING_MACHINE	3
++#define INTEGRITY_KEYRING_MAX		4
++
+ struct ima_namespace;
+ 
+ struct integrity_namespace {
+ #ifdef CONFIG_IMA
+ 	struct ima_namespace *ima_ns;
+ #endif
++	struct key *keyring[INTEGRITY_KEYRING_MAX];
+ };
+ 
+ extern struct integrity_namespace init_integrity_ns;
+ 
+ #ifdef CONFIG_IMA_NS
+ 
++static inline struct integrity_namespace *current_integrity_ns(void)
++{
++	return current_user_ns()->integrity_ns;
++}
++
+ struct integrity_namespace *create_integrity_ns(void);
++
+ void free_integrity_ns(struct user_namespace *user_ns);
+ 
+ #else
+ 
++static inline struct integrity_namespace *current_integrity_ns(void)
++{
++	return &init_integrity_ns;
++}
++
+ static inline struct integrity_namespace *create_integrity_ns(void)
+ {
+ 	return NULL;
+diff --git a/security/integrity/digsig.c b/security/integrity/digsig.c
+index 8a82a6c7f48a..9e5241614d06 100644
+--- a/security/integrity/digsig.c
++++ b/security/integrity/digsig.c
+@@ -14,13 +14,12 @@
+ #include <linux/key-type.h>
+ #include <linux/digsig.h>
+ #include <linux/vmalloc.h>
++#include <linux/integrity_namespace.h>
+ #include <crypto/public_key.h>
+ #include <keys/system_keyring.h>
+ 
+ #include "integrity.h"
+ 
+-static struct key *keyring[INTEGRITY_KEYRING_MAX];
+-
+ static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
+ #ifndef CONFIG_INTEGRITY_TRUSTED_KEYRING
+ 	"_evm",
+@@ -39,26 +38,28 @@ static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
+ #define restrict_link_to_ima restrict_link_by_builtin_trusted
+ #endif
+ 
+-static struct key *integrity_keyring_from_id(const unsigned int id)
++static struct key *integrity_keyring_from_id(struct integrity_namespace *ns,
++					     const unsigned int id)
+ {
+ 	if (id >= INTEGRITY_KEYRING_MAX)
+ 		return ERR_PTR(-EINVAL);
+ 
+-	if (!keyring[id]) {
+-		keyring[id] =
++	if (!ns->keyring[id]) {
++		ns->keyring[id] =
+ 			request_key(&key_type_keyring, keyring_name[id], NULL);
+-		if (IS_ERR(keyring[id])) {
+-			int err = PTR_ERR(keyring[id]);
++		if (IS_ERR(ns->keyring[id])) {
++			int err = PTR_ERR(ns->keyring[id]);
+ 			pr_err("no %s keyring: %d\n", keyring_name[id], err);
+-			keyring[id] = NULL;
++			ns->keyring[id] = NULL;
+ 			return ERR_PTR(err);
+ 		}
+ 	}
+ 
+-	return keyring[id];
++	return ns->keyring[id];
+ }
+ 
+-int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
++int integrity_digsig_verify(struct integrity_namespace *ns,
++			    const unsigned int id, const char *sig, int siglen,
+ 			    const char *digest, int digestlen)
+ {
+ 	struct key *keyring;
+@@ -66,7 +67,7 @@ int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
+ 	if (siglen < 2)
+ 		return -EINVAL;
+ 
+-	keyring = integrity_keyring_from_id(id);
++	keyring = integrity_keyring_from_id(ns, id);
+ 	if (IS_ERR(keyring))
+ 		return PTR_ERR(keyring);
+ 
+@@ -84,45 +85,49 @@ int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
+ 	return -EOPNOTSUPP;
+ }
+ 
+-int integrity_modsig_verify(const unsigned int id, const struct modsig *modsig)
++int integrity_modsig_verify(struct integrity_namespace *ns,
++			    const unsigned int id, const struct modsig *modsig)
+ {
+ 	struct key *keyring;
+ 
+-	keyring = integrity_keyring_from_id(id);
++	keyring = integrity_keyring_from_id(ns, id);
+ 	if (IS_ERR(keyring))
+ 		return PTR_ERR(keyring);
+ 
+ 	return ima_modsig_verify(keyring, modsig);
+ }
+ 
+-static int __init __integrity_init_keyring(const unsigned int id,
++static int __init __integrity_init_keyring(struct integrity_namespace *ns,
++					   const unsigned int id,
+ 					   key_perm_t perm,
+ 					   struct key_restriction *restriction)
+ {
+ 	const struct cred *cred = current_cred();
+ 	int err = 0;
+ 
+-	keyring[id] = keyring_alloc(keyring_name[id], KUIDT_INIT(0),
+-				    KGIDT_INIT(0), cred, perm,
+-				    KEY_ALLOC_NOT_IN_QUOTA, restriction, NULL);
+-	if (IS_ERR(keyring[id])) {
+-		err = PTR_ERR(keyring[id]);
++	ns->keyring[id] = keyring_alloc(keyring_name[id], KUIDT_INIT(0),
++					KGIDT_INIT(0), cred, perm,
++					KEY_ALLOC_NOT_IN_QUOTA, restriction,
++					NULL);
++	if (IS_ERR(ns->keyring[id])) {
++		err = PTR_ERR(ns->keyring[id]);
+ 		pr_info("Can't allocate %s keyring (%d)\n",
+ 			keyring_name[id], err);
+-		keyring[id] = NULL;
++		ns->keyring[id] = NULL;
+ 	} else {
+ 		if (id == INTEGRITY_KEYRING_PLATFORM)
+-			set_platform_trusted_keys(keyring[id]);
++			set_platform_trusted_keys(ns->keyring[id]);
+ 		if (id == INTEGRITY_KEYRING_MACHINE && trust_moklist())
+-			set_machine_trusted_keys(keyring[id]);
++			set_machine_trusted_keys(ns->keyring[id]);
+ 		if (id == INTEGRITY_KEYRING_IMA)
+-			load_module_cert(keyring[id]);
++			load_module_cert(ns->keyring[id]);
+ 	}
+ 
+ 	return err;
+ }
+ 
+-int __init integrity_init_keyring(const unsigned int id)
++int __init integrity_init_keyring(struct integrity_namespace *ns,
++				  const unsigned int id)
+ {
+ 	struct key_restriction *restriction;
+ 	key_perm_t perm;
+@@ -154,19 +159,21 @@ int __init integrity_init_keyring(const unsigned int id)
+ 		perm |= KEY_USR_WRITE;
+ 
+ out:
+-	return __integrity_init_keyring(id, perm, restriction);
++	return __integrity_init_keyring(ns, id, perm, restriction);
+ }
+ 
+-static int __init integrity_add_key(const unsigned int id, const void *data,
++static int __init integrity_add_key(struct integrity_namespace *ns,
++				    const unsigned int id, const void *data,
+ 				    off_t size, key_perm_t perm)
+ {
+ 	key_ref_t key;
+ 	int rc = 0;
+ 
+-	if (!keyring[id])
++	if (!ns->keyring[id])
+ 		return -EINVAL;
+ 
+-	key = key_create_or_update(make_key_ref(keyring[id], 1), "asymmetric",
++	key = key_create_or_update(make_key_ref(ns->keyring[id], 1),
++				   "asymmetric",
+ 				   NULL, data, size, perm,
+ 				   KEY_ALLOC_NOT_IN_QUOTA);
+ 	if (IS_ERR(key)) {
+@@ -182,7 +189,8 @@ static int __init integrity_add_key(const unsigned int id, const void *data,
+ 
+ }
+ 
+-int __init integrity_load_x509(const unsigned int id, const char *path)
++int __init integrity_load_x509(struct integrity_namespace *ns,
++			       const unsigned int id, const char *path)
+ {
+ 	void *data = NULL;
+ 	size_t size;
+@@ -200,18 +208,19 @@ int __init integrity_load_x509(const unsigned int id, const char *path)
+ 	perm = (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_VIEW | KEY_USR_READ;
+ 
+ 	pr_info("Loading X.509 certificate: %s\n", path);
+-	rc = integrity_add_key(id, (const void *)data, size, perm);
++	rc = integrity_add_key(ns, id, (const void *)data, size, perm);
+ 
+ 	vfree(data);
+ 	return rc;
+ }
+ 
+-int __init integrity_load_cert(const unsigned int id, const char *source,
++int __init integrity_load_cert(struct integrity_namespace *ns,
++			       const unsigned int id, const char *source,
+ 			       const void *data, size_t len, key_perm_t perm)
+ {
+ 	if (!data)
+ 		return -EINVAL;
+ 
+ 	pr_info("Loading X.509 certificate: %s\n", source);
+-	return integrity_add_key(id, data, len, perm);
++	return integrity_add_key(ns, id, data, len, perm);
+ }
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index cc88f02c7562..88974e2b658b 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -21,6 +21,7 @@
+ #include <linux/evm.h>
+ #include <linux/magic.h>
+ #include <linux/posix_acl_xattr.h>
++#include <linux/integrity_namespace.h>
+ 
+ #include <crypto/hash.h>
+ #include <crypto/hash_info.h>
+@@ -170,7 +171,8 @@ static int evm_find_protected_xattrs(struct dentry *dentry)
+  *
+  * Returns integrity status
+  */
+-static enum integrity_status evm_verify_hmac(struct dentry *dentry,
++static enum integrity_status evm_verify_hmac(struct integrity_namespace *ns,
++					     struct dentry *dentry,
+ 					     const char *xattr_name,
+ 					     char *xattr_value,
+ 					     size_t xattr_value_len,
+@@ -242,9 +244,10 @@ static enum integrity_status evm_verify_hmac(struct dentry *dentry,
+ 				   xattr_value_len, xattr_data->type, &digest);
+ 		if (rc)
+ 			break;
+-		rc = integrity_digsig_verify(INTEGRITY_KEYRING_EVM,
+-					(const char *)xattr_data, xattr_len,
+-					digest.digest, digest.hdr.length);
++		rc = integrity_digsig_verify
++					(ns, INTEGRITY_KEYRING_EVM,
++					 (const char *)xattr_data, xattr_len,
++					 digest.digest, digest.hdr.length);
+ 		if (!rc) {
+ 			inode = d_backing_inode(dentry);
+ 
+@@ -392,6 +395,7 @@ int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
+ 
+ /**
+  * evm_verifyxattr - verify the integrity of the requested xattr
++ * @ns: integrity namespace to user for verification
+  * @dentry: object of the verify xattr
+  * @xattr_name: requested xattr
+  * @xattr_value: requested xattr value
+@@ -406,7 +410,8 @@ int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
+  * This function requires the caller to lock the inode's i_mutex before it
+  * is executed.
+  */
+-enum integrity_status evm_verifyxattr(struct dentry *dentry,
++enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
++				      struct dentry *dentry,
+ 				      const char *xattr_name,
+ 				      void *xattr_value, size_t xattr_value_len,
+ 				      struct integrity_iint_cache *iint)
+@@ -419,7 +424,7 @@ enum integrity_status evm_verifyxattr(struct dentry *dentry,
+ 		if (!iint)
+ 			return INTEGRITY_UNKNOWN;
+ 	}
+-	return evm_verify_hmac(dentry, xattr_name, xattr_value,
++	return evm_verify_hmac(ns, dentry, xattr_name, xattr_value,
+ 				 xattr_value_len, iint);
+ }
+ EXPORT_SYMBOL_GPL(evm_verifyxattr);
+@@ -431,13 +436,14 @@ EXPORT_SYMBOL_GPL(evm_verifyxattr);
+  * Verify and return the dentry's metadata integrity. The exceptions are
+  * before EVM is initialized or in 'fix' mode.
+  */
+-static enum integrity_status evm_verify_current_integrity(struct dentry *dentry)
++static enum integrity_status evm_verify_current_integrity
++			(struct integrity_namespace *ns, struct dentry *dentry)
+ {
+ 	struct inode *inode = d_backing_inode(dentry);
+ 
+ 	if (!evm_key_loaded() || !S_ISREG(inode->i_mode) || evm_fixmode)
+ 		return INTEGRITY_PASS;
+-	return evm_verify_hmac(dentry, NULL, NULL, 0, NULL);
++	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL);
+ }
+ 
+ /*
+@@ -538,7 +544,8 @@ static int evm_xattr_change(struct user_namespace *mnt_userns,
+  * For posix xattr acls only, permit security.evm, even if it currently
+  * doesn't exist, to be updated unless the EVM signature is immutable.
+  */
+-static int evm_protect_xattr(struct user_namespace *mnt_userns,
++static int evm_protect_xattr(struct integrity_namespace *ns,
++			     struct user_namespace *mnt_userns,
+ 			     struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
+@@ -550,14 +557,14 @@ static int evm_protect_xattr(struct user_namespace *mnt_userns,
+ 	} else if (!evm_protected_xattr(xattr_name)) {
+ 		if (!posix_xattr_acl(xattr_name))
+ 			return 0;
+-		evm_status = evm_verify_current_integrity(dentry);
++		evm_status = evm_verify_current_integrity(ns, dentry);
+ 		if ((evm_status == INTEGRITY_PASS) ||
+ 		    (evm_status == INTEGRITY_NOXATTRS))
+ 			return 0;
+ 		goto out;
+ 	}
+ 
+-	evm_status = evm_verify_current_integrity(dentry);
++	evm_status = evm_verify_current_integrity(ns, dentry);
+ 	if (evm_status == INTEGRITY_NOXATTRS) {
+ 		struct integrity_iint_cache *iint;
+ 
+@@ -626,6 +633,7 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		       size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xattr_data = xattr_value;
++	struct integrity_namespace *ns = current_integrity_ns();
+ 
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+@@ -640,8 +648,8 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
+ 			return -EPERM;
+ 	}
+-	return evm_protect_xattr(mnt_userns, dentry, xattr_name, xattr_value,
+-				 xattr_value_len);
++	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name,
++				 xattr_value, xattr_value_len);
+ }
+ 
+ /**
+@@ -656,13 +664,14 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ int evm_inode_removexattr(struct user_namespace *mnt_userns,
+ 			  struct dentry *dentry, const char *xattr_name)
+ {
++	struct integrity_namespace *ns = current_integrity_ns();
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+ 	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
+ 		return 0;
+ 
+-	return evm_protect_xattr(mnt_userns, dentry, xattr_name, NULL, 0);
++	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name, NULL, 0);
+ }
+ 
+ static void evm_reset_status(struct inode *inode)
+@@ -779,6 +788,7 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ {
+ 	unsigned int ia_valid = attr->ia_valid;
+ 	enum integrity_status evm_status;
++	struct integrity_namespace *ns = current_integrity_ns();
+ 
+ 	/* Policy permits modification of the protected attrs even though
+ 	 * there's no HMAC key loaded
+@@ -788,7 +798,7 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ 
+ 	if (!(ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID)))
+ 		return 0;
+-	evm_status = evm_verify_current_integrity(dentry);
++	evm_status = evm_verify_current_integrity(ns, dentry);
+ 	/*
+ 	 * Writing attrs is safe for portable signatures, as portable signatures
+ 	 * are immutable and can never be updated.
+@@ -869,11 +879,12 @@ int evm_inode_init_security(struct inode *inode,
+ EXPORT_SYMBOL_GPL(evm_inode_init_security);
+ 
+ #ifdef CONFIG_EVM_LOAD_X509
+-void __init evm_load_x509(void)
++void __init evm_load_x509(struct integrity_namespace *ns)
+ {
+ 	int rc;
+ 
+-	rc = integrity_load_x509(INTEGRITY_KEYRING_EVM, CONFIG_EVM_X509_PATH);
++	rc = integrity_load_x509(ns, INTEGRITY_KEYRING_EVM,
++				 CONFIG_EVM_X509_PATH);
+ 	if (!rc)
+ 		evm_initialized |= EVM_INIT_X509;
+ }
+@@ -883,10 +894,11 @@ static int __init init_evm(void)
+ {
+ 	int error;
+ 	struct list_head *pos, *q;
++	struct integrity_namespace *ns = &init_integrity_ns;
+ 
+ 	evm_init_config();
+ 
+-	error = integrity_init_keyring(INTEGRITY_KEYRING_EVM);
++	error = integrity_init_keyring(ns, INTEGRITY_KEYRING_EVM);
+ 	if (error)
+ 		goto error;
+ 
+diff --git a/security/integrity/iint.c b/security/integrity/iint.c
+index e87d9ec9d93b..540960cee589 100644
+--- a/security/integrity/iint.c
++++ b/security/integrity/iint.c
+@@ -20,6 +20,7 @@
+ #include <linux/security.h>
+ #include <linux/lsm_hooks.h>
+ #include <linux/ima.h>
++#include <linux/integrity_namespace.h>
+ #include "integrity.h"
+ 
+ static struct rb_root integrity_iint_tree = RB_ROOT;
+@@ -226,10 +227,12 @@ int integrity_kernel_read(struct file *file, loff_t offset,
+  */
+ void __init integrity_load_keys(void)
+ {
+-	ima_load_x509();
++	struct integrity_namespace *ns = &init_integrity_ns;
++
++	ima_load_x509(ns);
+ 
+ 	if (!IS_ENABLED(CONFIG_IMA_LOAD_X509))
+-		evm_load_x509();
++		evm_load_x509(ns);
+ }
+ 
+ static int __init integrity_fs_init(void)
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 235727339ff5..78c1bc54f5b1 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -202,6 +202,8 @@ struct ima_namespace {
+ 	struct ima_template_desc *ima_template;
+ 	int template_setup_done;
+ 	struct ima_template_desc *ima_buf_template;
++
++	struct integrity_namespace *integrity_ns;
+ } __randomize_layout;
+ extern struct ima_namespace init_ima_ns;
+ 
+@@ -462,7 +464,8 @@ static inline int ima_check_blacklist(struct ima_namespace *ns,
+ 	return 0;
+ }
+ 
+-static inline int ima_appraise_measurement(enum ima_hooks func,
++static inline int ima_appraise_measurement(struct ima_namespace *ns,
++					   enum ima_hooks func,
+ 					   struct integrity_iint_cache *iint,
+ 					   struct ns_status *ns_status,
+ 					   struct file *file,
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 4dd768213a36..546cbb043dce 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -14,6 +14,7 @@
+ #include <linux/ima.h>
+ #include <linux/evm.h>
+ #include <linux/fsverity.h>
++#include <linux/integrity_namespace.h>
+ #include <keys/system_keyring.h>
+ #include <uapi/linux/fsverity.h>
+ 
+@@ -346,7 +347,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 			*status = INTEGRITY_FAIL;
+ 			break;
+ 		}
+-		rc = integrity_digsig_verify(INTEGRITY_KEYRING_IMA,
++		rc = integrity_digsig_verify(ns->integrity_ns,
++					     INTEGRITY_KEYRING_IMA,
+ 					     (const char *)xattr_value,
+ 					     xattr_len,
+ 					     ima_hash->digest,
+@@ -357,7 +359,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 		}
+ 		if (IS_ENABLED(CONFIG_INTEGRITY_PLATFORM_KEYRING) && rc &&
+ 		    func == KEXEC_KERNEL_CHECK)
+-			rc = integrity_digsig_verify(INTEGRITY_KEYRING_PLATFORM,
++			rc = integrity_digsig_verify(ns->integrity_ns,
++						     INTEGRITY_KEYRING_PLATFORM,
+ 						     (const char *)xattr_value,
+ 						     xattr_len,
+ 						     ima_hash->digest,
+@@ -396,7 +399,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 			break;
+ 		}
+ 
+-		rc = integrity_digsig_verify(INTEGRITY_KEYRING_IMA,
++		rc = integrity_digsig_verify(ns->integrity_ns,
++					     INTEGRITY_KEYRING_IMA,
+ 					     (const char *)xattr_value,
+ 					     xattr_len, hash.digest,
+ 					     hash.hdr.length);
+@@ -424,15 +428,18 @@ static int xattr_verify(struct ima_namespace *ns,
+  *
+  * Return 0 on success, error code otherwise.
+  */
+-static int modsig_verify(enum ima_hooks func, const struct modsig *modsig,
++static int modsig_verify(struct ima_namespace *ns,
++			 enum ima_hooks func, const struct modsig *modsig,
+ 			 enum integrity_status *status, const char **cause)
+ {
+ 	int rc;
+ 
+-	rc = integrity_modsig_verify(INTEGRITY_KEYRING_IMA, modsig);
++	rc = integrity_modsig_verify(ns->integrity_ns,
++				     INTEGRITY_KEYRING_IMA, modsig);
+ 	if (IS_ENABLED(CONFIG_INTEGRITY_PLATFORM_KEYRING) && rc &&
+ 	    func == KEXEC_KERNEL_CHECK)
+-		rc = integrity_modsig_verify(INTEGRITY_KEYRING_PLATFORM,
++		rc = integrity_modsig_verify(ns->integrity_ns,
++					     INTEGRITY_KEYRING_PLATFORM,
+ 					     modsig);
+ 	if (rc) {
+ 		*cause = "invalid-signature";
+@@ -532,7 +539,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		goto out;
+ 	}
+ 
+-	status = evm_verifyxattr(dentry, XATTR_NAME_IMA, xattr_value, rc, iint);
++	status = evm_verifyxattr(ns->integrity_ns, dentry, XATTR_NAME_IMA,
++				 xattr_value, rc, iint);
+ 	switch (status) {
+ 	case INTEGRITY_PASS:
+ 	case INTEGRITY_PASS_IMMUTABLE:
+@@ -558,8 +566,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 	}
+ 
+ 	if (xattr_value)
+-		rc = xattr_verify(ns, func, iint, ns_status, xattr_value, xattr_len,
+-				  &status, &cause);
++		rc = xattr_verify(ns, func, iint, ns_status,
++				  xattr_value, xattr_len, &status, &cause);
+ 
+ 	/*
+ 	 * If we have a modsig and either no imasig or the imasig's key isn't
+@@ -568,7 +576,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 	if (try_modsig &&
+ 	    (!xattr_value || xattr_value->type == IMA_XATTR_DIGEST_NG ||
+ 	     rc == -ENOKEY))
+-		rc = modsig_verify(func, modsig, &status, &cause);
++		rc = modsig_verify(ns, func, modsig, &status, &cause);
+ 
+ out:
+ 	/*
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index a56bb0916de8..3aff1162a0cc 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -17,6 +17,7 @@
+ #include <linux/err.h>
+ #include <linux/ima.h>
+ #include <generated/utsrelease.h>
++#include <linux/integrity_namespace.h>
+ 
+ #include "ima.h"
+ 
+@@ -100,15 +101,15 @@ int ima_add_boot_aggregate(struct ima_namespace *ns, uuid_t *src_userns)
+ }
+ 
+ #ifdef CONFIG_IMA_LOAD_X509
+-void __init ima_load_x509(void)
++void __init ima_load_x509(struct integrity_namespace *ns)
+ {
+ 	int unset_flags = init_ima_ns.ima_policy_flag & IMA_APPRAISE;
+ 
+ 	init_ima_ns.ima_policy_flag &= ~unset_flags;
+-	integrity_load_x509(INTEGRITY_KEYRING_IMA, CONFIG_IMA_X509_PATH);
++	integrity_load_x509(ns, INTEGRITY_KEYRING_IMA, CONFIG_IMA_X509_PATH);
+ 
+ 	/* load also EVM key to avoid appraisal */
+-	evm_load_x509();
++	evm_load_x509(ns);
+ 
+ 	init_ima_ns.ima_policy_flag |= unset_flags;
+ }
+@@ -118,7 +119,8 @@ int __init ima_init(void)
+ {
+ 	int rc;
+ 
+-	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
++	rc = integrity_init_keyring(&init_integrity_ns,
++				    INTEGRITY_KEYRING_IMA);
+ 	if (rc)
+ 		return rc;
+ 
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 04559f372f5a..76cda8321f62 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -5,6 +5,7 @@
+  *   Yuqiong Sun <suny@us.ibm.com>
+  *   Stefan Berger <stefanb@linux.vnet.ibm.com>
+  */
++#include <linux/integrity_namespace.h>
+ 
+ #include "ima.h"
+ 
+@@ -115,5 +116,6 @@ struct ima_namespace init_ima_ns = {
+ 		.ima_hash_algo = HASH_ALGO_SHA1,
+ 		.template_name = CONFIG_IMA_DEFAULT_TEMPLATE,
+ 	},
++	.integrity_ns = &init_integrity_ns,
+ };
+ EXPORT_SYMBOL(init_ima_ns);
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 696ea4a72555..5d1f5219267c 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -39,6 +39,8 @@ struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
+ 	/* inherit config from parent */
+ 	ns->config = *ic;
+ 
++	ns->integrity_ns = user_ns->integrity_ns;
++
+ 	return ns;
+ }
+ 
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index 290051b49249..38423557ab44 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -219,47 +219,51 @@ struct integrity_iint_cache *integrity_iint_find(struct inode *inode);
+ int integrity_kernel_read(struct file *file, loff_t offset,
+ 			  void *addr, unsigned long count);
+ 
+-#define INTEGRITY_KEYRING_EVM		0
+-#define INTEGRITY_KEYRING_IMA		1
+-#define INTEGRITY_KEYRING_PLATFORM	2
+-#define INTEGRITY_KEYRING_MACHINE	3
+-#define INTEGRITY_KEYRING_MAX		4
+-
+ extern struct dentry *integrity_dir;
+ 
+ struct modsig;
++struct integrity_namespace;
+ 
+ #ifdef CONFIG_INTEGRITY_SIGNATURE
+ 
+-int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
++int integrity_digsig_verify(struct integrity_namespace *ns,
++			    const unsigned int id, const char *sig, int siglen,
+ 			    const char *digest, int digestlen);
+-int integrity_modsig_verify(unsigned int id, const struct modsig *modsig);
+-
+-int __init integrity_init_keyring(const unsigned int id);
+-int __init integrity_load_x509(const unsigned int id, const char *path);
+-int __init integrity_load_cert(const unsigned int id, const char *source,
++int integrity_modsig_verify(struct integrity_namespace *ns,
++			    unsigned int id, const struct modsig *modsig);
++
++int __init integrity_init_keyring(struct integrity_namespace *ns,
++				  const unsigned int id);
++int __init integrity_load_x509(struct integrity_namespace *ns,
++			       const unsigned int id, const char *path);
++int __init integrity_load_cert(struct integrity_namespace *ns,
++			       const unsigned int id, const char *source,
+ 			       const void *data, size_t len, key_perm_t perm);
+ #else
+ 
+-static inline int integrity_digsig_verify(const unsigned int id,
++static inline int integrity_digsig_verify(struct integrity_namespace *ns,
++					  const unsigned int id,
+ 					  const char *sig, int siglen,
+ 					  const char *digest, int digestlen)
+ {
+ 	return -EOPNOTSUPP;
+ }
+ 
+-static inline int integrity_modsig_verify(unsigned int id,
++static inline int integrity_modsig_verify(struct integrity_namespace *ns,
++					  unsigned int id,
+ 					  const struct modsig *modsig)
+ {
+ 	return -EOPNOTSUPP;
+ }
+ 
+-static inline int integrity_init_keyring(const unsigned int id)
++static inline int integrity_init_keyring(struct integrity_namespace *ns,
++					 const unsigned int id)
+ {
+ 	return 0;
+ }
+ 
+-static inline int __init integrity_load_cert(const unsigned int id,
++static inline int __init integrity_load_cert(struct integrity_namespace *ns,
++					     const unsigned int id,
+ 					     const char *source,
+ 					     const void *data, size_t len,
+ 					     key_perm_t perm)
+@@ -290,17 +294,17 @@ static inline int ima_modsig_verify(struct key *keyring,
+ #endif
+ 
+ #ifdef CONFIG_IMA_LOAD_X509
+-void __init ima_load_x509(void);
++void __init ima_load_x509(struct integrity_namespace *ns);
+ #else
+-static inline void ima_load_x509(void)
++static inline void ima_load_x509(struct integrity_namespace *ns)
+ {
+ }
+ #endif
+ 
+ #ifdef CONFIG_EVM_LOAD_X509
+-void __init evm_load_x509(void);
++void __init evm_load_x509(struct integrity_namespace *ns);
+ #else
+-static inline void evm_load_x509(void)
++static inline void evm_load_x509(struct integrity_namespace *ns)
+ {
+ }
+ #endif
+diff --git a/security/integrity/integrity_ns.c b/security/integrity/integrity_ns.c
+index da9858677ca9..a1eced79d6bc 100644
+--- a/security/integrity/integrity_ns.c
++++ b/security/integrity/integrity_ns.c
+@@ -6,6 +6,7 @@
+  * Stefan Berger <stefanb@us.ibm.com>
+  */
+ 
++#include <linux/slab.h>
+ #include <linux/ima.h>
+ #include <linux/integrity_namespace.h>
+ 
+@@ -13,6 +14,7 @@ struct integrity_namespace init_integrity_ns = {
+ #ifdef CONFIG_IMA
+ 	.ima_ns = &init_ima_ns,
+ #endif
++	.keyring = {NULL, },
+ };
+ EXPORT_SYMBOL(init_integrity_ns);
+ 
+@@ -34,9 +36,13 @@ struct integrity_namespace *create_integrity_ns(void)
+ void free_integrity_ns(struct user_namespace *user_ns)
+ {
+ 	struct integrity_namespace *ns = user_ns->integrity_ns;
++	size_t i;
+ 
+ 	free_ima_ns(user_ns);
+ 
++	for (i = 0; i < ARRAY_SIZE(ns->keyring); i++)
++		key_put(ns->keyring[i]);
++
+ 	kmem_cache_free(integrityns_cachep, ns);
+ }
+ 
+diff --git a/security/integrity/platform_certs/platform_keyring.c b/security/integrity/platform_certs/platform_keyring.c
+index bcafd7387729..faf63eb09fe7 100644
+--- a/security/integrity/platform_certs/platform_keyring.c
++++ b/security/integrity/platform_certs/platform_keyring.c
+@@ -12,6 +12,7 @@
+ #include <linux/cred.h>
+ #include <linux/err.h>
+ #include <linux/slab.h>
++#include <linux/integrity_namespace.h>
+ #include "../integrity.h"
+ 
+ /**
+@@ -26,13 +27,14 @@
+ void __init add_to_platform_keyring(const char *source, const void *data,
+ 				    size_t len)
+ {
++	struct integrity_namespace *ns = current_integrity_ns();
+ 	key_perm_t perm;
+ 	int rc;
+ 
+ 	perm = (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_VIEW;
+ 
+-	rc = integrity_load_cert(INTEGRITY_KEYRING_PLATFORM, source, data, len,
+-				 perm);
++	rc = integrity_load_cert(ns, INTEGRITY_KEYRING_PLATFORM, source,
++				 data, len, perm);
+ 	if (rc)
+ 		pr_info("Error adding keys to platform keyring %s\n", source);
+ }
+@@ -42,9 +44,10 @@ void __init add_to_platform_keyring(const char *source, const void *data,
+  */
+ static __init int platform_keyring_init(void)
+ {
++	struct integrity_namespace *ns = current_integrity_ns();
+ 	int rc;
+ 
+-	rc = integrity_init_keyring(INTEGRITY_KEYRING_PLATFORM);
++	rc = integrity_init_keyring(ns, INTEGRITY_KEYRING_PLATFORM);
+ 	if (rc)
+ 		return rc;
+ 
+-- 
+2.36.1
+

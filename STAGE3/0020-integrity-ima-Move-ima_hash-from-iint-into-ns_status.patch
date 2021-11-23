@@ -1,0 +1,545 @@
+From 94d200b2f8b215be59e7b57027dbc5114793dbef Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 7 Feb 2022 09:50:26 -0500
+Subject: [PATCH 20/81] integrity/ima: Move ima_hash from iint into ns_status
+
+Move the ima_hash field from the iint into the ns_status data structure
+so that the ima_digest_data structure can now be created in
+ima_collect_measurement() on a per IMA namespace basis.
+
+Also move the IMA_COLLECTED flag from the iint flags into the ns_status
+structure since this flag is tightly coupled with the ima_hash field and
+it needs to now be set on a per-IMA namespace basis.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/iint.c                |  2 -
+ security/integrity/ima/ima.h             |  6 ++-
+ security/integrity/ima/ima_api.c         | 34 +++++++++-------
+ security/integrity/ima/ima_appraise.c    | 50 +++++++++++++----------
+ security/integrity/ima/ima_init_ima_ns.c |  5 ++-
+ security/integrity/ima/ima_main.c        | 52 ++++++++++++++++--------
+ security/integrity/ima/ima_ns_status.c   |  3 ++
+ security/integrity/integrity.h           |  2 +-
+ 8 files changed, 96 insertions(+), 58 deletions(-)
+
+diff --git a/security/integrity/iint.c b/security/integrity/iint.c
+index adcb474dd6a6..e87d9ec9d93b 100644
+--- a/security/integrity/iint.c
++++ b/security/integrity/iint.c
+@@ -71,8 +71,6 @@ struct integrity_iint_cache *integrity_iint_find(struct inode *inode)
+ 
+ static void iint_free(struct integrity_iint_cache *iint)
+ {
+-	kfree(iint->ima_hash);
+-	iint->ima_hash = NULL;
+ 	iint->version = 0;
+ 	iint->flags = 0UL;
+ 	iint->atomic_flags = 0UL;
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 817f5ea8cfc1..45b7a0c5a8e0 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -226,6 +226,7 @@ int ima_calc_boot_aggregate(struct ima_namespace *ns,
+ void ima_add_violation(struct ima_namespace *ns,
+ 		       struct file *file, const unsigned char *filename,
+ 		       struct integrity_iint_cache *iint,
++		       struct ns_status *ns_status,
+ 		       const char *op, const char *cause);
+ int ima_init_crypto(struct ima_namespace *ns);
+ void ima_deinit_crypto(struct ima_namespace *ns);
+@@ -345,6 +346,7 @@ int ima_get_action(struct ima_namespace *ns,
+ int ima_must_measure(struct inode *inode, int mask, enum ima_hooks func);
+ int ima_collect_measurement(struct ima_namespace *ns,
+ 			    struct integrity_iint_cache *iint,
++			    struct ns_status *ns_status,
+ 			    struct file *file, void *buf, loff_t size,
+ 			    enum hash_algo algo, struct modsig *modsig);
+ void ima_store_measurement(struct ima_namespace *ns,
+@@ -410,6 +412,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
+ int ima_appraise_measurement(struct ima_namespace *ns,
+ 			     enum ima_hooks func,
+ 			     struct integrity_iint_cache *iint,
++			     struct ns_status *ns_status,
+ 			     struct file *file, const unsigned char *filename,
+ 			     struct evm_ima_xattr_data *xattr_value,
+ 			     int xattr_len, const struct modsig *modsig);
+@@ -436,6 +439,7 @@ static inline int ima_check_blacklist(struct ima_namespace *ns,
+ 
+ static inline int ima_appraise_measurement(enum ima_hooks func,
+ 					   struct integrity_iint_cache *iint,
++					   struct ns_status *ns_status,
+ 					   struct file *file,
+ 					   const unsigned char *filename,
+ 					   struct evm_ima_xattr_data *xattr_value,
+@@ -553,7 +557,7 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ 
+ #define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
+ #define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
+-				 IMA_MEASURE | IMA_MEASURED)
++				 IMA_MEASURE | IMA_MEASURED | IMA_COLLECTED)
+ 
+ #define IMA_IINT_FLAGS		(IMA_APPRAISE | IMA_HASH)
+ 
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 1809e16f4074..19edbe41b802 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -139,12 +139,13 @@ int ima_store_template(struct ima_namespace *ns,
+ void ima_add_violation(struct ima_namespace *ns,
+ 		       struct file *file, const unsigned char *filename,
+ 		       struct integrity_iint_cache *iint,
++		       struct ns_status *ns_status,
+ 		       const char *op, const char *cause)
+ {
+ 	struct ima_template_entry *entry;
+ 	struct inode *inode = file_inode(file);
+-	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
+-					     .iint_flags = iint_flags(iint, NULL),
++	struct ima_event_data event_data = { .ima_hash = ns_status->ima_hash,
++					     .iint_flags = iint_flags(iint, ns_status),
+ 					     .file = file,
+ 					     .filename = filename,
+ 					     .violation = cause };
+@@ -249,6 +250,7 @@ static int ima_get_verity_digest(struct integrity_iint_cache *iint,
+  */
+ int ima_collect_measurement(struct ima_namespace *ns,
+ 			    struct integrity_iint_cache *iint,
++			    struct ns_status *ns_status,
+ 			    struct file *file, void *buf, loff_t size,
+ 			    enum hash_algo algo, struct modsig *modsig)
+ {
+@@ -256,6 +258,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
+ 	struct inode *inode = file_inode(file);
+ 	const char *filename = file->f_path.dentry->d_name.name;
+ 	struct ima_max_digest_data hash;
++	unsigned long flags;
+ 	int result = 0;
+ 	int length;
+ 	void *tmpbuf;
+@@ -269,7 +272,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
+ 	if (modsig)
+ 		ima_collect_modsig(modsig, buf, size);
+ 
+-	if (iint->flags & IMA_COLLECTED)
++	if (iint_flags(iint, ns_status) & IMA_COLLECTED)
+ 		goto out;
+ 
+ 	/*
+@@ -307,19 +310,22 @@ int ima_collect_measurement(struct ima_namespace *ns,
+ 		goto out;
+ 
+ 	length = sizeof(hash.hdr) + hash.hdr.length;
+-	tmpbuf = krealloc(iint->ima_hash, length, GFP_NOFS);
++	tmpbuf = krealloc(ns_status->ima_hash, length, GFP_NOFS);
+ 	if (!tmpbuf) {
+ 		result = -ENOMEM;
+ 		goto out;
+ 	}
+ 
+-	iint->ima_hash = tmpbuf;
+-	memcpy(iint->ima_hash, &hash, length);
++	ns_status->ima_hash = tmpbuf;
++	memcpy(ns_status->ima_hash, &hash, length);
+ 	iint->version = i_version;
+ 
+ 	/* Possibly temporary failure due to type of read (eg. O_DIRECT) */
+-	if (!result)
+-		iint->flags |= IMA_COLLECTED;
++	if (!result) {
++		flags = iint_flags(iint, ns_status);
++		flags |= IMA_COLLECTED;
++		set_iint_flags(iint, ns_status, flags);
++	}
+ out:
+ 	if (result && ns == &init_ima_ns) {
+ 		if (file->f_flags & O_DIRECT)
+@@ -360,8 +366,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 	int result = -ENOMEM;
+ 	struct inode *inode = file_inode(file);
+ 	struct ima_template_entry *entry;
+-	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
+-					     .iint_flags = iint_flags(iint, NULL),
++	struct ima_event_data event_data = { .ima_hash = ns_status->ima_hash,
++					     .iint_flags = iint_flags(iint, ns_status),
+ 					     .file = file,
+ 					     .filename = filename,
+ 					     .xattr_value = xattr_value,
+@@ -401,19 +407,19 @@ void ima_audit_measurement(struct integrity_iint_cache *iint,
+ {
+ 	struct audit_buffer *ab;
+ 	char *hash;
+-	const char *algo_name = hash_algo_name[iint->ima_hash->algo];
++	const char *algo_name = hash_algo_name[ns_status->ima_hash->algo];
+ 	int i;
+ 	unsigned long flags = iint_flags(iint, ns_status);
+ 
+ 	if (flags & IMA_AUDITED)
+ 		return;
+ 
+-	hash = kzalloc((iint->ima_hash->length * 2) + 1, GFP_KERNEL);
++	hash = kzalloc((ns_status->ima_hash->length * 2) + 1, GFP_KERNEL);
+ 	if (!hash)
+ 		return;
+ 
+-	for (i = 0; i < iint->ima_hash->length; i++)
+-		hex_byte_pack(hash + (i * 2), iint->ima_hash->digest[i]);
++	for (i = 0; i < ns_status->ima_hash->length; i++)
++		hex_byte_pack(hash + (i * 2), ns_status->ima_hash->digest[i]);
+ 	hash[i * 2] = '\0';
+ 
+ 	ab = audit_log_start(audit_context(), GFP_KERNEL,
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 5c856fb76455..967dfc111ae7 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -89,23 +89,23 @@ int ima_must_appraise(struct ima_namespace *ns,
+ }
+ 
+ static int ima_fix_xattr(struct dentry *dentry,
+-			 struct integrity_iint_cache *iint)
++			 struct ns_status *ns_status)
+ {
+ 	int rc, offset;
+-	u8 algo = iint->ima_hash->algo;
++	u8 algo = ns_status->ima_hash->algo;
+ 
+ 	if (algo <= HASH_ALGO_SHA1) {
+ 		offset = 1;
+-		iint->ima_hash->xattr.sha1.type = IMA_XATTR_DIGEST;
++		ns_status->ima_hash->xattr.sha1.type = IMA_XATTR_DIGEST;
+ 	} else {
+ 		offset = 0;
+-		iint->ima_hash->xattr.ng.type = IMA_XATTR_DIGEST_NG;
+-		iint->ima_hash->xattr.ng.algo = algo;
++		ns_status->ima_hash->xattr.ng.type = IMA_XATTR_DIGEST_NG;
++		ns_status->ima_hash->xattr.ng.algo = algo;
+ 	}
+ 	rc = __vfs_setxattr_noperm(&init_user_ns, dentry, XATTR_NAME_IMA,
+-				   &iint->ima_hash->xattr.data[offset],
+-				   (sizeof(iint->ima_hash->xattr) - offset) +
+-				   iint->ima_hash->length, 0);
++				   &ns_status->ima_hash->xattr.data[offset],
++				   (sizeof(ns_status->ima_hash->xattr) - offset)
++				   + ns_status->ima_hash->length, 0);
+ 	return rc;
+ }
+ 
+@@ -281,6 +281,7 @@ static int calc_file_id_hash(struct ima_namespace *ns,
+  */
+ static int xattr_verify(struct ima_namespace *ns,
+ 			enum ima_hooks func, struct integrity_iint_cache *iint,
++			struct ns_status *ns_status,
+ 			struct evm_ima_xattr_data *xattr_value, int xattr_len,
+ 			enum integrity_status *status, const char **cause)
+ {
+@@ -288,6 +289,7 @@ static int xattr_verify(struct ima_namespace *ns,
+ 	struct signature_v2_hdr *sig;
+ 	int rc = -EINVAL, hash_start = 0;
+ 	int mask;
++	struct ima_digest_data *ima_hash = ns_status->ima_hash;
+ 
+ 	switch (xattr_value->type) {
+ 	case IMA_XATTR_DIGEST_NG:
+@@ -309,14 +311,14 @@ static int xattr_verify(struct ima_namespace *ns,
+ 			set_bit(IMA_DIGSIG, &iint->atomic_flags);
+ 		}
+ 		if (xattr_len - sizeof(xattr_value->type) - hash_start >=
+-				iint->ima_hash->length)
++				ima_hash->length)
+ 			/*
+ 			 * xattr length may be longer. md5 hash in previous
+ 			 * version occupied 20 bytes in xattr, instead of 16
+ 			 */
+ 			rc = memcmp(&xattr_value->data[hash_start],
+-				    iint->ima_hash->digest,
+-				    iint->ima_hash->length);
++				    ima_hash->digest,
++				    ima_hash->length);
+ 		else
+ 			rc = -EINVAL;
+ 		if (rc) {
+@@ -345,8 +347,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 		rc = integrity_digsig_verify(INTEGRITY_KEYRING_IMA,
+ 					     (const char *)xattr_value,
+ 					     xattr_len,
+-					     iint->ima_hash->digest,
+-					     iint->ima_hash->length);
++					     ima_hash->digest,
++					     ima_hash->length);
+ 		if (rc == -EOPNOTSUPP) {
+ 			*status = INTEGRITY_UNKNOWN;
+ 			break;
+@@ -356,8 +358,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 			rc = integrity_digsig_verify(INTEGRITY_KEYRING_PLATFORM,
+ 						     (const char *)xattr_value,
+ 						     xattr_len,
+-						     iint->ima_hash->digest,
+-						     iint->ima_hash->length);
++						     ima_hash->digest,
++						     ima_hash->length);
+ 		if (rc) {
+ 			*cause = "invalid-signature";
+ 			*status = INTEGRITY_FAIL;
+@@ -384,8 +386,8 @@ static int xattr_verify(struct ima_namespace *ns,
+ 		}
+ 
+ 		rc = calc_file_id_hash(ns, IMA_VERITY_DIGSIG,
+-				       iint->ima_hash->algo,
+-				       iint->ima_hash->digest, &hash.hdr);
++				       ima_hash->algo,
++				       ima_hash->digest, &hash.hdr);
+ 		if (rc) {
+ 			*cause = "sigv3-hashing-error";
+ 			*status = INTEGRITY_FAIL;
+@@ -486,6 +488,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
+  */
+ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 			     struct integrity_iint_cache *iint,
++			     struct ns_status *ns_status,
+ 			     struct file *file, const unsigned char *filename,
+ 			     struct evm_ima_xattr_data *xattr_value,
+ 			     int xattr_len, const struct modsig *modsig)
+@@ -552,7 +555,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 	}
+ 
+ 	if (xattr_value)
+-		rc = xattr_verify(ns, func, iint, xattr_value, xattr_len,
++		rc = xattr_verify(ns, func, iint, ns_status, xattr_value, xattr_len,
+ 				  &status, &cause);
+ 
+ 	/*
+@@ -583,7 +586,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
+ 		if ((ima_appraise & IMA_APPRAISE_FIX) && !try_modsig &&
+ 		    (!xattr_value ||
+ 		     xattr_value->type != EVM_IMA_XATTR_DIGSIG)) {
+-			if (!ima_fix_xattr(dentry, iint))
++			if (!ima_fix_xattr(dentry, ns_status))
+ 				status = INTEGRITY_PASS;
+ 		}
+ 
+@@ -615,6 +618,7 @@ void ima_update_xattr(struct ima_namespace *ns,
+ 		      struct integrity_iint_cache *iint, struct file *file)
+ {
+ 	struct dentry *dentry = file_dentry(file);
++	struct ns_status *ns_status;
+ 	int rc = 0;
+ 
+ 	if (!ns_is_active(ns) || !(ns->ima_policy_flag & IMA_HASH))
+@@ -628,13 +632,15 @@ void ima_update_xattr(struct ima_namespace *ns,
+ 	    !(iint->flags & IMA_HASH))
+ 		return;
+ 
+-	rc = ima_collect_measurement(ns, iint, file, NULL, 0, ima_hash_algo,
+-				     NULL);
++	ns_status =  ima_get_ns_status(ns, file_inode(file), iint);
++
++	rc = ima_collect_measurement(ns, iint, ns_status, file, NULL, 0,
++				     ima_hash_algo, NULL);
+ 	if (rc < 0)
+ 		return;
+ 
+ 	inode_lock(file_inode(file));
+-	ima_fix_xattr(dentry, iint);
++	ima_fix_xattr(dentry, ns_status);
+ 	inode_unlock(file_inode(file));
+ }
+ 
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index d3aefafa54b5..e7266924568c 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -66,7 +66,10 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 		if (ret != 0)
+ 			goto err_deinit_crypto;
+ 
+-		/* It can be called before ima_init_digests(), it does not use TPM. */
++		/*
++		 * It can be called before ima_init_digests(),
++		 * it does not use TPM.
++		 */
+ 		ima_load_kexec_buffer();
+ 	}
+ 
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 66af0e325dd0..a5080d2b3e16 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -111,6 +111,7 @@ static int mmap_violation_check(enum ima_hooks func, struct file *file,
+ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 				     struct file *file,
+ 				     struct integrity_iint_cache *iint,
++				     struct ns_status *ns_status,
+ 				     int must_measure,
+ 				     char **pathbuf,
+ 				     const char **pathname,
+@@ -141,11 +142,17 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 
+ 	*pathname = ima_d_path(&file->f_path, pathbuf, filename);
+ 
++	if (!ns_status) {
++		ns_status = ima_get_ns_status(ns, inode, iint);
++		if (IS_ERR(ns_status))
++			return;
++	}
++
+ 	if (send_tomtou)
+-		ima_add_violation(ns, file, *pathname, iint,
++		ima_add_violation(ns, file, *pathname, iint, ns_status,
+ 				  "invalid_pcr", "ToMToU");
+ 	if (send_writers)
+-		ima_add_violation(ns, file, *pathname, iint,
++		ima_add_violation(ns, file, *pathname, iint, ns_status,
+ 				  "invalid_pcr", "open_writers");
+ }
+ 
+@@ -284,7 +291,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	}
+ 
+ 	if (!rc && violation_check)
+-		ima_rdwr_violation_check(ns, file, iint, action & IMA_MEASURE,
++		ima_rdwr_violation_check(ns, file, iint, ns_status,
++					 action & IMA_MEASURE,
+ 					 &pathbuf, &pathname, filename);
+ 
+ 	inode_unlock(inode);
+@@ -373,8 +381,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 
+ 	hash_algo = ima_get_hash_algo(xattr_value, xattr_len);
+ 
+-	rc = ima_collect_measurement(ns, iint, file, buf, size, hash_algo,
+-				     modsig);
++	rc = ima_collect_measurement(ns, iint, ns_status, file, buf, size,
++				     hash_algo, modsig);
+ 	if (rc == -ENOMEM)
+ 		goto out_locked;
+ 
+@@ -389,7 +397,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		rc = ima_check_blacklist(ns, iint, ns_status, modsig, pcr);
+ 		if (rc != -EPERM) {
+ 			inode_lock(inode);
+-			rc = ima_appraise_measurement(ns, func, iint, file,
++			rc = ima_appraise_measurement(ns, func, iint, ns_status,
++						      file,
+ 						      pathname, xattr_value,
+ 						      xattr_len, modsig);
+ 			inode_unlock(inode);
+@@ -606,15 +615,19 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
+ 			    struct file *file, char *buf, size_t buf_size)
+ {
+ 	struct integrity_iint_cache *iint = NULL, tmp_iint;
++	struct ns_status *ns_status = NULL, tmp_ns_status;
+ 	int rc, hash_algo;
+ 
+ 	if (ns->ima_policy_flag) {
+ 		iint = integrity_iint_find(inode);
+-		if (iint)
++		if (iint) {
++			ns_status = ima_find_ns_status(ns, inode, iint);
+ 			mutex_lock(&iint->mutex);
++		}
+ 	}
+ 
+-	if ((!iint || !(iint->flags & IMA_COLLECTED)) && file) {
++	if ((!iint || !ns_status ||
++	     !(iint_flags(iint, ns_status) & IMA_COLLECTED)) && file) {
+ 		if (iint)
+ 			mutex_unlock(&iint->mutex);
+ 
+@@ -622,23 +635,27 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
+ 		tmp_iint.inode = inode;
+ 		mutex_init(&tmp_iint.mutex);
+ 
+-		rc = ima_collect_measurement(ns, &tmp_iint, file, NULL, 0,
+-					     ima_hash_algo, NULL);
++		memset(&tmp_ns_status, 0, sizeof(tmp_ns_status));
++
++		rc = ima_collect_measurement(ns, &tmp_iint, &tmp_ns_status,
++					     file, NULL, 0, ima_hash_algo,
++					     NULL);
+ 		if (rc < 0)
+ 			return -EOPNOTSUPP;
+ 
+ 		iint = &tmp_iint;
++		ns_status = &tmp_ns_status;
+ 		mutex_lock(&iint->mutex);
+ 	}
+ 
+-	if (!iint)
++	if (!iint || !ns_status)
+ 		return -EOPNOTSUPP;
+ 
+ 	/*
+ 	 * ima_file_hash can be called when ima_collect_measurement has still
+ 	 * not been called, we might not always have a hash.
+ 	 */
+-	if (!iint->ima_hash) {
++	if (!ns_status->ima_hash) {
+ 		mutex_unlock(&iint->mutex);
+ 		return -EOPNOTSUPP;
+ 	}
+@@ -646,14 +663,15 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
+ 	if (buf) {
+ 		size_t copied_size;
+ 
+-		copied_size = min_t(size_t, iint->ima_hash->length, buf_size);
+-		memcpy(buf, iint->ima_hash->digest, copied_size);
++		copied_size = min_t(size_t, ns_status->ima_hash->length,
++				    buf_size);
++		memcpy(buf, ns_status->ima_hash->digest, copied_size);
+ 	}
+-	hash_algo = iint->ima_hash->algo;
++	hash_algo = ns_status->ima_hash->algo;
+ 	mutex_unlock(&iint->mutex);
+ 
+-	if (iint == &tmp_iint)
+-		kfree(iint->ima_hash);
++	if (ns_status == &tmp_ns_status)
++		kfree(ns_status->ima_hash);
+ 
+ 	return hash_algo;
+ }
+diff --git a/security/integrity/ima/ima_ns_status.c b/security/integrity/ima/ima_ns_status.c
+index db99d9c63b05..73b562a42637 100644
+--- a/security/integrity/ima/ima_ns_status.c
++++ b/security/integrity/ima/ima_ns_status.c
+@@ -127,6 +127,8 @@ static void ns_status_free(struct ima_namespace *ns,
+ 			   struct ns_status *ns_status)
+ {
+ 	pr_debug("FREE ns_status: %p\n", ns_status);
++	kfree(ns_status->ima_hash);
++	ns_status->ima_hash = NULL;
+ 
+ 	kmem_cache_free(ns->ns_status_cache, ns_status);
+ }
+@@ -386,6 +388,7 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
+ 	ns_status->ns = ns;
+ 	ns_status->i_ino = inode->i_ino;
+ 	ns_status->i_generation = inode->i_generation;
++	ns_status->ima_hash = NULL;
+ 
+ 	/* make visible on list */
+ 	write_lock(&iint->ns_list_lock);
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index 8b98ffa66bec..290051b49249 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -170,6 +170,7 @@ struct ns_status {
+ 	struct llist_node gc_llist;	/* used while freeing */
+ 	void *inode_to_remove;		/* used while freeing */
+ #endif
++	struct ima_digest_data *ima_hash;
+ };
+ 
+ static inline void ns_status_reset(struct ns_status *ns_status)
+@@ -198,7 +199,6 @@ struct integrity_iint_cache {
+ 	enum integrity_status ima_read_status:4;
+ 	enum integrity_status ima_creds_status:4;
+ 	enum integrity_status evm_status:4;
+-	struct ima_digest_data *ima_hash;
+ 
+ 	/*
+ 	 * Lock and list of ns_status for files shared by different
+-- 
+2.36.1
+

@@ -1,0 +1,78 @@
+From 90a579ec26677365a7c5f3067c0ee2062ec646e4 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 16 Dec 2021 08:47:33 -0500
+Subject: [PATCH 09/81] ima: Move ima_init_template() into ima_init_namespace()
+
+Move ima_init_template() and ima_load_kexec_buffer() from ima_init() into
+ima_init_namespace() and preserve the order of initialization.
+Since ima_init() was only used for the init_ima_ns, also only call these
+functions for initialization of the init_ima_ns.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_init.c        |  7 -------
+ security/integrity/ima/ima_init_ima_ns.c | 12 ++++++++++++
+ security/integrity/ima/ima_template.c    |  2 +-
+ 3 files changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index c88f72d29c98..08ab717351b1 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -124,13 +124,6 @@ int __init ima_init(void)
+ 	if (rc)
+ 		return rc;
+ 
+-	rc = ima_init_template();
+-	if (rc != 0)
+-		return rc;
+-
+-	/* It can be called before ima_init_digests(), it does not use TPM. */
+-	ima_load_kexec_buffer();
+-
+ 	rc = ima_init_digests(&init_ima_ns);
+ 	if (rc != 0)
+ 		return rc;
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index d0b2591f5f09..e5aff7a9faeb 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -57,10 +57,22 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 	if (ret < 0)
+ 		goto err_deregister_notifier;
+ 
++	if (ns == &init_ima_ns) {
++		ret = ima_init_template();
++		if (ret != 0)
++			goto err_deinit_crypto;
++
++		/* It can be called before ima_init_digests(), it does not use TPM. */
++		ima_load_kexec_buffer();
++	}
++
+ 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
+ 
+ 	return 0;
+ 
++err_deinit_crypto:
++	ima_deinit_crypto(ns);
++
+ err_deregister_notifier:
+ 	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
+ 
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index db51dbe62d3a..fa546a6b15e5 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -290,7 +290,7 @@ struct ima_template_desc *ima_template_desc_buf(void)
+ 	return ima_buf_template;
+ }
+ 
+-int __init ima_init_template(void)
++int ima_init_template(void)
+ {
+ 	struct ima_template_desc *template = ima_template_desc_current();
+ 	int result;
+-- 
+2.36.1
+

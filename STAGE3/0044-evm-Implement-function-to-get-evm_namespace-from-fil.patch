@@ -1,0 +1,32 @@
+From 5c5aff58b8c9a07243ba710a7e8441fef6929416 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 19 May 2022 16:40:37 -0400
+Subject: [PATCH 44/81] evm: Implement function to get evm_namespace from file
+
+Implement the function evm_ns_from_file() to get an evm_namespace
+pointer from a file.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index a9d2b84d392c..1b8a759f0a11 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -72,4 +72,11 @@ int __init evm_init_ns(void);
+ int evm_init_namespace(struct evm_namespace *ns,
+ 		       struct integrity_namespace *integrity_ns);
+ 
++static inline
++struct evm_namespace *evm_ns_from_file(const struct file *filp)
++{
++	return file_inode(filp)->i_sb->s_user_ns->integrity_ns->evm_ns;
++}
++
++
+ #endif
+-- 
+2.36.1
+

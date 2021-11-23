@@ -1,0 +1,483 @@
+From 0e1a1c2694f931626c6f9fe201e3219beafabc7d Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 19 Jan 2022 10:01:09 -0500
+Subject: [PATCH 23/81] WIP: ima: Move ima_hash_algo into ima_namespace
+
+Define ima_config for holding configuration from boot command line
+parameters and for child namespaces.
+
+Find the ima_config from a parent IMA namespace to configure the
+current IMA namespace with.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/ima.h                       |  4 +--
+ security/integrity/ima/ima.h              | 25 ++++++++++----
+ security/integrity/ima/ima_appraise.c     | 16 ++++++---
+ security/integrity/ima/ima_crypto.c       |  5 +++
+ security/integrity/ima/ima_fs.c           |  2 +-
+ security/integrity/ima/ima_init.c         |  1 +
+ security/integrity/ima/ima_init_ima_ns.c  |  3 ++
+ security/integrity/ima/ima_main.c         | 41 +++++++++++++----------
+ security/integrity/ima/ima_ns.c           | 21 +++++++++++-
+ security/integrity/ima/ima_queue.c        |  1 +
+ security/integrity/ima/ima_template.c     |  2 ++
+ security/integrity/ima/ima_template_lib.c |  5 +--
+ 12 files changed, 91 insertions(+), 35 deletions(-)
+
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index c6dc02b09850..68fc3f04c6e0 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -18,7 +18,7 @@ struct linux_binprm;
+ extern struct ima_namespace init_ima_ns;
+ 
+ #ifdef CONFIG_IMA
+-extern enum hash_algo ima_get_current_hash_algo(void);
++extern enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns);
+ extern int ima_bprm_check(struct linux_binprm *bprm);
+ extern int ima_file_check(struct file *file, int mask);
+ extern void ima_post_create_tmpfile(struct user_namespace *mnt_userns,
+@@ -55,7 +55,7 @@ extern void ima_add_kexec_buffer(struct kimage *image);
+ #endif
+ 
+ #else
+-static inline enum hash_algo ima_get_current_hash_algo(void)
++static inline enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
+ {
+ 	return HASH_ALGO__LAST;
+ }
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 45b7a0c5a8e0..3221dab9ccf1 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -48,7 +48,6 @@ enum tpm_pcrs { TPM_PCR0 = 0, TPM_PCR8 = 8, TPM_PCR10 = 10 };
+ extern atomic_t ima_setxattr_allowed_hash_algorithms;
+ 
+ /* set during initialization */
+-extern int ima_hash_algo __ro_after_init;
+ extern int ima_appraise;
+ extern const char boot_aggregate_name[];
+ 
+@@ -120,6 +119,15 @@ struct ima_h_table {
+ 	struct hlist_head queue[IMA_MEASURE_HTABLE_SIZE];
+ };
+ 
++/*
++ * Configuration for init_ima_ns from boot line parameters and parameters for
++ * IMA namespaces.
++ */
++struct ima_config {
++	int ima_hash_algo;
++	int hash_setup_done;
++};
++
+ struct ima_namespace {
+ 	unsigned long ima_ns_flags;
+ /* Bit numbers for above flags; use BIT() to get flag */
+@@ -182,6 +190,8 @@ struct ima_namespace {
+ 	 * right away or should be queued for processing later.
+ 	 */
+ 	bool ima_process_keys;
++
++	struct ima_config config;
+ } __randomize_layout;
+ extern struct ima_namespace init_ima_ns;
+ 
+@@ -423,7 +433,8 @@ void ima_update_xattr(struct ima_namespace *ns,
+ 		      struct integrity_iint_cache *iint, struct file *file);
+ enum integrity_status ima_get_cache_status(struct integrity_iint_cache *iint,
+ 					   enum ima_hooks func);
+-enum hash_algo ima_get_hash_algo(const struct evm_ima_xattr_data *xattr_value,
++enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
++				 const struct evm_ima_xattr_data *xattr_value,
+ 				 int xattr_len);
+ int ima_read_xattr(struct dentry *dentry,
+ 		   struct evm_ima_xattr_data **xattr_value);
+@@ -471,9 +482,10 @@ static inline enum integrity_status ima_get_cache_status(struct integrity_iint_c
+ }
+ 
+ static inline enum hash_algo
+-ima_get_hash_algo(struct evm_ima_xattr_data *xattr_value, int xattr_len)
++ima_get_hash_algo(struct ima_namespace *ns,
++		  struct evm_ima_xattr_data *xattr_value, int xattr_len)
+ {
+-	return ima_hash_algo;
++	return ns->config.ima_hash_algo;
+ }
+ 
+ static inline int ima_read_xattr(struct dentry *dentry,
+@@ -613,7 +625,7 @@ static inline struct ima_namespace *get_current_ns(void)
+ 	return ima_ns_from_user_ns(current_user_ns());
+ }
+ 
+-struct ima_namespace *create_ima_ns(void);
++struct ima_namespace *create_ima_ns(struct user_namespace *user_ns);
+ 
+ void ima_free_ima_ns(struct ima_namespace *ns);
+ 
+@@ -654,7 +666,8 @@ static inline struct ima_namespace *get_current_ns(void)
+ 	return &init_ima_ns;
+ }
+ 
+-static inline struct ima_namespace *create_ima_ns(void)
++static inline struct ima_namespace *
++create_ima_ns(struct user_namespace *user_ns)
+ {
+ 	WARN(1, "Cannot create an IMA namespace\n");
+ 	return ERR_PTR(-EFAULT);
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 967dfc111ae7..3adc6efc00d3 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -178,9 +178,11 @@ static void ima_cache_flags(struct integrity_iint_cache *iint,
+ 	}
+ }
+ 
+-enum hash_algo ima_get_hash_algo(const struct evm_ima_xattr_data *xattr_value,
++enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
++				 const struct evm_ima_xattr_data *xattr_value,
+ 				 int xattr_len)
+ {
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	struct signature_v2_hdr *sig;
+ 	enum hash_algo ret;
+ 
+@@ -635,7 +637,7 @@ void ima_update_xattr(struct ima_namespace *ns,
+ 	ns_status =  ima_get_ns_status(ns, file_inode(file), iint);
+ 
+ 	rc = ima_collect_measurement(ns, iint, ns_status, file, NULL, 0,
+-				     ima_hash_algo, NULL);
++				     ns->config.ima_hash_algo, NULL);
+ 	if (rc < 0)
+ 		return;
+ 
+@@ -719,6 +721,7 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
+ 
+ /**
+  * validate_hash_algo() - Block setxattr with unsupported hash algorithms
++ * @ns: IMA namespace
+  * @dentry: object of the setxattr()
+  * @xattr_value: userland supplied xattr value
+  * @xattr_value_len: length of xattr_value
+@@ -730,16 +733,18 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
+  *
+  * Return: 0 on success, else an error.
+  */
+-static int validate_hash_algo(struct dentry *dentry,
++static int validate_hash_algo(struct ima_namespace *ns,
++			      struct dentry *dentry,
+ 			      const struct evm_ima_xattr_data *xattr_value,
+ 			      size_t xattr_value_len)
+ {
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	char *path = NULL, *pathbuf = NULL;
+ 	enum hash_algo xattr_hash_algo;
+ 	const char *errmsg = "unavailable-hash-algorithm";
+ 	unsigned int allowed_hashes;
+ 
+-	xattr_hash_algo = ima_get_hash_algo(xattr_value, xattr_value_len);
++	xattr_hash_algo = ima_get_hash_algo(ns, xattr_value, xattr_value_len);
+ 
+ 	allowed_hashes = atomic_read(&ima_setxattr_allowed_hash_algorithms);
+ 
+@@ -795,7 +800,8 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
+ 	}
+ 	if (result == 1 || evm_revalidate_status(xattr_name)) {
+-		result = validate_hash_algo(dentry, xvalue, xattr_value_len);
++		result = validate_hash_algo(ns, dentry,
++					    xvalue, xattr_value_len);
+ 		if (result)
+ 			return result;
+ 
+diff --git a/security/integrity/ima/ima_crypto.c b/security/integrity/ima/ima_crypto.c
+index eaa0249097c3..4f7e607c482c 100644
+--- a/security/integrity/ima/ima_crypto.c
++++ b/security/integrity/ima/ima_crypto.c
+@@ -61,6 +61,7 @@ struct ima_algo_desc {
+ 
+ static int ima_init_ima_crypto(struct ima_namespace *ns)
+ {
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	long rc;
+ 
+ 	ns->ima_shash_tfm = crypto_alloc_shash(hash_algo_name[ima_hash_algo], 0, 0);
+@@ -82,6 +83,7 @@ static struct crypto_shash *ima_alloc_tfm(struct ima_namespace *ns,
+ 	struct ima_algo_desc *ima_algo_array = ns->ima_algo_array;
+ 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
+ 	struct crypto_shash *tfm = ns->ima_shash_tfm;
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	int rc, i;
+ 
+ 	if (algo < 0 || algo >= HASH_ALGO__LAST)
+@@ -106,6 +108,7 @@ static struct crypto_shash *ima_alloc_tfm(struct ima_namespace *ns,
+ int ima_init_crypto(struct ima_namespace *ns)
+ {
+ 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	struct ima_algo_desc *ima_algo_array;
+ 	enum hash_algo algo;
+ 	long rc;
+@@ -305,6 +308,7 @@ static struct crypto_ahash *ima_alloc_atfm(struct ima_namespace *ns,
+ 					   enum hash_algo algo)
+ {
+ 	struct crypto_ahash *tfm = ns->ima_ahash_tfm;
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	int rc;
+ 
+ 	if (algo < 0 || algo >= HASH_ALGO__LAST)
+@@ -554,6 +558,7 @@ static int ima_calc_file_shash(struct ima_namespace *ns,
+ int ima_calc_file_hash(struct ima_namespace *ns,
+ 		       struct file *file, struct ima_digest_data *hash)
+ {
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	loff_t i_size;
+ 	int rc;
+ 	struct file *f = file;
+diff --git a/security/integrity/ima/ima_fs.c b/security/integrity/ima/ima_fs.c
+index 2eb11d0fb3c7..b7c45d02c721 100644
+--- a/security/integrity/ima/ima_fs.c
++++ b/security/integrity/ima/ima_fs.c
+@@ -556,7 +556,7 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
+ 	 * user_ns->ima_ns can't change while we're in here.
+ 	 */
+ 	if (!ns) {
+-		ns = create_ima_ns();
++		ns = create_ima_ns(user_ns);
+ 		if (IS_ERR(ns))
+ 			return PTR_ERR(ns);
+ 	}
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index dd23eb5c5370..0e5f780f8ac9 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -48,6 +48,7 @@ int ima_add_boot_aggregate(struct ima_namespace *ns)
+ 					     .filename = boot_aggregate_name };
+ 	int result = -ENOMEM;
+ 	int violation = 0;
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 
+ 	memset(&hash, 0, sizeof(hash));
+ 	event_data.ima_hash = &hash.hdr;
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index e7266924568c..624920a487c7 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -108,5 +108,8 @@ struct ima_namespace init_ima_ns = {
+ 		.notifier_call = ima_lsm_policy_change,
+ 	},
+ 	.ima_ns_flags = BIT(IMA_NS_ACTIVE),
++	.config = {
++		.ima_hash_algo = HASH_ALGO_SHA1,
++	},
+ };
+ EXPORT_SYMBOL(init_ima_ns);
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index a5080d2b3e16..7aa1694e5541 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -35,22 +35,19 @@ int ima_appraise = IMA_APPRAISE_ENFORCE;
+ int ima_appraise;
+ #endif
+ 
+-int __ro_after_init ima_hash_algo = HASH_ALGO_SHA1;
+-static int hash_setup_done;
+-
+-static int __init hash_setup(char *str)
++static int __init hash_setup(struct ima_config *ic, char *str)
+ {
+ 	struct ima_template_desc *template_desc = ima_template_desc_current();
+ 	int i;
+ 
+-	if (hash_setup_done)
++	if (ic->hash_setup_done)
+ 		return 1;
+ 
+ 	if (strcmp(template_desc->name, IMA_TEMPLATE_IMA_NAME) == 0) {
+ 		if (strncmp(str, "sha1", 4) == 0) {
+-			ima_hash_algo = HASH_ALGO_SHA1;
++			ic->ima_hash_algo = HASH_ALGO_SHA1;
+ 		} else if (strncmp(str, "md5", 3) == 0) {
+-			ima_hash_algo = HASH_ALGO_MD5;
++			ic->ima_hash_algo = HASH_ALGO_MD5;
+ 		} else {
+ 			pr_err("invalid hash algorithm \"%s\" for template \"%s\"",
+ 				str, IMA_TEMPLATE_IMA_NAME);
+@@ -65,16 +62,21 @@ static int __init hash_setup(char *str)
+ 		return 1;
+ 	}
+ 
+-	ima_hash_algo = i;
++	ic->ima_hash_algo = i;
+ out:
+-	hash_setup_done = 1;
++	ic->hash_setup_done = 1;
+ 	return 1;
+ }
+-__setup("ima_hash=", hash_setup);
+ 
+-enum hash_algo ima_get_current_hash_algo(void)
++static int __init init_ima_ns_hash_setup(char *str)
++{
++	return hash_setup(&init_ima_ns.config, str);
++}
++__setup("ima_hash=", init_ima_ns_hash_setup);
++
++enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
+ {
+-	return ima_hash_algo;
++	return ns->config.ima_hash_algo;
+ }
+ 
+ /* Prevent mmap'ing a file execute that is already mmap'ed write */
+@@ -379,7 +381,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		}
+ 	}
+ 
+-	hash_algo = ima_get_hash_algo(xattr_value, xattr_len);
++	hash_algo = ima_get_hash_algo(ns, xattr_value, xattr_len);
+ 
+ 	rc = ima_collect_measurement(ns, iint, ns_status, file, buf, size,
+ 				     hash_algo, modsig);
+@@ -638,8 +640,8 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
+ 		memset(&tmp_ns_status, 0, sizeof(tmp_ns_status));
+ 
+ 		rc = ima_collect_measurement(ns, &tmp_iint, &tmp_ns_status,
+-					     file, NULL, 0, ima_hash_algo,
+-					     NULL);
++					     file, NULL, 0,
++					     ns->config.ima_hash_algo, NULL);
+ 		if (rc < 0)
+ 			return -EOPNOTSUPP;
+ 
+@@ -1014,6 +1016,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 					    .buf_len = size};
+ 	struct ima_template_desc *template;
+ 	char digest_hash[IMA_MAX_DIGEST_SIZE];
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	int digest_hash_len = hash_digest_size[ima_hash_algo];
+ 	int violation = 0;
+ 	int action = 0;
+@@ -1172,19 +1175,21 @@ EXPORT_SYMBOL_GPL(ima_measure_critical_data);
+ static int __init init_ima(void)
+ {
+ 	struct ima_namespace *ns = &init_ima_ns;
++	struct ima_config *ic = &ns->config;
++	int ima_hash_algo = ic->ima_hash_algo;
+ 	int error;
+ 
+ 	ima_appraise_parse_cmdline();
+ 	ima_init_template_list();
+-	hash_setup(CONFIG_IMA_DEFAULT_HASH);
++	hash_setup(ic, CONFIG_IMA_DEFAULT_HASH);
+ 	error = ima_init();
+ 
+ 	if (error && strcmp(hash_algo_name[ima_hash_algo],
+ 			    CONFIG_IMA_DEFAULT_HASH) != 0) {
+ 		pr_info("Allocating %s failed, going to use default hash algorithm %s\n",
+ 			hash_algo_name[ima_hash_algo], CONFIG_IMA_DEFAULT_HASH);
+-		hash_setup_done = 0;
+-		hash_setup(CONFIG_IMA_DEFAULT_HASH);
++		ic->hash_setup_done = 0;
++		hash_setup(ic, CONFIG_IMA_DEFAULT_HASH);
+ 		error = ima_init();
+ 	}
+ 
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 1c31996160b9..1fc1c083ba32 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -12,14 +12,33 @@
+ 
+ static struct kmem_cache *imans_cachep;
+ 
+-struct ima_namespace *create_ima_ns(void)
++static struct ima_config *get_parent_config(struct user_namespace *user_ns)
+ {
+ 	struct ima_namespace *ns;
+ 
++	do {
++		ns = ima_ns_from_user_ns(user_ns);
++		if (ns_is_active(ns))
++			return &ns->config;
++		user_ns = user_ns->parent;
++	} while (user_ns);
++
++	/* init_ima_ns is always active, so this cannot happen */
++	return NULL;
++}
++
++struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
++{
++	struct ima_config *ic = get_parent_config(user_ns);
++	struct ima_namespace *ns;
++
+ 	ns = kmem_cache_zalloc(imans_cachep, GFP_KERNEL);
+ 	if (!ns)
+ 		return ERR_PTR(-ENOMEM);
+ 
++	/* inherit config from parent */
++	ns->config = *ic;
++
+ 	return ns;
+ }
+ 
+diff --git a/security/integrity/ima/ima_queue.c b/security/integrity/ima/ima_queue.c
+index f4e6f1464c72..dc5d5f0bb6b3 100644
+--- a/security/integrity/ima/ima_queue.c
++++ b/security/integrity/ima/ima_queue.c
+@@ -27,6 +27,7 @@ static struct ima_queue_entry *ima_lookup_digest_entry
+ 						 u8 *digest_value,
+ 						 int pcr)
+ {
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	struct ima_queue_entry *qe, *ret = NULL;
+ 	unsigned int key;
+ 	int rc;
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index fa546a6b15e5..78051cc7a52c 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -103,6 +103,8 @@ bool ima_template_has_modsig(const struct ima_template_desc *ima_template)
+ 
+ static int __init ima_template_setup(char *str)
+ {
++	struct ima_namespace *ns = &init_ima_ns;
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	struct ima_template_desc *template_desc;
+ 	int template_len = strlen(str);
+ 
+diff --git a/security/integrity/ima/ima_template_lib.c b/security/integrity/ima/ima_template_lib.c
+index 6becdf24d167..55933e3ec9b3 100644
+--- a/security/integrity/ima/ima_template_lib.c
++++ b/security/integrity/ima/ima_template_lib.c
+@@ -341,6 +341,7 @@ int ima_eventdigest_init(struct ima_namespace *ns,
+ 			 struct ima_field_data *field_data)
+ {
+ 	struct ima_max_digest_data hash;
++	int ima_hash_algo = ns->config.ima_hash_algo;
+ 	u8 *cur_digest = NULL;
+ 	u32 cur_digestsize = 0;
+ 	struct inode *inode;
+@@ -403,7 +404,7 @@ int ima_eventdigest_ng_init(struct ima_namespace *ns,
+ 			    struct ima_event_data *event_data,
+ 			    struct ima_field_data *field_data)
+ {
+-	u8 *cur_digest = NULL, hash_algo = ima_hash_algo;
++	u8 *cur_digest = NULL, hash_algo = ns->config.ima_hash_algo;
+ 	u32 cur_digestsize = 0;
+ 
+ 	if (event_data->violation)	/* recording a violation. */
+@@ -427,7 +428,7 @@ int ima_eventdigest_ngv2_init(struct ima_namespace *ns,
+ 			      struct ima_event_data *event_data,
+ 			      struct ima_field_data *field_data)
+ {
+-	u8 *cur_digest = NULL, hash_algo = ima_hash_algo;
++	u8 *cur_digest = NULL, hash_algo = ns->config.ima_hash_algo;
+ 	u32 cur_digestsize = 0;
+ 	u8 digest_type = DIGEST_TYPE_IMA;
+ 
+-- 
+2.36.1
+

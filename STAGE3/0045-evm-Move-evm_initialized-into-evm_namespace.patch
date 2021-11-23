@@ -1,0 +1,606 @@
+From 68d84ae5f6f4000bc6b9d98af5891e5e1c5ff7b2 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 11 May 2022 17:47:34 -0400
+Subject: [PATCH 45/81] evm: Move evm_initialized into evm_namespace
+
+Move evm_initialized into evm_namespace.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                   | 13 +++--
+ security/integrity/evm/evm.h          | 17 +++---
+ security/integrity/evm/evm_crypto.c   | 39 +++++++------
+ security/integrity/evm/evm_main.c     | 83 +++++++++++++--------------
+ security/integrity/evm/evm_secfs.c    | 16 +++---
+ security/integrity/ima/ima_appraise.c |  6 +-
+ 6 files changed, 91 insertions(+), 83 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index ffc8577b40ef..ab0fe5a4dbc1 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -17,6 +17,7 @@ struct integrity_namespace;
+ 
+ struct evm_namespace {
+ 	struct integrity_namespace *integrity_ns;
++	int evm_initialized;
+ };
+ 
+ extern struct evm_namespace init_evm_ns;
+@@ -28,8 +29,7 @@ extern void free_evm_ns(struct integrity_namespace *evm_ns);
+ #endif
+ 
+ #ifdef CONFIG_EVM
+-extern int evm_set_key(struct evm_namespace *ns,
+-		       void *key, size_t keylen);
++extern int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen);
+ extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 					     struct dentry *dentry,
+ 					     const char *xattr_name,
+@@ -37,7 +37,8 @@ extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 					     size_t xattr_value_len,
+ 					     struct integrity_iint_cache *iint);
+ extern int evm_inode_setattr(struct dentry *dentry, struct iattr *attr);
+-extern void evm_inode_post_setattr(struct dentry *dentry, int ia_valid);
++extern void evm_inode_post_setattr(struct dentry *dentry,
++				   int ia_valid);
+ extern int evm_inode_setxattr(struct user_namespace *mnt_userns,
+ 			      struct dentry *dentry, const char *name,
+ 			      const void *value, size_t size);
+@@ -52,7 +53,8 @@ extern void evm_inode_post_removexattr(struct dentry *dentry,
+ extern int evm_inode_init_security(struct inode *inode,
+ 				   const struct xattr *xattr_array,
+ 				   struct xattr *evm);
+-extern bool evm_revalidate_status(const char *xattr_name);
++extern bool evm_revalidate_status(struct evm_namespace *ns,
++				  const char *xattr_name);
+ extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
+ extern int evm_read_protected_xattrs(struct evm_namespace *ns,
+ 				     struct dentry *dentry, u8 *buffer,
+@@ -132,7 +134,8 @@ static inline int evm_inode_init_security(struct inode *inode,
+ 	return 0;
+ }
+ 
+-static inline bool evm_revalidate_status(const char *xattr_name)
++static inline bool evm_revalidate_status(struct evm_namespace *ns,
++					 const char *xattr_name)
+ {
+ 	return false;
+ }
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 1b8a759f0a11..e6b4b0daf24a 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -33,8 +33,6 @@ struct xattr_list {
+ 	bool enabled;
+ };
+ 
+-extern int evm_initialized;
+-
+ #define EVM_ATTR_FSUUID		0x0001
+ 
+ extern int evm_hmac_attrs;
+@@ -48,19 +46,20 @@ struct evm_digest {
+ } __packed;
+ 
+ int evm_init_key(struct evm_namespace *ns);
+-int evm_update_evmxattr(struct dentry *dentry,
++int evm_update_evmxattr(struct evm_namespace *ns,
++			struct dentry *dentry,
+ 			const char *req_xattr_name,
+ 			const char *req_xattr_value,
+ 			size_t req_xattr_value_len);
+-int evm_calc_hmac(struct dentry *dentry, const char *req_xattr_name,
+-		  const char *req_xattr_value,
++int evm_calc_hmac(struct evm_namespace *ns, struct dentry *dentry,
++		  const char *req_xattr_name, const char *req_xattr_value,
+ 		  size_t req_xattr_value_len, struct evm_digest *data);
+-int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
+-		  const char *req_xattr_value,
++int evm_calc_hash(struct evm_namespace *ns, struct dentry *dentry,
++		  const char *req_xattr_name, const char *req_xattr_value,
+ 		  size_t req_xattr_value_len, char type,
+ 		  struct evm_digest *data);
+-int evm_init_hmac(struct inode *inode, const struct xattr *xattr,
+-		  char *hmac_val);
++int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
++		  const struct xattr *xattr, char *hmac_val);
+ int evm_init_secfs(struct evm_namespace *ns);
+ 
+ static inline struct evm_namespace *current_evm_ns(void)
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index 8bcb2865caa2..e44e7ab08773 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -64,7 +64,7 @@ int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
+ 	if (keylen > MAX_KEY_SIZE)
+ 		goto inval;
+ 	memcpy(evmkey, key, keylen);
+-	evm_initialized |= EVM_INIT_HMAC;
++	ns->evm_initialized |= EVM_INIT_HMAC;
+ 	pr_info("key initialized\n");
+ 	return 0;
+ inval:
+@@ -75,7 +75,8 @@ int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
+ }
+ EXPORT_SYMBOL_GPL(evm_set_key);
+ 
+-static struct shash_desc *init_desc(char type, uint8_t hash_algo)
++static struct shash_desc *init_desc(struct evm_namespace *ns,
++				    char type, uint8_t hash_algo)
+ {
+ 	long rc;
+ 	const char *algo;
+@@ -83,7 +84,7 @@ static struct shash_desc *init_desc(char type, uint8_t hash_algo)
+ 	struct shash_desc *desc;
+ 
+ 	if (type == EVM_XATTR_HMAC) {
+-		if (!(evm_initialized & EVM_INIT_HMAC)) {
++		if (!(ns->evm_initialized & EVM_INIT_HMAC)) {
+ 			pr_err_once("HMAC key is not set\n");
+ 			return ERR_PTR(-ENOKEY);
+ 		}
+@@ -214,7 +215,8 @@ static void dump_security_xattr(const char *prefix, const void *src,
+  * the hmac using the requested xattr value. Don't alloc/free memory for
+  * each xattr, but attempt to re-use the previously allocated memory.
+  */
+-static int evm_calc_hmac_or_hash(struct dentry *dentry,
++static int evm_calc_hmac_or_hash(struct evm_namespace *ns,
++				 struct dentry *dentry,
+ 				 const char *req_xattr_name,
+ 				 const char *req_xattr_value,
+ 				 size_t req_xattr_value_len,
+@@ -233,7 +235,7 @@ static int evm_calc_hmac_or_hash(struct dentry *dentry,
+ 	    inode->i_sb->s_user_ns != &init_user_ns)
+ 		return -EOPNOTSUPP;
+ 
+-	desc = init_desc(type, data->hdr.algo);
++	desc = init_desc(ns, type, data->hdr.algo);
+ 	if (IS_ERR(desc))
+ 		return PTR_ERR(desc);
+ 
+@@ -311,20 +313,24 @@ static int evm_calc_hmac_or_hash(struct dentry *dentry,
+ 	return error;
+ }
+ 
+-int evm_calc_hmac(struct dentry *dentry, const char *req_xattr_name,
++int evm_calc_hmac(struct evm_namespace *ns, struct dentry *dentry,
++		  const char *req_xattr_name,
+ 		  const char *req_xattr_value, size_t req_xattr_value_len,
+ 		  struct evm_digest *data)
+ {
+-	return evm_calc_hmac_or_hash(dentry, req_xattr_name, req_xattr_value,
+-				    req_xattr_value_len, EVM_XATTR_HMAC, data);
++	return evm_calc_hmac_or_hash(ns, dentry, req_xattr_name,
++				     req_xattr_value, req_xattr_value_len,
++				     EVM_XATTR_HMAC, data);
+ }
+ 
+-int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
++int evm_calc_hash(struct evm_namespace *ns, struct dentry *dentry,
++		  const char *req_xattr_name,
+ 		  const char *req_xattr_value, size_t req_xattr_value_len,
+ 		  char type, struct evm_digest *data)
+ {
+-	return evm_calc_hmac_or_hash(dentry, req_xattr_name, req_xattr_value,
+-				     req_xattr_value_len, type, data);
++	return evm_calc_hmac_or_hash(ns, dentry, req_xattr_name,
++				     req_xattr_value, req_xattr_value_len,
++				     type, data);
+ }
+ 
+ static int evm_is_immutable(struct dentry *dentry, struct inode *inode)
+@@ -360,7 +366,8 @@ static int evm_is_immutable(struct dentry *dentry, struct inode *inode)
+  *
+  * Expects to be called with i_mutex locked.
+  */
+-int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
++int evm_update_evmxattr(struct evm_namespace *ns, struct dentry *dentry,
++			const char *xattr_name,
+ 			const char *xattr_value, size_t xattr_value_len)
+ {
+ 	struct inode *inode = d_backing_inode(dentry);
+@@ -378,7 +385,7 @@ int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
+ 		return -EPERM;
+ 
+ 	data.hdr.algo = HASH_ALGO_SHA1;
+-	rc = evm_calc_hmac(dentry, xattr_name, xattr_value,
++	rc = evm_calc_hmac(ns, dentry, xattr_name, xattr_value,
+ 			   xattr_value_len, &data);
+ 	if (rc == 0) {
+ 		data.hdr.xattr.sha1.type = EVM_XATTR_HMAC;
+@@ -392,12 +399,12 @@ int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
+ 	return rc;
+ }
+ 
+-int evm_init_hmac(struct inode *inode, const struct xattr *lsm_xattr,
+-		  char *hmac_val)
++int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
++		  const struct xattr *lsm_xattr, char *hmac_val)
+ {
+ 	struct shash_desc *desc;
+ 
+-	desc = init_desc(EVM_XATTR_HMAC, HASH_ALGO_SHA1);
++	desc = init_desc(ns, EVM_XATTR_HMAC, HASH_ALGO_SHA1);
+ 	if (IS_ERR(desc)) {
+ 		pr_info("init_desc failed\n");
+ 		return PTR_ERR(desc);
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index c0070c7a3992..68bf7969153c 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -27,8 +27,6 @@
+ #include <crypto/algapi.h>
+ #include "evm.h"
+ 
+-int evm_initialized;
+-
+ static const char * const integrity_status_msg[] = {
+ 	"pass", "pass_immutable", "fail", "fail_immutable", "no_label",
+ 	"no_xattrs", "unknown"
+@@ -111,9 +109,9 @@ static void __init evm_init_config(void)
+ 	pr_info("HMAC attrs: 0x%x\n", evm_hmac_attrs);
+ }
+ 
+-static bool evm_key_loaded(void)
++static bool evm_key_loaded(struct evm_namespace *ns)
+ {
+-	return (bool)(evm_initialized & EVM_KEY_MASK);
++	return (bool)(ns->evm_initialized & EVM_KEY_MASK);
+ }
+ 
+ /*
+@@ -123,12 +121,12 @@ static bool evm_key_loaded(void)
+  * EVM_SETUP_COMPLETE initialization flag, allowing an operation despite the
+  * attrs/xattrs being found invalid will not make them valid.
+  */
+-static bool evm_hmac_disabled(void)
++static bool evm_hmac_disabled(struct evm_namespace *ns)
+ {
+-	if (evm_initialized & EVM_INIT_HMAC)
++	if (ns->evm_initialized & EVM_INIT_HMAC)
+ 		return false;
+ 
+-	if (!(evm_initialized & EVM_SETUP_COMPLETE))
++	if (!(ns->evm_initialized & EVM_SETUP_COMPLETE))
+ 		return false;
+ 
+ 	return true;
+@@ -218,7 +216,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 		}
+ 
+ 		digest.hdr.algo = HASH_ALGO_SHA1;
+-		rc = evm_calc_hmac(dentry, xattr_name, xattr_value,
++		rc = evm_calc_hmac(ns, dentry, xattr_name, xattr_value,
+ 				   xattr_value_len, &digest);
+ 		if (rc)
+ 			break;
+@@ -239,7 +237,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 
+ 		hdr = (struct signature_v2_hdr *)xattr_data;
+ 		digest.hdr.algo = hdr->hash_algo;
+-		rc = evm_calc_hash(dentry, xattr_name, xattr_value,
++		rc = evm_calc_hash(ns, dentry, xattr_name, xattr_value,
+ 				   xattr_value_len, xattr_data->type, &digest);
+ 		if (rc)
+ 			break;
+@@ -258,7 +256,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 			} else if (!IS_RDONLY(inode) &&
+ 				   !(inode->i_sb->s_readonly_remount) &&
+ 				   !IS_IMMUTABLE(inode)) {
+-				evm_update_evmxattr(dentry, xattr_name,
++				evm_update_evmxattr(ns, dentry, xattr_name,
+ 						    xattr_value,
+ 						    xattr_value_len);
+ 			}
+@@ -421,10 +419,7 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
+ 				      void *xattr_value, size_t xattr_value_len,
+ 				      struct integrity_iint_cache *iint)
+ {
+-	if (ns != &init_evm_ns)
+-		return INTEGRITY_UNKNOWN;
+-
+-	if (!evm_key_loaded() || !evm_protected_xattr(xattr_name))
++	if (!evm_key_loaded(ns) || !evm_protected_xattr(xattr_name))
+ 		return INTEGRITY_UNKNOWN;
+ 
+ 	if (!iint) {
+@@ -449,7 +444,7 @@ static enum integrity_status evm_verify_current_integrity
+ {
+ 	struct inode *inode = d_backing_inode(dentry);
+ 
+-	if (!evm_key_loaded() || !S_ISREG(inode->i_mode) || evm_fixmode)
++	if (!evm_key_loaded(ns) || !S_ISREG(inode->i_mode) || evm_fixmode)
+ 		return INTEGRITY_PASS;
+ 	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL);
+ }
+@@ -577,7 +572,7 @@ static int evm_protect_xattr(struct evm_namespace *ns,
+ 		struct integrity_iint_cache *iint;
+ 
+ 		/* Exception if the HMAC is not going to be calculated. */
+-		if (evm_hmac_disabled())
++		if (evm_hmac_disabled(ns))
+ 			return 0;
+ 
+ 		iint = integrity_iint_find(d_backing_inode(dentry));
+@@ -597,7 +592,7 @@ static int evm_protect_xattr(struct evm_namespace *ns,
+ 	}
+ out:
+ 	/* Exception if the HMAC is not going to be calculated. */
+-	if (evm_hmac_disabled() && (evm_status == INTEGRITY_NOLABEL ||
++	if (evm_hmac_disabled(ns) && (evm_status == INTEGRITY_NOLABEL ||
+ 	    evm_status == INTEGRITY_UNKNOWN))
+ 		return 0;
+ 
+@@ -647,7 +642,7 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 	 * there's no HMAC key loaded
+ 	 */
+ 	if (ns == &init_evm_ns &&
+-	    (evm_initialized & EVM_ALLOW_METADATA_WRITES))
++	    (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES))
+ 		return 0;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+@@ -681,7 +676,7 @@ int evm_inode_removexattr(struct user_namespace *mnt_userns,
+ 	 * there's no HMAC key loaded
+ 	 */
+ 	if (ns == &init_evm_ns &&
+-	    evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	    ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
+ 		return 0;
+ 
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name, NULL, 0);
+@@ -698,6 +693,7 @@ static void evm_reset_status(struct inode *inode)
+ 
+ /**
+  * evm_revalidate_status - report whether EVM status re-validation is necessary
++ * @ns: EVM namespace
+  * @xattr_name: pointer to the affected extended attribute name
+  *
+  * Report whether callers of evm_verifyxattr() should re-validate the
+@@ -705,14 +701,9 @@ static void evm_reset_status(struct inode *inode)
+  *
+  * Return true if re-validation is necessary, false otherwise.
+  */
+-bool evm_revalidate_status(const char *xattr_name)
++bool evm_revalidate_status(struct evm_namespace *ns, const char *xattr_name)
+ {
+-	struct evm_namespace *ns = current_evm_ns();
+-
+-	if (ns != &init_evm_ns)
+-		return false;
+-
+-	if (!evm_key_loaded())
++	if (!evm_key_loaded(ns))
+ 		return false;
+ 
+ 	/* evm_inode_post_setattr() passes NULL */
+@@ -742,7 +733,9 @@ bool evm_revalidate_status(const char *xattr_name)
+ void evm_inode_post_setxattr(struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
+-	if (!evm_revalidate_status(xattr_name))
++	struct evm_namespace *ns = current_evm_ns();
++
++	if (!evm_revalidate_status(ns, xattr_name))
+ 		return;
+ 
+ 	evm_reset_status(dentry->d_inode);
+@@ -750,10 +743,11 @@ void evm_inode_post_setxattr(struct dentry *dentry, const char *xattr_name,
+ 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
+ 		return;
+ 
+-	if (!(evm_initialized & EVM_INIT_HMAC))
++	if (!(ns->evm_initialized & EVM_INIT_HMAC))
+ 		return;
+ 
+-	evm_update_evmxattr(dentry, xattr_name, xattr_value, xattr_value_len);
++	evm_update_evmxattr(ns, dentry, xattr_name,
++			    xattr_value, xattr_value_len);
+ }
+ 
+ /**
+@@ -768,7 +762,9 @@ void evm_inode_post_setxattr(struct dentry *dentry, const char *xattr_name,
+  */
+ void evm_inode_post_removexattr(struct dentry *dentry, const char *xattr_name)
+ {
+-	if (!evm_revalidate_status(xattr_name))
++	struct evm_namespace *ns = current_evm_ns();
++
++	if (!evm_revalidate_status(ns, xattr_name))
+ 		return;
+ 
+ 	evm_reset_status(dentry->d_inode);
+@@ -776,10 +772,10 @@ void evm_inode_post_removexattr(struct dentry *dentry, const char *xattr_name)
+ 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
+ 		return;
+ 
+-	if (!(evm_initialized & EVM_INIT_HMAC))
++	if (!(ns->evm_initialized & EVM_INIT_HMAC))
+ 		return;
+ 
+-	evm_update_evmxattr(dentry, xattr_name, NULL, 0);
++	evm_update_evmxattr(ns, dentry, xattr_name, NULL, 0);
+ }
+ 
+ static int evm_attr_change(struct dentry *dentry, struct iattr *attr)
+@@ -804,9 +800,9 @@ static int evm_attr_change(struct dentry *dentry, struct iattr *attr)
+  */
+ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ {
++	struct evm_namespace *ns = current_evm_ns();
+ 	unsigned int ia_valid = attr->ia_valid;
+ 	enum integrity_status evm_status;
+-	struct evm_namespace *ns = current_evm_ns();
+ 
+ 	if (ns != &init_evm_ns)
+ 		return 0;
+@@ -814,7 +810,7 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ 	/* Policy permits modification of the protected attrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
+ 		return 0;
+ 
+ 	if (!(ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID)))
+@@ -827,7 +823,7 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ 	if ((evm_status == INTEGRITY_PASS) ||
+ 	    (evm_status == INTEGRITY_NOXATTRS) ||
+ 	    (evm_status == INTEGRITY_FAIL_IMMUTABLE) ||
+-	    (evm_hmac_disabled() && (evm_status == INTEGRITY_NOLABEL ||
++	    (evm_hmac_disabled(ns) && (evm_status == INTEGRITY_NOLABEL ||
+ 	     evm_status == INTEGRITY_UNKNOWN)))
+ 		return 0;
+ 
+@@ -854,16 +850,18 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+  */
+ void evm_inode_post_setattr(struct dentry *dentry, int ia_valid)
+ {
+-	if (!evm_revalidate_status(NULL))
++	struct evm_namespace *ns = current_evm_ns();
++
++	if (!evm_revalidate_status(ns, NULL))
+ 		return;
+ 
+ 	evm_reset_status(dentry->d_inode);
+ 
+-	if (!(evm_initialized & EVM_INIT_HMAC))
++	if (!(ns->evm_initialized & EVM_INIT_HMAC))
+ 		return;
+ 
+ 	if (ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID))
+-		evm_update_evmxattr(dentry, NULL, NULL, 0);
++		evm_update_evmxattr(ns, dentry, NULL, NULL, 0);
+ }
+ 
+ /*
+@@ -877,10 +875,7 @@ int evm_inode_init_security(struct inode *inode,
+ 	struct evm_xattr *xattr_data;
+ 	int rc;
+ 
+-	if (ns != &init_evm_ns)
+-		return 0;
+-
+-	if (!(evm_initialized & EVM_INIT_HMAC) ||
++	if (!(ns->evm_initialized & EVM_INIT_HMAC) ||
+ 	    !evm_protected_xattr(lsm_xattr->name))
+ 		return 0;
+ 
+@@ -889,7 +884,7 @@ int evm_inode_init_security(struct inode *inode,
+ 		return -ENOMEM;
+ 
+ 	xattr_data->data.type = EVM_XATTR_HMAC;
+-	rc = evm_init_hmac(inode, lsm_xattr, xattr_data->digest);
++	rc = evm_init_hmac(ns, inode, lsm_xattr, xattr_data->digest);
+ 	if (rc < 0)
+ 		goto out;
+ 
+@@ -911,7 +906,7 @@ void __init evm_load_x509(struct integrity_namespace *ns)
+ 	rc = integrity_load_x509(ns, INTEGRITY_KEYRING_EVM,
+ 				 CONFIG_EVM_X509_PATH);
+ 	if (!rc)
+-		evm_initialized |= EVM_INIT_X509;
++		ns->evm_ns->evm_initialized |= EVM_INIT_X509;
+ }
+ #endif
+ 
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index d50a22b33b5e..606f99dd392d 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -40,13 +40,14 @@ static int evm_xattrs_locked;
+ static ssize_t evm_read_key(struct file *filp, char __user *buf,
+ 			    size_t count, loff_t *ppos)
+ {
++	struct evm_namespace *ns = evm_ns_from_file(filp);
+ 	char temp[80];
+ 	ssize_t rc;
+ 
+ 	if (*ppos != 0)
+ 		return 0;
+ 
+-	sprintf(temp, "%d", (evm_initialized & ~EVM_SETUP_COMPLETE));
++	sprintf(temp, "%d", (ns->evm_initialized & ~EVM_SETUP_COMPLETE));
+ 	rc = simple_read_from_buffer(buf, count, ppos, temp, strlen(temp));
+ 
+ 	return rc;
+@@ -67,11 +68,12 @@ static ssize_t evm_read_key(struct file *filp, char __user *buf,
+ static ssize_t evm_write_key(struct file *file, const char __user *buf,
+ 			     size_t count, loff_t *ppos)
+ {
+-	struct evm_namespace *ns = current_evm_ns();
++	struct evm_namespace *ns = evm_ns_from_file(file);
+ 	unsigned int i;
+ 	int ret;
+ 
+-	if (!capable(CAP_SYS_ADMIN) || (evm_initialized & EVM_SETUP_COMPLETE))
++	if (!capable(CAP_SYS_ADMIN) ||
++	    (ns->evm_initialized & EVM_SETUP_COMPLETE))
+ 		return -EPERM;
+ 
+ 	ret = kstrtouint_from_user(buf, count, 0, &i);
+@@ -88,7 +90,7 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
+ 	 * an HMAC key is loaded.
+ 	 */
+ 	if ((i & EVM_ALLOW_METADATA_WRITES) &&
+-	    (evm_initialized & EVM_INIT_HMAC) != 0)
++	    (ns->evm_initialized & EVM_INIT_HMAC) != 0)
+ 		return -EPERM;
+ 
+ 	if (i & EVM_INIT_HMAC) {
+@@ -99,13 +101,13 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
+ 		i |= EVM_SETUP_COMPLETE;
+ 	}
+ 
+-	evm_initialized |= i;
++	ns->evm_initialized |= i;
+ 
+ 	/* Don't allow protected metadata modification if a symmetric key
+ 	 * is loaded
+ 	 */
+-	if (evm_initialized & EVM_INIT_HMAC)
+-		evm_initialized &= ~(EVM_ALLOW_METADATA_WRITES);
++	if (ns->evm_initialized & EVM_INIT_HMAC)
++		ns->evm_initialized &= ~(EVM_ALLOW_METADATA_WRITES);
+ 
+ 	return count;
+ }
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index fe0b651c0a15..062f49e92be0 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -794,6 +794,7 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 		       const void *xattr_value, size_t xattr_value_len)
+ {
+ 	const struct evm_ima_xattr_data *xvalue = xattr_value;
++	struct evm_namespace *evm_ns = &init_evm_ns;
+ 	struct ima_namespace *ns = &init_ima_ns;
+ 	int digsig = 0;
+ 	int result;
+@@ -807,7 +808,7 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 	} else if (!strcmp(xattr_name, XATTR_NAME_EVM) && xattr_value_len > 0) {
+ 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
+ 	}
+-	if (result == 1 || evm_revalidate_status(xattr_name)) {
++	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
+ 		result = validate_hash_algo(ns, dentry,
+ 					    xvalue, xattr_value_len);
+ 		if (result)
+@@ -820,11 +821,12 @@ int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
+ 
+ int ima_inode_removexattr(struct dentry *dentry, const char *xattr_name)
+ {
++	struct evm_namespace *evm_ns = &init_evm_ns;
+ 	struct ima_namespace *ns = &init_ima_ns;
+ 	int result;
+ 
+ 	result = ima_protect_xattr(dentry, xattr_name, NULL, 0);
+-	if (result == 1 || evm_revalidate_status(xattr_name)) {
++	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
+ 		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
+ 		if (result == 1)
+ 			result = 0;
+-- 
+2.36.1
+

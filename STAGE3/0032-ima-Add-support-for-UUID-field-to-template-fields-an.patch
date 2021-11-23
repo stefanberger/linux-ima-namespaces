@@ -1,0 +1,469 @@
+From 866da31194dee4d21de1c8c25be6d9fb1fa9926f Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 6 Apr 2022 12:55:53 -0400
+Subject: [PATCH 32/81] ima: Add support for UUID field to template fields and
+ library
+
+Add support for a UUID field to the template fields. Use the UUID of the
+user namespace that caused an event for logging the event in all parent
+IMA namespaces' logs.
+
+Pass the uuid of the source user namespace where an event occurred as part
+of the event_data in the uuid field.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h                 | 14 ++++++----
+ security/integrity/ima/ima_api.c             | 12 +++++---
+ security/integrity/ima/ima_appraise.c        |  3 +-
+ security/integrity/ima/ima_asymmetric_keys.c |  3 +-
+ security/integrity/ima/ima_fs.c              |  5 ++--
+ security/integrity/ima/ima_init.c            |  3 +-
+ security/integrity/ima/ima_init_ima_ns.c     |  6 ++--
+ security/integrity/ima/ima_main.c            | 29 ++++++++++++--------
+ security/integrity/ima/ima_queue_keys.c      |  3 +-
+ security/integrity/ima/ima_template.c        |  6 +++-
+ security/integrity/ima/ima_template_lib.c    | 27 +++++++++++++++++-
+ security/integrity/ima/ima_template_lib.h    |  5 ++++
+ 12 files changed, 85 insertions(+), 31 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 872133f7ef2e..4cbeda41b683 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -63,6 +63,7 @@ struct ima_event_data {
+ 	const char *violation;
+ 	const void *buf;
+ 	int buf_len;
++	uuid_t *uuid;
+ };
+ 
+ /* IMA template field data definition */
+@@ -224,7 +225,7 @@ extern bool ima_canonical_fmt;
+ int ima_init(void);
+ int ima_fs_init(void);
+ int ima_ns_init(void);
+-int ima_init_namespace(struct ima_namespace *ns);
++int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns);
+ int ima_add_template_entry(struct ima_namespace *ns,
+ 			   struct ima_template_entry *entry, int violation,
+ 			   const char *op, struct inode *inode,
+@@ -243,7 +244,8 @@ void ima_add_violation(struct ima_namespace *ns,
+ 		       struct file *file, const unsigned char *filename,
+ 		       struct integrity_iint_cache *iint,
+ 		       struct ns_status *ns_status,
+-		       const char *op, const char *cause);
++		       const char *op, const char *cause,
++		       uuid_t *src_userns);
+ int ima_init_crypto(struct ima_namespace *ns);
+ void ima_deinit_crypto(struct ima_namespace *ns);
+ void ima_putc(struct seq_file *m, void *data, int datalen);
+@@ -269,7 +271,7 @@ int ima_init_digests(struct ima_namespace *ns);
+ void ima_free_digests(struct ima_namespace *ns);
+ int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
+ 			  void *lsm_data);
+-int ima_add_boot_aggregate(struct ima_namespace *ns);
++int ima_add_boot_aggregate(struct ima_namespace *ns, uuid_t *src_userns);
+ 
+ /*
+  * used to protect h_table and sha_table
+@@ -372,13 +374,15 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 			   struct evm_ima_xattr_data *xattr_value,
+ 			   int xattr_len, const struct modsig *modsig, int pcr,
+ 			   struct ima_template_desc *template_desc,
+-			   struct ns_status *ns_status);
++			   struct ns_status *ns_status,
++			   uuid_t *src_userns);
+ int process_buffer_measurement(struct ima_namespace *ns,
+ 			       struct user_namespace *mnt_userns,
+ 			       struct inode *inode, const void *buf, int size,
+ 			       const char *eventname, enum ima_hooks func,
+ 			       int pcr, const char *func_data,
+-			       bool buf_hash, u8 *digest, size_t digest_len);
++			       bool buf_hash, u8 *digest, size_t digest_len,
++			       uuid_t *src_userns);
+ void ima_audit_measurement(struct integrity_iint_cache *iint,
+ 			   const unsigned char *filename,
+ 			   struct ns_status *ns_status);
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index ce40b495ea55..f7dcc945abae 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -141,7 +141,8 @@ void ima_add_violation(struct ima_namespace *ns,
+ 		       struct file *file, const unsigned char *filename,
+ 		       struct integrity_iint_cache *iint,
+ 		       struct ns_status *ns_status,
+-		       const char *op, const char *cause)
++		       const char *op, const char *cause,
++		       uuid_t *src_userns)
+ {
+ 	struct ima_template_entry *entry;
+ 	struct inode *inode = file_inode(file);
+@@ -149,7 +150,8 @@ void ima_add_violation(struct ima_namespace *ns,
+ 					     .iint_flags = iint_flags(iint, ns_status),
+ 					     .file = file,
+ 					     .filename = filename,
+-					     .violation = cause };
++					     .violation = cause,
++					     .uuid = src_userns };
+ 	int violation = 1;
+ 	int result;
+ 
+@@ -360,7 +362,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 			   struct evm_ima_xattr_data *xattr_value,
+ 			   int xattr_len, const struct modsig *modsig, int pcr,
+ 			   struct ima_template_desc *template_desc,
+-			   struct ns_status *ns_status)
++			   struct ns_status *ns_status,
++			   uuid_t *src_userns)
+ {
+ 	static const char op[] = "add_template_measure";
+ 	static const char audit_cause[] = "ENOMEM";
+@@ -373,7 +376,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 					     .filename = filename,
+ 					     .xattr_value = xattr_value,
+ 					     .xattr_len = xattr_len,
+-					     .modsig = modsig };
++					     .modsig = modsig,
++					     .uuid = src_userns };
+ 	int violation = 0;
+ 	unsigned long flags = iint_flags(iint, ns_status);
+ 
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 3adc6efc00d3..4dd768213a36 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -474,7 +474,8 @@ int ima_check_blacklist(struct ima_namespace *ns,
+ 			process_buffer_measurement(ns, &init_user_ns, NULL,
+ 						   digest, digestsize,
+ 						   "blacklisted-hash", NONE,
+-						   pcr, NULL, false, NULL, 0);
++						   pcr, NULL, false, NULL, 0,
++						   &init_user_ns.uuid);
+ 	}
+ 
+ 	return rc;
+diff --git a/security/integrity/ima/ima_asymmetric_keys.c b/security/integrity/ima/ima_asymmetric_keys.c
+index fa58662688d1..8ed1b56cc7b0 100644
+--- a/security/integrity/ima/ima_asymmetric_keys.c
++++ b/security/integrity/ima/ima_asymmetric_keys.c
+@@ -67,5 +67,6 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
+ 	process_buffer_measurement(ns, &init_user_ns, NULL,
+ 				   payload, payload_len,
+ 				   keyring->description, KEY_CHECK, 0,
+-				   keyring->description, false, NULL, 0);
++				   keyring->description, false, NULL, 0,
++				   &init_user_ns.uuid);
+ }
+diff --git a/security/integrity/ima/ima_fs.c b/security/integrity/ima/ima_fs.c
+index 6bb1c921e40f..dda84778d46b 100644
+--- a/security/integrity/ima/ima_fs.c
++++ b/security/integrity/ima/ima_fs.c
+@@ -586,7 +586,8 @@ static ssize_t ima_write_active(struct file *filp,
+ 				const char __user *buf,
+ 				size_t count, loff_t *ppos)
+ {
+-	struct ima_namespace *ns = ima_ns_from_file(filp);
++	struct user_namespace *user_ns = ima_user_ns_from_file(filp);
++	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
+ 	unsigned int active;
+ 	char *kbuf;
+ 	int err;
+@@ -610,7 +611,7 @@ static ssize_t ima_write_active(struct file *filp,
+ 	if (active != 1)
+ 		return -EINVAL;
+ 
+-	err = ima_init_namespace(ns);
++	err = ima_init_namespace(ns, &user_ns->uuid);
+ 	if (err)
+ 		return -EINVAL;
+ 
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index 0e5f780f8ac9..a56bb0916de8 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -38,7 +38,7 @@ const char boot_aggregate_name[] = "boot_aggregate";
+  * a different value.) Violations add a zero entry to the measurement
+  * list and extend the aggregate PCR value with ff...ff's.
+  */
+-int ima_add_boot_aggregate(struct ima_namespace *ns)
++int ima_add_boot_aggregate(struct ima_namespace *ns, uuid_t *src_userns)
+ {
+ 	static const char op[] = "add_boot_aggregate";
+ 	const char *audit_cause = "ENOMEM";
+@@ -54,6 +54,7 @@ int ima_add_boot_aggregate(struct ima_namespace *ns)
+ 	event_data.ima_hash = &hash.hdr;
+ 	event_data.ima_hash->algo = ima_hash_algo;
+ 	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
++	event_data.uuid = src_userns;
+ 
+ 	/*
+ 	 * With TPM 2.0 hash agility, TPM chips could support multiple TPM
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index ac9b6cec256b..04559f372f5a 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -8,7 +8,7 @@
+ 
+ #include "ima.h"
+ 
+-int ima_init_namespace(struct ima_namespace *ns)
++int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
+ {
+ 	const char *template_name = NULL;
+ 	int ret;
+@@ -81,7 +81,7 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 		goto err_deinit_crypto;
+ 
+ 	/* boot aggregate must be first entry */
+-	ret = ima_add_boot_aggregate(ns);
++	ret = ima_add_boot_aggregate(ns, src_userns);
+ 	if (ret != 0)
+ 		goto err_free_digests;
+ 
+@@ -103,7 +103,7 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 
+ int __init ima_ns_init(void)
+ {
+-	return ima_init_namespace(&init_ima_ns);
++	return ima_init_namespace(&init_ima_ns, &init_user_ns.uuid);
+ }
+ 
+ struct ima_namespace init_ima_ns = {
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 6ea93a7d256e..e69b0742bd4d 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -119,7 +119,8 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 				     int must_measure,
+ 				     char **pathbuf,
+ 				     const char **pathname,
+-				     char *filename)
++				     char *filename,
++				     uuid_t *src_userns)
+ {
+ 	struct inode *inode = file_inode(file);
+ 	fmode_t mode = file->f_mode;
+@@ -154,10 +155,10 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 
+ 	if (send_tomtou)
+ 		ima_add_violation(ns, file, *pathname, iint, ns_status,
+-				  "invalid_pcr", "ToMToU");
++				  "invalid_pcr", "ToMToU", src_userns);
+ 	if (send_writers)
+ 		ima_add_violation(ns, file, *pathname, iint, ns_status,
+-				  "invalid_pcr", "open_writers");
++				  "invalid_pcr", "open_writers", src_userns);
+ }
+ 
+ static void mask_iint_ns_status_flags(struct integrity_iint_cache *iint,
+@@ -238,7 +239,7 @@ void ima_file_free(struct file *file)
+ static int __process_measurement(struct ima_namespace *ns,
+ 				 struct file *file, const struct cred *cred,
+ 				 u32 secid, char *buf, loff_t size, int mask,
+-				 enum ima_hooks func)
++				 enum ima_hooks func, uuid_t *src_userns)
+ {
+ 	struct inode *inode = file_inode(file);
+ 	struct integrity_iint_cache *iint = NULL;
+@@ -297,7 +298,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	if (!rc && violation_check)
+ 		ima_rdwr_violation_check(ns, file, iint, ns_status,
+ 					 action & IMA_MEASURE,
+-					 &pathbuf, &pathname, filename);
++					 &pathbuf, &pathname, filename,
++					 src_userns);
+ 
+ 	inode_unlock(inode);
+ 
+@@ -396,7 +398,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	if (action & IMA_MEASURE)
+ 		ima_store_measurement(ns, iint, file, pathname,
+ 				      xattr_value, xattr_len, modsig, pcr,
+-				      template_desc, ns_status);
++				      template_desc, ns_status, src_userns);
+ 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
+ 		rc = ima_check_blacklist(ns, iint, ns_status, modsig, pcr);
+ 		if (rc != -EPERM) {
+@@ -450,6 +452,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			       u32 secid, char *buf, loff_t size, int mask,
+ 			       enum ima_hooks func)
+ {
++	uuid_t *src_userns = &user_ns->uuid;
+ 	struct ima_namespace *ns;
+ 	int ret = 0;
+ 
+@@ -459,7 +462,8 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			int rc;
+ 
+ 			rc = __process_measurement(ns, file, cred, secid, buf,
+-						   size, mask, func);
++						   size, mask, func,
++						   src_userns);
+ 			switch (rc) {
+ 			case 0:
+ 				break;
+@@ -1006,7 +1010,8 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 			       struct inode *inode, const void *buf, int size,
+ 			       const char *eventname, enum ima_hooks func,
+ 			       int pcr, const char *func_data,
+-			       bool buf_hash, u8 *digest, size_t digest_len)
++			       bool buf_hash, u8 *digest, size_t digest_len,
++			       uuid_t *src_userns)
+ {
+ 	int ret = 0;
+ 	const char *audit_cause = "ENOMEM";
+@@ -1059,6 +1064,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 	event_data.ima_hash = &hash.hdr;
+ 	event_data.ima_hash->algo = ima_hash_algo;
+ 	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
++	event_data.uuid = src_userns;
+ 
+ 	ret = ima_calc_buffer_hash(ns, buf, size, event_data.ima_hash);
+ 	if (ret < 0) {
+@@ -1118,7 +1124,8 @@ int process_buffer_measurement(struct ima_namespace *ns,
+  */
+ void ima_kexec_cmdline(int kernel_fd, const void *buf, int size)
+ {
+-	struct ima_namespace *ns = get_current_ns();
++	struct user_namespace *user_ns = current_user_ns();
++	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
+ 	struct fd f;
+ 
+ 	if (!ns_is_active(ns) || !buf || !size)
+@@ -1131,7 +1138,7 @@ void ima_kexec_cmdline(int kernel_fd, const void *buf, int size)
+ 	process_buffer_measurement(ns,
+ 				   file_mnt_user_ns(f.file), file_inode(f.file),
+ 				   buf, size, "kexec-cmdline", KEXEC_CMDLINE, 0,
+-				   NULL, false, NULL, 0);
++				   NULL, false, NULL, 0, &user_ns->uuid);
+ 	fdput(f);
+ }
+ 
+@@ -1170,7 +1177,7 @@ int ima_measure_critical_data(const char *event_label,
+ 	return process_buffer_measurement(ns, &init_user_ns, NULL, buf, buf_len,
+ 					  event_name, CRITICAL_DATA, 0,
+ 					  event_label, hash, digest,
+-					  digest_len);
++					  digest_len, &init_user_ns.uuid);
+ }
+ EXPORT_SYMBOL_GPL(ima_measure_critical_data);
+ 
+diff --git a/security/integrity/ima/ima_queue_keys.c b/security/integrity/ima/ima_queue_keys.c
+index 5c1244bcf1ce..75a7576764b7 100644
+--- a/security/integrity/ima/ima_queue_keys.c
++++ b/security/integrity/ima/ima_queue_keys.c
+@@ -164,7 +164,8 @@ void ima_process_queued_keys(struct ima_namespace *ns)
+ 						   entry->keyring_name,
+ 						   KEY_CHECK, 0,
+ 						   entry->keyring_name,
+-						   false, NULL, 0);
++						   false, NULL, 0,
++						   &init_user_ns.uuid);
+ 		list_del(&entry->list);
+ 		ima_free_key_entry(entry);
+ 	}
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index db89f8ca5130..f28e2edc4513 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -68,6 +68,9 @@ static const struct ima_template_field supported_fields[] = {
+ 	{.field_id = "xattrvalues",
+ 	 .field_init = ima_eventinodexattrvalues_init,
+ 	 .field_show = ima_show_template_sig},
++	{.field_id = "userns",
++	 .field_init = ima_eventuserns_init,
++	 .field_show = ima_show_template_uuid},
+ };
+ 
+ /*
+@@ -76,7 +79,8 @@ static const struct ima_template_field supported_fields[] = {
+  * description as 'd-ng' and 'n-ng' respectively.
+  */
+ #define MAX_TEMPLATE_NAME_LEN \
+-	sizeof("d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode")
++	sizeof("d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|" \
++	       "igid|imode|userns")
+ 
+ /**
+  * ima_template_has_modsig - Check whether template has modsig-related fields.
+diff --git a/security/integrity/ima/ima_template_lib.c b/security/integrity/ima/ima_template_lib.c
+index 55933e3ec9b3..1db5206eb0c9 100644
+--- a/security/integrity/ima/ima_template_lib.c
++++ b/security/integrity/ima/ima_template_lib.c
+@@ -28,7 +28,8 @@ enum data_formats {
+ 	DATA_FMT_DIGEST_WITH_TYPE_AND_ALGO,
+ 	DATA_FMT_STRING,
+ 	DATA_FMT_HEX,
+-	DATA_FMT_UINT
++	DATA_FMT_UINT,
++	DATA_FMT_UUID
+ };
+ 
+ enum digest_type {
+@@ -135,6 +136,9 @@ static void ima_show_template_data_ascii(struct seq_file *m,
+ 			break;
+ 		}
+ 		break;
++	case DATA_FMT_UUID:
++		seq_printf(m, "%pU", buf_ptr);
++		break;
+ 	default:
+ 		break;
+ 	}
+@@ -219,6 +223,12 @@ void ima_show_template_buf(struct seq_file *m, enum ima_show_type show,
+ 	ima_show_template_field_data(m, show, DATA_FMT_HEX, field_data);
+ }
+ 
++void ima_show_template_uuid(struct seq_file *m, enum ima_show_type show,
++			    struct ima_field_data *field_data)
++{
++	ima_show_template_field_data(m, show, DATA_FMT_UUID, field_data);
++}
++
+ void ima_show_template_uint(struct seq_file *m, enum ima_show_type show,
+ 			    struct ima_field_data *field_data)
+ {
+@@ -762,3 +772,18 @@ int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
+ {
+ 	return ima_eventinodexattrs_init_common(event_data, field_data, 'v');
+ }
++
++/*
++ *  ima_eventuserns_init - incluee the user namespace's uuid
++ */
++int ima_eventuserns_init(struct ima_namespace *ns,
++			 struct ima_event_data *event_data,
++			 struct ima_field_data *field_data)
++{
++	if (!event_data->uuid)
++		return 0;
++
++	return ima_write_template_field_data(event_data->uuid,
++					     sizeof(*event_data->uuid),
++					     DATA_FMT_UUID, field_data);
++}
+diff --git a/security/integrity/ima/ima_template_lib.h b/security/integrity/ima/ima_template_lib.h
+index 73ed113b8638..7696b3863341 100644
+--- a/security/integrity/ima/ima_template_lib.h
++++ b/security/integrity/ima/ima_template_lib.h
+@@ -29,6 +29,8 @@ void ima_show_template_sig(struct seq_file *m, enum ima_show_type show,
+ 			   struct ima_field_data *field_data);
+ void ima_show_template_buf(struct seq_file *m, enum ima_show_type show,
+ 			   struct ima_field_data *field_data);
++void ima_show_template_uuid(struct seq_file *m, enum ima_show_type show,
++			    struct ima_field_data *field_data);
+ void ima_show_template_uint(struct seq_file *m, enum ima_show_type show,
+ 			    struct ima_field_data *field_data);
+ int ima_parse_buf(void *bufstartp, void *bufendp, void **bufcurp,
+@@ -82,4 +84,7 @@ int ima_eventinodexattrlengths_init(struct ima_namespace *ns,
+ int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
+ 				   struct ima_event_data *event_data,
+ 				   struct ima_field_data *field_data);
++int ima_eventuserns_init(struct ima_namespace *ns,
++			 struct ima_event_data *event_data,
++			 struct ima_field_data *field_data);
+ #endif /* __LINUX_IMA_TEMPLATE_LIB_H */
+-- 
+2.36.1
+

@@ -1,0 +1,59 @@
+From 90c3f03df87ddb720a49ce6ae0bf2d5053252e64 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 26 Jan 2022 09:30:18 -0500
+Subject: [PATCH 26/81] ima: Add template_name field to ima_config
+
+Add a template_name field to the ima_config structure in preparation
+for allowing users to choose the template name of an IMA namespace
+vai a file in IMA's securityfs.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h             | 2 ++
+ security/integrity/ima/ima_init_ima_ns.c | 1 +
+ security/integrity/ima/ima_template.c    | 4 ++++
+ 3 files changed, 7 insertions(+)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index b5d25bfe4297..6ee138429651 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -126,6 +126,8 @@ struct ima_h_table {
+ struct ima_config {
+ 	int ima_hash_algo;
+ 	int hash_setup_done;
++
++	char template_name[32];
+ };
+ 
+ struct ima_namespace {
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 636aa62624da..b1550d3596a1 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -110,6 +110,7 @@ struct ima_namespace init_ima_ns = {
+ 	.ima_ns_flags = BIT(IMA_NS_ACTIVE),
+ 	.config = {
+ 		.ima_hash_algo = HASH_ALGO_SHA1,
++		.template_name = CONFIG_IMA_DEFAULT_TEMPLATE,
+ 	},
+ };
+ EXPORT_SYMBOL(init_ima_ns);
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index 52607339e9bf..300a4f7cf816 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -135,6 +135,10 @@ static int __init ima_template_setup(char *str)
+ 
+ 	ns->ima_template = template_desc;
+ 	ns->template_setup_done = 1;
++
++	strscpy(ns->config.template_name, str,
++		sizeof(ns->config.template_name));
++
+ 	return 1;
+ }
+ __setup("ima_template=", ima_template_setup);
+-- 
+2.36.1
+

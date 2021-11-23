@@ -1,0 +1,61 @@
+From 0441eb4f8e17cb049e5bafb2fcbd211896e6a742 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 19 May 2022 16:55:44 -0400
+Subject: [PATCH 46/81] evm: Introduce EVM_NS_ACTIVE flag to indicate active
+ namespace
+
+Introduce the flag EVM_NS_ACTIVE to indicate an active EVM
+namespace.
+
+Implement ns_is_active() to test whether an EVM namespace is
+active and can be used.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                      | 4 ++++
+ security/integrity/evm/evm.h             | 4 ++++
+ security/integrity/evm/evm_init_evm_ns.c | 1 +
+ 3 files changed, 9 insertions(+)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index ab0fe5a4dbc1..97cd4a165394 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -16,6 +16,10 @@ struct integrity_iint_cache;
+ struct integrity_namespace;
+ 
+ struct evm_namespace {
++	unsigned long evm_ns_flags;
++/* Bit numbers for above flags; use BIT() to get flag */
++#define EVM_NS_ACTIVE			1
++
+ 	struct integrity_namespace *integrity_ns;
+ 	int evm_initialized;
+ };
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index e6b4b0daf24a..80e4c959050d 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -77,5 +77,9 @@ struct evm_namespace *evm_ns_from_file(const struct file *filp)
+ 	return file_inode(filp)->i_sb->s_user_ns->integrity_ns->evm_ns;
+ }
+ 
++static inline bool ns_is_active(struct evm_namespace *ns)
++{
++	return (ns && test_bit(EVM_NS_ACTIVE, &ns->evm_ns_flags));
++}
+ 
+ #endif
+diff --git a/security/integrity/evm/evm_init_evm_ns.c b/security/integrity/evm/evm_init_evm_ns.c
+index 92a42ce66eb6..7cb0261b48b8 100644
+--- a/security/integrity/evm/evm_init_evm_ns.c
++++ b/security/integrity/evm/evm_init_evm_ns.c
+@@ -18,4 +18,5 @@ int __init evm_init_ns(void)
+ }
+ 
+ struct evm_namespace init_evm_ns = {
++	.evm_ns_flags = BIT(EVM_NS_ACTIVE),
+ };
+-- 
+2.36.1
+

@@ -1,0 +1,234 @@
+From 9efa13e00357a650c1094369422806fa38444809 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 3 Jan 2022 21:05:55 -0500
+Subject: [PATCH 41/81] integrity: Move integrity_dir into integrity_namespace
+
+Move the integrity_dir variable into the integrity_namespace. In the
+virtualization case create the integrity directory when ima_fs_ns_init()
+is called. In the virtualization case there's also no need to free
+the dentry since it will be automatically freed when the instance of
+securityfs is deleted.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/integrity_namespace.h |  1 +
+ security/integrity/evm/evm.h        |  2 +-
+ security/integrity/evm/evm_main.c   |  2 +-
+ security/integrity/evm/evm_secfs.c  |  5 +++--
+ security/integrity/iint.c           | 33 +++++++++++++++++++++--------
+ security/integrity/ima/ima_fs.c     | 10 ++++-----
+ security/integrity/integrity.h      |  6 ++++--
+ security/integrity/integrity_ns.c   |  3 +++
+ 8 files changed, 41 insertions(+), 21 deletions(-)
+
+diff --git a/include/linux/integrity_namespace.h b/include/linux/integrity_namespace.h
+index 263b489b0ca8..65e0edea3bf7 100644
+--- a/include/linux/integrity_namespace.h
++++ b/include/linux/integrity_namespace.h
+@@ -24,6 +24,7 @@ struct integrity_namespace {
+ #endif
+ 	struct key *keyring[INTEGRITY_KEYRING_MAX];
+ 	const char *keyring_name[INTEGRITY_KEYRING_MAX];
++	struct dentry *integrity_dir;
+ };
+ 
+ extern struct integrity_namespace init_integrity_ns;
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index f8b8c5004fc7..3a3f041e09cf 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -60,6 +60,6 @@ int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
+ 		  struct evm_digest *data);
+ int evm_init_hmac(struct inode *inode, const struct xattr *xattr,
+ 		  char *hmac_val);
+-int evm_init_secfs(void);
++int evm_init_secfs(struct integrity_namespace *ns);
+ 
+ #endif
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 88974e2b658b..0b77fa957d21 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -902,7 +902,7 @@ static int __init init_evm(void)
+ 	if (error)
+ 		goto error;
+ 
+-	error = evm_init_secfs();
++	error = evm_init_secfs(&init_integrity_ns);
+ 	if (error < 0) {
+ 		pr_info("Error registering secfs\n");
+ 		goto error;
+diff --git a/security/integrity/evm/evm_secfs.c b/security/integrity/evm/evm_secfs.c
+index 8a9db7dfca7e..cb879067eba1 100644
+--- a/security/integrity/evm/evm_secfs.c
++++ b/security/integrity/evm/evm_secfs.c
+@@ -14,6 +14,7 @@
+ #include <linux/uaccess.h>
+ #include <linux/init.h>
+ #include <linux/mutex.h>
++#include <linux/integrity_namespace.h>
+ #include "evm.h"
+ 
+ static struct dentry *evm_dir;
+@@ -298,11 +299,11 @@ static int evm_init_xattrs(void)
+ }
+ #endif
+ 
+-int __init evm_init_secfs(void)
++int __init evm_init_secfs(struct integrity_namespace *ns)
+ {
+ 	int error = 0;
+ 
+-	evm_dir = securityfs_create_dir("evm", integrity_dir);
++	evm_dir = securityfs_create_dir("evm", ns->integrity_dir);
+ 	if (!evm_dir || IS_ERR(evm_dir))
+ 		return -EFAULT;
+ 
+diff --git a/security/integrity/iint.c b/security/integrity/iint.c
+index 540960cee589..717199dacb5b 100644
+--- a/security/integrity/iint.c
++++ b/security/integrity/iint.c
+@@ -27,8 +27,6 @@ static struct rb_root integrity_iint_tree = RB_ROOT;
+ static DEFINE_RWLOCK(integrity_iint_lock);
+ static struct kmem_cache *iint_cache __read_mostly;
+ 
+-struct dentry *integrity_dir;
+-
+ /*
+  * __integrity_iint_find - return the iint associated with an inode
+  */
+@@ -235,20 +233,37 @@ void __init integrity_load_keys(void)
+ 		evm_load_x509(ns);
+ }
+ 
+-static int __init integrity_fs_init(void)
++void integrity_fs_free(struct integrity_namespace *ns)
+ {
+-	integrity_dir = securityfs_create_dir("integrity", NULL);
+-	if (IS_ERR(integrity_dir)) {
+-		int ret = PTR_ERR(integrity_dir);
++	/* nothing to do */
++}
++
++struct dentry *integrity_fs_init(struct integrity_namespace *ns,
++				 struct dentry *secfs_root)
++{
++	ns->integrity_dir = securityfs_create_dir("integrity", secfs_root);
++	if (IS_ERR(ns->integrity_dir)) {
++		int ret = PTR_ERR(ns->integrity_dir);
+ 
+ 		if (ret != -ENODEV)
+ 			pr_err("Unable to create integrity sysfs dir: %d\n",
+ 			       ret);
+-		integrity_dir = NULL;
+-		return ret;
++		ns->integrity_dir = NULL;
++		return ERR_PTR(ret);
+ 	}
+ 
++	return ns->integrity_dir;
++}
++
++static int __init init_integrity_ns_fs_init(void)
++{
++	struct dentry *d;
++
++	d = integrity_fs_init(&init_integrity_ns, NULL);
++	if (IS_ERR(d))
++		return PTR_ERR(d);
++
+ 	return 0;
+ }
+ 
+-late_initcall(integrity_fs_init)
++late_initcall(init_integrity_ns_fs_init)
+diff --git a/security/integrity/ima/ima_fs.c b/security/integrity/ima/ima_fs.c
+index dda84778d46b..60528c304d73 100644
+--- a/security/integrity/ima/ima_fs.c
++++ b/security/integrity/ima/ima_fs.c
+@@ -22,6 +22,7 @@
+ #include <linux/parser.h>
+ #include <linux/vmalloc.h>
+ #include <linux/ima.h>
++#include <linux/integrity_namespace.h>
+ 
+ #include "ima.h"
+ 
+@@ -653,21 +654,20 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
+ 			return PTR_ERR(ns);
+ 	}
+ 
+-	/* FIXME: update when evm and integrity are namespaced */
+ 	if (user_ns != &init_user_ns) {
+-		int_dir = securityfs_create_dir("integrity", root);
++		int_dir = integrity_fs_init(user_ns->integrity_ns, root);
+ 		if (IS_ERR(int_dir)) {
+ 			ret = PTR_ERR(int_dir);
+ 			goto free_ns;
+ 		}
+ 	} else {
+-		int_dir = integrity_dir;
++		int_dir = ns->integrity_ns->integrity_dir;
+ 	}
+ 
+ 	ima_dir = securityfs_create_dir("ima", int_dir);
+ 	if (IS_ERR(ima_dir)) {
+ 		ret = PTR_ERR(ima_dir);
+-		goto out;
++		goto free_ns;
+ 	}
+ 
+ 	ima_symlink = securityfs_create_symlink("ima", root, "integrity/ima",
+@@ -766,8 +766,6 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
+ 	securityfs_remove(binary_runtime_measurements);
+ 	securityfs_remove(ima_symlink);
+ 	securityfs_remove(ima_dir);
+-	if (user_ns != &init_user_ns)
+-		securityfs_remove(int_dir);
+ 
+ free_ns:
+ 	if (!ima_ns_from_user_ns(user_ns))
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index 38423557ab44..ebd51bdcad5e 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -219,11 +219,13 @@ struct integrity_iint_cache *integrity_iint_find(struct inode *inode);
+ int integrity_kernel_read(struct file *file, loff_t offset,
+ 			  void *addr, unsigned long count);
+ 
+-extern struct dentry *integrity_dir;
+-
+ struct modsig;
+ struct integrity_namespace;
+ 
++struct dentry *integrity_fs_init(struct integrity_namespace *ns,
++				 struct dentry *root);
++void integrity_fs_free(struct integrity_namespace *ns);
++
+ #ifdef CONFIG_INTEGRITY_SIGNATURE
+ 
+ int integrity_digsig_verify(struct integrity_namespace *ns,
+diff --git a/security/integrity/integrity_ns.c b/security/integrity/integrity_ns.c
+index b78718c7b501..54c316256891 100644
+--- a/security/integrity/integrity_ns.c
++++ b/security/integrity/integrity_ns.c
+@@ -10,6 +10,8 @@
+ #include <linux/ima.h>
+ #include <linux/integrity_namespace.h>
+ 
++#include "integrity.h"
++
+ struct integrity_namespace init_integrity_ns = {
+ #ifdef CONFIG_IMA
+ 	.ima_ns = &init_ima_ns,
+@@ -55,6 +57,7 @@ void free_integrity_ns(struct user_namespace *user_ns)
+ 	size_t i;
+ 
+ 	free_ima_ns(user_ns);
++	integrity_fs_free(ns);
+ 
+ 	for (i = 0; i < ARRAY_SIZE(ns->keyring); i++)
+ 		key_put(ns->keyring[i]);
+-- 
+2.36.1
+

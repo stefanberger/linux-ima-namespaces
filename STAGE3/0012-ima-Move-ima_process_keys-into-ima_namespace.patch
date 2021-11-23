@@ -1,0 +1,177 @@
+From 8ca335b61c65e0d48013a8af1f5bccf868d1830c Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 13 Jan 2022 14:12:05 -0500
+Subject: [PATCH 12/81] ima: Move ima_process_keys into ima_namespace
+
+Move the bool ima_process_keys into ima_namespace and while doing this
+enable the measurement of keys in the IMA namespace in
+ima_post_key_create_or_update().
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h                 | 20 +++++++++++++-----
+ security/integrity/ima/ima_asymmetric_keys.c |  7 +++----
+ security/integrity/ima/ima_init_ima_ns.c     |  6 +++++-
+ security/integrity/ima/ima_queue_keys.c      | 22 +++++++-------------
+ 4 files changed, 31 insertions(+), 24 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 64816adefc5f..58c20bb09ae3 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -175,6 +175,12 @@ struct ima_namespace {
+ 
+ 	struct crypto_shash *ima_shash_tfm;
+ 	struct crypto_ahash *ima_ahash_tfm;
++
++	/*
++	 * Flag to indicate whether a key can be processed
++	 * right away or should be queued for processing later.
++	 */
++	bool ima_process_keys;
+ } __randomize_layout;
+ extern struct ima_namespace init_ima_ns;
+ 
+@@ -311,14 +317,18 @@ struct ima_key_entry {
+ 	char *keyring_name;
+ };
+ void ima_init_key_queue(void);
+-bool ima_should_queue_key(void);
+-bool ima_queue_key(struct key *keyring, const void *payload,
+-		   size_t payload_len);
++bool ima_should_queue_key(struct ima_namespace *ns);
++bool ima_queue_key(struct ima_namespace *ns, struct key *keyring,
++		   const void *payload, size_t payload_len);
+ void ima_process_queued_keys(struct ima_namespace *ns);
+ #else
+ static inline void ima_init_key_queue(void) {}
+-static inline bool ima_should_queue_key(void) { return false; }
+-static inline bool ima_queue_key(struct key *keyring,
++static inline bool ima_should_queue_key(struct ima_namespace)
++{
++	return false;
++}
++static inline bool ima_queue_key(struct ima_namespace *ns,
++				 struct key *keyring,
+ 				 const void *payload,
+ 				 size_t payload_len) { return false; }
+ static inline void ima_process_queued_keys(struct ima_namespace *ns) {}
+diff --git a/security/integrity/ima/ima_asymmetric_keys.c b/security/integrity/ima/ima_asymmetric_keys.c
+index 0d2cc1e23cde..fa58662688d1 100644
+--- a/security/integrity/ima/ima_asymmetric_keys.c
++++ b/security/integrity/ima/ima_asymmetric_keys.c
+@@ -33,8 +33,7 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
+ 	struct ima_namespace *ns = get_current_ns();
+ 	bool queued = false;
+ 
+-	/* only handle key if related to init_ima_ns */
+-	if (ns != &init_ima_ns)
++	if (!ns_is_active(ns))
+ 		return;
+ 
+ 	/* Only asymmetric keys are handled by this hook. */
+@@ -44,8 +43,8 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
+ 	if (!payload || (payload_len == 0))
+ 		return;
+ 
+-	if (ima_should_queue_key())
+-		queued = ima_queue_key(keyring, payload, payload_len);
++	if (ima_should_queue_key(ns))
++		queued = ima_queue_key(ns, keyring, payload, payload_len);
+ 
+ 	if (queued)
+ 		return;
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 4ef9bd0f2ad6..d3aefafa54b5 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -38,6 +38,11 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 	ns->valid_policy = 1;
+ 	ns->ima_fs_flags = 0;
+ 
++	if (ns == &init_ima_ns)
++		ns->ima_process_keys = false;
++	else
++		ns->ima_process_keys = true;
++
+ 	if (ns != &init_ima_ns) {
+ 		ns->ima_lsm_policy_notifier.notifier_call =
+ 						ima_lsm_policy_change;
+@@ -46,7 +51,6 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 		if (ret)
+ 			return ret;
+ 	}
+-
+ 	if (ns == &init_ima_ns) {
+ 		ns->ima_tpm_chip = tpm_default_chip();
+ 		if (!ns->ima_tpm_chip)
+diff --git a/security/integrity/ima/ima_queue_keys.c b/security/integrity/ima/ima_queue_keys.c
+index e366a21dd8be..5c1244bcf1ce 100644
+--- a/security/integrity/ima/ima_queue_keys.c
++++ b/security/integrity/ima/ima_queue_keys.c
+@@ -14,12 +14,6 @@
+ #include <keys/asymmetric-type.h>
+ #include "ima.h"
+ 
+-/*
+- * Flag to indicate whether a key can be processed
+- * right away or should be queued for processing later.
+- */
+-static bool ima_process_keys;
+-
+ /*
+  * To synchronize access to the list of keys that need to be measured
+  */
+@@ -102,8 +96,8 @@ static struct ima_key_entry *ima_alloc_key_entry(struct key *keyring,
+ 	return entry;
+ }
+ 
+-bool ima_queue_key(struct key *keyring, const void *payload,
+-		   size_t payload_len)
++bool ima_queue_key(struct ima_namespace *ns, struct key *keyring,
++		   const void *payload, size_t payload_len)
+ {
+ 	bool queued = false;
+ 	struct ima_key_entry *entry;
+@@ -113,7 +107,7 @@ bool ima_queue_key(struct key *keyring, const void *payload,
+ 		return false;
+ 
+ 	mutex_lock(&ima_keys_lock);
+-	if (!ima_process_keys) {
++	if (!ns->ima_process_keys) {
+ 		list_add_tail(&entry->list, &ima_keys);
+ 		queued = true;
+ 	}
+@@ -140,7 +134,7 @@ void ima_process_queued_keys(struct ima_namespace *ns)
+ 	if (ns != &init_ima_ns)
+ 		return;
+ 
+-	if (ima_process_keys)
++	if (ns->ima_process_keys)
+ 		return;
+ 
+ 	/*
+@@ -150,8 +144,8 @@ void ima_process_queued_keys(struct ima_namespace *ns)
+ 	 * process the queued keys.
+ 	 */
+ 	mutex_lock(&ima_keys_lock);
+-	if (!ima_process_keys) {
+-		ima_process_keys = true;
++	if (!ns->ima_process_keys) {
++		ns->ima_process_keys = true;
+ 		process = true;
+ 	}
+ 	mutex_unlock(&ima_keys_lock);
+@@ -176,7 +170,7 @@ void ima_process_queued_keys(struct ima_namespace *ns)
+ 	}
+ }
+ 
+-inline bool ima_should_queue_key(void)
++inline bool ima_should_queue_key(struct ima_namespace *ns)
+ {
+-	return !ima_process_keys;
++	return !ns->ima_process_keys;
+ }
+-- 
+2.36.1
+
