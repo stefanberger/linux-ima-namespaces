@@ -1,0 +1,40 @@
+From 0507c2a47c5ca9fc580000c6f7ae7b0afa475abd Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 24 Jan 2022 09:41:05 -0500
+Subject: [PATCH 45/48] ima: Also allow HASH rules in IMA namespaces
+
+---
+ security/integrity/ima/ima_policy.c | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/security/integrity/ima/ima_policy.c b/security/integrity/ima/ima_policy.c
+index 60e24dd96787..96719a9c0f85 100644
+--- a/security/integrity/ima/ima_policy.c
++++ b/security/integrity/ima/ima_policy.c
+@@ -1815,15 +1815,6 @@ static int ima_parse_rule(struct user_namespace *user_ns,
+ 			result = -EINVAL;
+ 			break;
+ 		}
+-
+-		/* IMA namespace only rejects HASH rules */
+-		if (ns != &init_ima_ns && result == 0) {
+-			switch (entry->action) {
+-			case HASH:
+-				result = -EINVAL;
+-				goto err_audit;
+-			}
+-		}
+ 	}
+ 	if (!result && !ima_validate_rule(entry))
+ 		result = -EINVAL;
+@@ -1836,7 +1827,6 @@ static int ima_parse_rule(struct user_namespace *user_ns,
+ 		check_template_modsig(template_desc);
+ 	}
+ 
+-err_audit:
+ 	audit_log_format(ab, "res=%d", !result);
+ 	audit_log_end(ab);
+ 	return result;
+-- 
+2.31.1
+

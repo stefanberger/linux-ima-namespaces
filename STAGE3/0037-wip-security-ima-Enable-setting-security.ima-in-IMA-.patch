@@ -1,0 +1,58 @@
+From 1eeffb07e5b2409c5a8f7d878fbd348d8380400d Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 19:49:50 -0500
+Subject: [PATCH 37/48] wip: security/ima: Enable setting security.ima in IMA
+ namespace
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/commoncap.c                  | 12 ++++++++----
+ security/integrity/ima/ima_appraise.c |  2 +-
+ 2 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/security/commoncap.c b/security/commoncap.c
+index 3f810d37b71b..ee90d2039978 100644
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -1006,8 +1006,10 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
+ 	if (strcmp(name, XATTR_NAME_CAPS) == 0)
+ 		return 0;
+ 
+-	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+-		return -EPERM;
++	if (!ns_capable(user_ns, CAP_SYS_ADMIN)) {
++		//printk(KERN_INFO "%s: no!\n",__func__);
++		//return -EPERM;
++	}
+ 	return 0;
+ }
+ 
+@@ -1050,8 +1052,10 @@ int cap_inode_removexattr(struct user_namespace *mnt_userns,
+ 		return 0;
+ 	}
+ 
+-	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
+-		return -EPERM;
++	if (!ns_capable(user_ns, CAP_SYS_ADMIN)) {
++		//printk(KERN_INFO "%s: no!\n",__func__);
++		//return -EPERM;
++	}
+ 	return 0;
+ }
+ 
+diff --git a/security/integrity/ima/ima_appraise.c b/security/integrity/ima/ima_appraise.c
+index 926701dfb763..61da94f537ac 100644
+--- a/security/integrity/ima/ima_appraise.c
++++ b/security/integrity/ima/ima_appraise.c
+@@ -578,7 +578,7 @@ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
+ 			     const void *xattr_value, size_t xattr_value_len)
+ {
+ 	if (strcmp(xattr_name, XATTR_NAME_IMA) == 0) {
+-		if (!capable(CAP_SYS_ADMIN))
++		if (!mac_admin_ns_capable(current_user_ns()))
+ 			return -EPERM;
+ 		return 1;
+ 	}
+-- 
+2.31.1
+

@@ -1,0 +1,61 @@
+From 0e374a21917842ab4334ffc1995a8739f7474aab Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 6 Jan 2022 11:10:22 -0500
+Subject: [PATCH 48/48] A debug patch
+
+---
+ security/integrity/ima/ima_main.c      | 11 +++++++++++
+ security/integrity/ima/ima_ns_status.c |  1 +
+ 2 files changed, 12 insertions(+)
+
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index aaa313b86710..fa2e35390f35 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -254,6 +254,9 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action = ima_get_action(ns, file_mnt_user_ns(file), inode, cred, secid,
+ 				mask, func, &pcr, &template_desc, NULL,
+ 				&allowed_algos);
++	if (ns != &init_ima_ns)
++		pr_debug("actions: 0x%x  ns:%p (init_ima_ns: %p)\n", action, ns, &init_ima_ns);
++
+ 	violation_check = ((func == FILE_CHECK || func == MMAP_CHECK) &&
+ 			   (ns->ima_policy_flag & IMA_MEASURE));
+ 	if (!action && !violation_check)
+@@ -336,6 +339,13 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action &= IMA_DO_MASK;
+ 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
+ 
++	if (ns != &init_ima_ns
++#ifdef CONFIG_IMA_NS
++	    || (!list_empty(&iint->ns_list) && !list_is_singular(&iint->ns_list))
++#endif
++	)
++		pr_debug("flags: 0x%lx actions: 0x%x  ns:%p (init_ima_ns: %p)\n", flags, action, ns, &init_ima_ns);
++
+ 	/* If target pcr is already measured, unset IMA_MEASURE action */
+ 	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr)))
+ 		action ^= IMA_MEASURE;
+@@ -467,6 +477,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			case -EACCES:
+ 				/* return this error at the end but continue */
+ 				ret = -EACCES;
++				pr_debug("-EACCESS by ns: %p (init_ima_ns: %p)\n", ns, &init_ima_ns);
+ 				break;
+ 			default:
+ 				/* should not happen */
+diff --git a/security/integrity/ima/ima_ns_status.c b/security/integrity/ima/ima_ns_status.c
+index d1ccae2c2313..ab67ecdac737 100644
+--- a/security/integrity/ima/ima_ns_status.c
++++ b/security/integrity/ima/ima_ns_status.c
+@@ -341,6 +341,7 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
+ 			/* Same inode but stale iint: free it and get new */
+ 			ns_status_unlink(ns, ns_status);
+ 			ns_status_free(ns, ns_status);
++			printk(KERN_INFO "UNLIKELY CASE!\n");
+ 		} else if (inode->i_ino == ns_status->i_ino &&
+ 			   inode->i_generation == ns_status->i_generation) {
+ 			goto unlock;
+-- 
+2.31.1
+
