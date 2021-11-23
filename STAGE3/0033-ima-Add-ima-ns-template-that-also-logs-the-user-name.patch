@@ -1,0 +1,61 @@
+From 40b9c3e2bcc82d0632532fd36376cd0efac0b8cc Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 6 Apr 2022 14:16:09 -0400
+Subject: [PATCH 33/81] ima: Add ima-ns template that also logs the user
+ namespace UUID
+
+Add ima-ns template that also logs the user namespace's UUID along with
+measurements, file, and file signature.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/Kconfig        | 6 +++++-
+ security/integrity/ima/ima_template.c | 1 +
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/security/integrity/ima/Kconfig b/security/integrity/ima/Kconfig
+index f3a9cc201c8c..c6ad09e51564 100644
+--- a/security/integrity/ima/Kconfig
++++ b/security/integrity/ima/Kconfig
+@@ -69,7 +69,8 @@ choice
+ 	  hash, defined as 20 bytes, and a null terminated pathname,
+ 	  limited to 255 characters.  The 'ima-ng' measurement list
+ 	  template permits both larger hash digests and longer
+-	  pathnames.
++	  pathnames. The 'ima-ns' template logs the UUID of the user
++	  namespace from where a measurement originated.
+ 
+ 	config IMA_TEMPLATE
+ 		bool "ima"
+@@ -77,6 +78,8 @@ choice
+ 		bool "ima-ng (default)"
+ 	config IMA_SIG_TEMPLATE
+ 		bool "ima-sig"
++	config IMA_NS_TEMPLATE
++		bool "ima-ns"
+ endchoice
+ 
+ config IMA_DEFAULT_TEMPLATE
+@@ -85,6 +88,7 @@ config IMA_DEFAULT_TEMPLATE
+ 	default "ima" if IMA_TEMPLATE
+ 	default "ima-ng" if IMA_NG_TEMPLATE
+ 	default "ima-sig" if IMA_SIG_TEMPLATE
++	default "ima-ns" if IMA_NS_TEMPLATE
+ 
+ choice
+ 	prompt "Default integrity hash algorithm"
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index 841068317ede..0d7315339d36 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -22,6 +22,7 @@ static struct ima_template_desc builtin_templates[] = {
+ 	{.name = "ima-sig", .fmt = "d-ng|n-ng|sig"},
+ 	{.name = "ima-buf", .fmt = "d-ng|n-ng|buf"},
+ 	{.name = "ima-modsig", .fmt = "d-ng|n-ng|sig|d-modsig|modsig"},
++	{.name = "ima-ns", .fmt = "userns|d-ng|n-ng|sig"},
+ 	{.name = "evm-sig",
+ 	 .fmt = "d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode"},
+ 	{.name = "", .fmt = ""},	/* placeholder for a custom format */
+-- 
+2.36.1
+

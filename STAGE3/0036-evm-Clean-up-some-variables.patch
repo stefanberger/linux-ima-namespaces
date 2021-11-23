@@ -1,0 +1,46 @@
+From e23a9f3cfeca71c3feabc897a613fe1c6d1705f4 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Fri, 13 May 2022 13:33:20 -0400
+Subject: [PATCH 36/81] evm: Clean up some variables
+
+Make hmac_tfm static since it's not used anywhere else besides the file
+it is in.
+
+Remove declaration of hash_tfm since it doesn't exist.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm.h        | 3 ---
+ security/integrity/evm/evm_crypto.c | 2 +-
+ 2 files changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/security/integrity/evm/evm.h b/security/integrity/evm/evm.h
+index 0d44f41d16f8..f8b8c5004fc7 100644
+--- a/security/integrity/evm/evm.h
++++ b/security/integrity/evm/evm.h
+@@ -38,9 +38,6 @@ extern int evm_initialized;
+ 
+ extern int evm_hmac_attrs;
+ 
+-extern struct crypto_shash *hmac_tfm;
+-extern struct crypto_shash *hash_tfm;
+-
+ /* List of EVM protected security xattrs */
+ extern struct list_head evm_config_xattrnames;
+ 
+diff --git a/security/integrity/evm/evm_crypto.c b/security/integrity/evm/evm_crypto.c
+index 0450d79afdc8..a733aff02006 100644
+--- a/security/integrity/evm/evm_crypto.c
++++ b/security/integrity/evm/evm_crypto.c
+@@ -26,7 +26,7 @@
+ static unsigned char evmkey[MAX_KEY_SIZE];
+ static const int evmkey_len = MAX_KEY_SIZE;
+ 
+-struct crypto_shash *hmac_tfm;
++static struct crypto_shash *hmac_tfm;
+ static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
+ 
+ static DEFINE_MUTEX(mutex);
+-- 
+2.36.1
+

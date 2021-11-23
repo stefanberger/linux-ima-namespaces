@@ -1,0 +1,29 @@
+From 0b3d4a8e7a04e9fec0e9d14868b09e00fe6ddf36 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Thu, 12 May 2022 07:31:08 -0400
+Subject: [PATCH 35/81] evm: Return INTEGRITY_PASS for enum integrity_status
+ value '0'
+
+Return INTEGRITY_PASS for the enum integrity_status rather than 0.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 7d87772f0ce6..cc88f02c7562 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -436,7 +436,7 @@ static enum integrity_status evm_verify_current_integrity(struct dentry *dentry)
+ 	struct inode *inode = d_backing_inode(dentry);
+ 
+ 	if (!evm_key_loaded() || !S_ISREG(inode->i_mode) || evm_fixmode)
+-		return 0;
++		return INTEGRITY_PASS;
+ 	return evm_verify_hmac(dentry, NULL, NULL, 0, NULL);
+ }
+ 
+-- 
+2.36.1
+

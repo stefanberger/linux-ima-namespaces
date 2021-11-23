@@ -1,0 +1,201 @@
+From f1b7b17b495b379b8242e566716c326a5e8ae0d3 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 21 Mar 2022 10:22:31 -0400
+Subject: [PATCH] WIP experimental: Generate the full path of a file outside
+ the namespace
+
+The problem: Inside an IMA namespace files are logged with the absolute
+path they have inside the IMA namespace, which is similar to the pathnames
+used on the host. However, since we also need to be able to log IMA
+measurements outside an IMA namespace we need to be able to distinguish
+them. One way of distinguishing them would be to create the absolute path
+name relative to the IMA/user namespace where we are logging the file
+in. The question is how does one create the full path relative to
+the IMA/user namespace one is logging it in in relation to nested mount
+namespaces?
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h      |  5 +++--
+ security/integrity/ima/ima_api.c  | 12 ++++++++++--
+ security/integrity/ima/ima_main.c | 29 ++++++++++++++++++-----------
+ 3 files changed, 31 insertions(+), 15 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 74c88b716b8d..94ea63872c64 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -397,7 +397,8 @@ int ima_store_template(struct ima_namespace *ns,
+ 		       struct inode *inode,
+ 		       const unsigned char *filename, int pcr);
+ void ima_free_template_entry(struct ima_template_entry *entry);
+-const char *ima_d_path(const struct path *path, char **pathbuf, char *filename);
++const char *ima_d_path(const struct path *path, char **pathbuf, char *filename,
++		       bool gen_rawpath);
+ 
+ /* IMA policy related functions */
+ int ima_match_policy(struct ima_namespace *ns,
+@@ -740,7 +741,7 @@ static inline int filename_contains(struct file *file, const char *needle)
+ 	const char *pathname = NULL;
+ 	int b = 0;
+ 
+-	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
++	pathname = ima_d_path(&file->f_path, &pathbuf, filename, false);
+ 	if (pathbuf) {
+ 		b = (strstr(pathname, needle) != NULL);
+ 		__putname(pathbuf);
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index a02f3536d0e5..089a650a825f 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -414,13 +414,21 @@ void ima_audit_measurement(struct integrity_iint_cache *iint,
+  * Returning a pointer to dname, could result in using the pointer
+  * after the memory has been freed.
+  */
+-const char *ima_d_path(const struct path *path, char **pathbuf, char *namebuf)
++const char *ima_d_path(const struct path *path, char **pathbuf, char *namebuf,
++		       bool gen_rawpath)
+ {
++	struct dentry *dentry;
+ 	char *pathname = NULL;
+ 
+ 	*pathbuf = __getname();
+ 	if (*pathbuf) {
+-		pathname = d_absolute_path(path, *pathbuf, PATH_MAX);
++		if (!gen_rawpath) {
++			pathname = d_absolute_path(path, *pathbuf, PATH_MAX);
++		} else {
++			/* Use union/overlay full pathname */
++			dentry = d_real(path->dentry, NULL);
++			pathname = dentry_path_raw(dentry, *pathbuf, PATH_MAX);
++		}
+ 		if (IS_ERR(pathname)) {
+ 			__putname(*pathbuf);
+ 			*pathbuf = NULL;
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 8ccee6f8aaf4..cf9dc1976b23 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -79,7 +79,7 @@ enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
+ static int mmap_violation_check(struct ima_namespace *ns,
+ 				enum ima_hooks func, struct file *file,
+ 				char **pathbuf, const char **pathname,
+-				char *filename)
++				char *filename, bool gen_rawpath)
+ {
+ 	struct inode *inode;
+ 	int rc = 0;
+@@ -90,7 +90,7 @@ static int mmap_violation_check(struct ima_namespace *ns,
+ 
+ 		if (!*pathbuf)	/* ima_rdwr_violation possibly pre-fetched */
+ 			*pathname = ima_d_path(&file->f_path, pathbuf,
+-					       filename);
++					       filename, gen_rawpath);
+ 		if (ns == &init_ima_ns)
+ 			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
+ 					    *pathname, "mmap_file",
+@@ -116,7 +116,8 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 				     int must_measure,
+ 				     char **pathbuf,
+ 				     const char **pathname,
+-				     char *filename)
++				     char *filename,
++				     bool gen_rawpath)
+ {
+ 	struct inode *inode = file_inode(file);
+ 	fmode_t mode = file->f_mode;
+@@ -141,7 +142,7 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 	if (!send_tomtou && !send_writers)
+ 		return;
+ 
+-	*pathname = ima_d_path(&file->f_path, pathbuf, filename);
++	*pathname = ima_d_path(&file->f_path, pathbuf, filename, gen_rawpath);
+ 
+ 	if (!ns_status) {
+ 		ns_status = ima_get_ns_status(ns, inode, iint);
+@@ -235,7 +236,7 @@ void ima_file_free(struct file *file)
+ static int __process_measurement(struct ima_namespace *ns,
+ 				 struct file *file, const struct cred *cred,
+ 				 u32 secid, char *buf, loff_t size, int mask,
+-				 enum ima_hooks func)
++				 enum ima_hooks func, bool gen_rawpath)
+ {
+ 	struct inode *inode = file_inode(file);
+ 	struct integrity_iint_cache *iint = NULL;
+@@ -297,7 +298,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	if (!rc && violation_check)
+ 		ima_rdwr_violation_check(ns, file, iint, ns_status,
+ 					 action & IMA_MEASURE,
+-					 &pathbuf, &pathname, filename);
++					 &pathbuf, &pathname, filename,
++					 gen_rawpath);
+ 
+ 	inode_unlock(inode);
+ 
+@@ -379,7 +381,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	if (!action) {
+ 		if (must_appraise) {
+ 			rc = mmap_violation_check(ns, func, file, &pathbuf,
+-						  &pathname, filename);
++						  &pathname, filename,
++						  gen_rawpath);
+ 			if (!rc)
+ 				rc = ima_get_cache_status(ns_status, func);
+ 		}
+@@ -413,7 +416,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		goto out_locked;
+ 
+ 	if (!pathbuf)	/* ima_rdwr_violation possibly pre-fetched */
+-		pathname = ima_d_path(&file->f_path, &pathbuf, filename);
++		pathname = ima_d_path(&file->f_path, &pathbuf, filename,
++				      gen_rawpath);
+ 
+ 	if (action & IMA_MEASURE)
+ 		ima_store_measurement(ns, iint, file, pathname,
+@@ -431,7 +435,8 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		}
+ 		if (!rc)
+ 			rc = mmap_violation_check(ns, func, file, &pathbuf,
+-						  &pathname, filename);
++						  &pathname, filename,
++						  gen_rawpath);
+ 	}
+ 	if (action & IMA_AUDIT)
+ 		ima_audit_measurement(iint, pathname, ns_status);
+@@ -476,6 +481,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			       enum ima_hooks func)
+ {
+ 	struct ima_namespace *ns;
++	bool gen_rawpath = false;
+ 	int ret = 0;
+ 
+ 	while (user_ns) {
+@@ -484,7 +490,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 			int rc;
+ 
+ 			rc = __process_measurement(ns, file, cred, secid, buf,
+-						   size, mask, func);
++						   size, mask, func, gen_rawpath);
+ 			switch (rc) {
+ 			case 0:
+ 				break;
+@@ -501,6 +507,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 		}
+ 
+ 		user_ns = user_ns->parent;
++		gen_rawpath = true;
+ 	}
+ 
+ 	return ret;
+@@ -578,7 +585,7 @@ int ima_file_mprotect(struct vm_area_struct *vma, unsigned long prot)
+ 		result = -EPERM;
+ 
+ 	file = vma->vm_file;
+-	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
++	pathname = ima_d_path(&file->f_path, &pathbuf, filename, false);
+ 	if (ns == &init_ima_ns)
+ 		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, pathname,
+ 				    "collect_data", "failed-mprotect", result,
+-- 
+2.31.1
+
