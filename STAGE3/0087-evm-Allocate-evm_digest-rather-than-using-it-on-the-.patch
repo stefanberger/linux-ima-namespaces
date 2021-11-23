@@ -1,0 +1,101 @@
+From c4c94b960cd713d197087d7e140f3eeeba6b4023 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Tue, 22 Nov 2022 13:05:36 -0500
+Subject: [PATCH 87/87] evm: Allocate evm_digest rather than using it on the
+ stack
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/evm/evm_main.c | 27 ++++++++++++++++++---------
+ 1 file changed, 18 insertions(+), 9 deletions(-)
+
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index be98710d5ecc..de967ee3b6ab 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -224,7 +224,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 	struct evm_ima_xattr_data *xattr_data = NULL;
+ 	struct signature_v2_hdr *hdr;
+ 	enum integrity_status evm_status = INTEGRITY_PASS;
+-	struct evm_digest digest;
++	struct evm_digest *digest = NULL;
+ 	struct inode *inode;
+ 	int rc, xattr_len, evm_immutable = 0;
+ 
+@@ -253,6 +253,12 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 
+ 	xattr_len = rc;
+ 
++	digest = kmalloc(sizeof(*digest), GFP_KERNEL);
++	if (!digest) {
++		rc = -ENOMEM;
++		goto out_no_mem;
++	}
++
+ 	/* check value type */
+ 	switch (xattr_data->type) {
+ 	case EVM_XATTR_HMAC:
+@@ -261,12 +267,12 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 			goto out;
+ 		}
+ 
+-		digest.hdr.algo = HASH_ALGO_SHA1;
++		digest->hdr.algo = HASH_ALGO_SHA1;
+ 		rc = evm_calc_hmac(ns, dentry, xattr_name, xattr_value,
+-				   xattr_value_len, &digest);
++				   xattr_value_len, digest);
+ 		if (rc)
+ 			break;
+-		rc = crypto_memneq(xattr_data->data, digest.digest,
++		rc = crypto_memneq(xattr_data->data, digest->digest,
+ 				   SHA1_DIGEST_SIZE);
+ 		if (rc)
+ 			rc = -EINVAL;
+@@ -282,16 +288,16 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 		}
+ 
+ 		hdr = (struct signature_v2_hdr *)xattr_data;
+-		digest.hdr.algo = hdr->hash_algo;
++		digest->hdr.algo = hdr->hash_algo;
+ 		rc = evm_calc_hash(ns, dentry, xattr_name, xattr_value,
+-				   xattr_value_len, xattr_data->type, &digest);
++				   xattr_value_len, xattr_data->type, digest);
+ 		if (rc)
+ 			break;
+ 		rc = integrity_digsig_verify
+ 					(ns->integrity_ns,
+ 					 INTEGRITY_KEYRING_EVM,
+ 					 (const char *)xattr_data, xattr_len,
+-					 digest.digest, digest.hdr.length);
++					 digest->digest, digest->hdr.length);
+ 		if (!rc) {
+ 			inode = d_backing_inode(dentry);
+ 
+@@ -313,6 +319,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 		break;
+ 	}
+ 
++out_no_mem:
+ 	if (rc) {
+ 		if (rc == -ENODATA)
+ 			evm_status = INTEGRITY_NOXATTRS;
+@@ -321,12 +328,14 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
+ 		else
+ 			evm_status = INTEGRITY_FAIL;
+ 	}
+-	pr_debug("digest: (%d) [%*phN]\n", digest.hdr.length, digest.hdr.length,
+-		  digest.digest);
++	pr_debug("digest: (%d) [%*phN]\n", digest->hdr.length, digest->hdr.length,
++		  digest->digest);
+ out:
+ 	if (ns_status)
+ 		ns_status->evm_status = evm_status;
+ 	kfree(xattr_data);
++	kfree(digest);
++
+ 	return evm_status;
+ }
+ 
+-- 
+2.37.3
+
