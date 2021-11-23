@@ -1,0 +1,51 @@
+From 86509d381cca9bef9e15250141eabe5e75c2d496 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 6 Apr 2022 14:16:09 -0400
+Subject: [PATCH 33/63] ima: Add ima-ns template that also logs the user
+ namespace UUID
+
+Add ima-ns template that also logs the user namespace's UUID along with
+measurements, file, and file signature.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/Kconfig        | 3 +++
+ security/integrity/ima/ima_template.c | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/security/integrity/ima/Kconfig b/security/integrity/ima/Kconfig
+index f3a9cc201c8c..2178753b65f1 100644
+--- a/security/integrity/ima/Kconfig
++++ b/security/integrity/ima/Kconfig
+@@ -77,6 +77,8 @@ choice
+ 		bool "ima-ng (default)"
+ 	config IMA_SIG_TEMPLATE
+ 		bool "ima-sig"
++	config IMA_NS_TEMPLATE
++		bool "ima-ns"
+ endchoice
+ 
+ config IMA_DEFAULT_TEMPLATE
+@@ -85,6 +87,7 @@ config IMA_DEFAULT_TEMPLATE
+ 	default "ima" if IMA_TEMPLATE
+ 	default "ima-ng" if IMA_NG_TEMPLATE
+ 	default "ima-sig" if IMA_SIG_TEMPLATE
++	default "ima-ns" if IMA_NS_TEMPLATE
+ 
+ choice
+ 	prompt "Default integrity hash algorithm"
+diff --git a/security/integrity/ima/ima_template.c b/security/integrity/ima/ima_template.c
+index 0fcfd68ca25e..57813b639a30 100644
+--- a/security/integrity/ima/ima_template.c
++++ b/security/integrity/ima/ima_template.c
+@@ -22,6 +22,7 @@ static struct ima_template_desc builtin_templates[] = {
+ 	{.name = "ima-sig", .fmt = "d-ng|n-ng|sig"},
+ 	{.name = "ima-buf", .fmt = "d-ng|n-ng|buf"},
+ 	{.name = "ima-modsig", .fmt = "d-ng|n-ng|sig|d-modsig|modsig"},
++	{.name = "ima-ns", .fmt="userns|d-ng|n-ng|sig"},
+ 	{.name = "evm-sig",
+ 	 .fmt = "d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode"},
+ 	{.name = "", .fmt = ""},	/* placeholder for a custom format */
+-- 
+2.34.1
+

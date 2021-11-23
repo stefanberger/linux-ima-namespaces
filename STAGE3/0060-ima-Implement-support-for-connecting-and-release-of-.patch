@@ -1,0 +1,136 @@
+From ece13dacdae79911c3530e9ec2bc2800850702eb Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.vnet.ibm.com>
+Date: Sat, 29 Jul 2017 16:25:21 -0400
+Subject: [PATCH 60/63] ima: Implement support for connecting and release of
+ tpm_chip
+
+Implement functions to connect a tpm_chip to an IMA namespace and
+release it later on.
+
+Signed-off-by: Stefan Berger <stefanb@linux.vnet.ibm.com>
+---
+ include/linux/ima.h                      | 14 +++++++++++
+ security/integrity/ima/ima.h             |  3 +++
+ security/integrity/ima/ima_init_ima_ns.c |  2 ++
+ security/integrity/ima/ima_ns.c          | 32 ++++++++++++++++++++++++
+ 4 files changed, 51 insertions(+)
+
+diff --git a/include/linux/ima.h b/include/linux/ima.h
+index 77aa4b3a8c15..004944cac06b 100644
+--- a/include/linux/ima.h
++++ b/include/linux/ima.h
+@@ -16,6 +16,12 @@
+ #include <crypto/hash_info.h>
+ struct linux_binprm;
+ 
++struct tpm_chip;
++
++struct tpm_provider {
++    void (*release_chip)(struct tpm_chip *chip);
++};
++
+ extern struct ima_namespace init_ima_ns;
+ 
+ #ifdef CONFIG_IMA
+@@ -44,6 +50,8 @@ extern int ima_measure_critical_data(const char *event_label,
+ 				     const void *buf, size_t buf_len,
+ 				     bool hash, u8 *digest, size_t digest_len);
+ extern int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root);
++extern int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++			       struct tpm_chip *chip);
+ 
+ #ifdef CONFIG_IMA_APPRAISE_BOOTPARAM
+ extern void ima_appraise_parse_cmdline(void);
+@@ -143,6 +151,12 @@ static inline int ima_measure_critical_data(const char *event_label,
+ 	return -ENOENT;
+ }
+ 
++static inline int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++				      struct tpm_chip *chip)
++{
++	return -ENODEV;
++}
++
+ #endif /* CONFIG_IMA */
+ 
+ #ifdef CONFIG_IMA_SECURE_AND_OR_TRUSTED_BOOT
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 3387806191ff..b5eab7ee6661 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -177,6 +177,9 @@ struct ima_namespace {
+ 	struct ima_algo_desc *ima_algo_array;
+ 	int ima_sha1_idx;
+ 	int ima_hash_algo_idx;
++
++	struct tpm_provider *tpm_provider;
++	struct mutex tpm_provider_mutex;
+ 	/*
+ 	 * Additional number of slots reserved, as needed, for SHA1
+ 	 * and IMA default algo.
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index d71944f062b3..cdc3a4083e16 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -49,6 +49,8 @@ int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
+ 	ns->ima_appraise = IMA_APPRAISE_ENFORCE;
+ #endif
+ 
++	mutex_init(&ns->tpm_provider_mutex);
++
+ 	if (ns != &init_ima_ns) {
+ 		ns->ima_lsm_policy_notifier.notifier_call =
+ 						ima_lsm_policy_change;
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index bf45d699a3eb..b6e1e2c77437 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -12,6 +12,33 @@
+ 
+ static struct kmem_cache *imans_cachep;
+ 
++int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
++			struct tpm_chip *tpm_chip)
++{
++	struct ima_namespace *ns = get_current_ns();
++	int ret = 0;
++
++	if (!ns)
++		return -EINVAL;
++
++	if (ns_is_active(ns))
++		return -EBUSY;
++
++	mutex_lock(&ns->tpm_provider_mutex);
++
++	if (ns->ima_tpm_chip) {
++		ret = -EBUSY;
++	} else {
++		ns->tpm_provider = tpm_provider;
++		ns->ima_tpm_chip = tpm_chip;
++	}
++
++	mutex_unlock(&ns->tpm_provider_mutex);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ima_ns_set_tpm_chip);
++
+ static struct ima_config *get_parent_config(struct user_namespace *user_ns)
+ {
+ 	struct ima_namespace *ns;
+@@ -65,6 +92,11 @@ void ima_free_ima_ns(struct ima_namespace *ns)
+ 	if (ns_is_active(ns))
+ 		destroy_ima_ns(ns);
+ 
++	mutex_lock(&ns->tpm_provider_mutex);
++	if (ns->ima_tpm_chip)
++		ns->tpm_provider->release_chip(ns->ima_tpm_chip);
++	mutex_unlock(&ns->tpm_provider_mutex);
++
+ 	kmem_cache_free(imans_cachep, ns);
+ }
+ 
+-- 
+2.34.1
+
