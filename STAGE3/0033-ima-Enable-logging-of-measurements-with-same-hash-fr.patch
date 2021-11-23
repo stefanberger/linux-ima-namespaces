@@ -1,0 +1,148 @@
+From e066617555abe4b7af10d6281b8ff341dfff2e56 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 28 Sep 2022 15:38:46 -0400
+Subject: [PATCH 33/83] ima: Enable logging of measurements with same hash from
+ child namespaces
+
+Enable the logging of a measurement that was take in an IMA namespace and
+where the parent IMA namespace may already have measured the same
+executable or the same executable may have been logged already for another
+child namespace.
+
+When this modification an application 'appA' executed in n different IMA
+child namespaces may be logged n times, each time with a different user
+namespace uuid but the same hash.
+
+The following loop will now add 10 more entries into the log for
+'appA':
+
+for ((i = 0; i < 10; i++)); do
+  unshare --user --map-root-user --mount-proc --pid --fork --root / appA
+done
+
+IMA policy rule on the host:
+
+measure func=BPRM_CHECK mask=MAY_EXEC
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/Kconfig    | 10 ++++++++++
+ security/integrity/ima/ima.h      |  2 +-
+ security/integrity/ima/ima_api.c  |  6 ++++--
+ security/integrity/ima/ima_main.c | 13 +++++++++----
+ 4 files changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/security/integrity/ima/Kconfig b/security/integrity/ima/Kconfig
+index 7249f16257c7..c639f5a0f7d1 100644
+--- a/security/integrity/ima/Kconfig
++++ b/security/integrity/ima/Kconfig
+@@ -338,3 +338,13 @@ config IMA_DISABLE_HTABLE
+ 	default n
+ 	help
+ 	   This option disables htable to allow measurement of duplicate records.
++
++config IMA_NS_LOG_CHILD_DUPLICATES
++	bool "Enable logging of measurements with same hash from child namespaces"
++	depends on IMA_NS
++	default n
++	help
++	   This option enables logging of measurements from a child namespace
++	   even though the same measurement was already logged from another
++	   child namespace or the 'current' namespace. If enabled, this may
++	   contribute to faster growing logs and has an impact on performance.
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 8fbb17ad55e1..f3f151c3384c 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -369,7 +369,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
+ 			    struct ns_status *ns_status,
+ 			    struct file *file, void *buf, loff_t size,
+ 			    enum hash_algo algo, struct modsig *modsig);
+-void ima_store_measurement(struct ima_namespace *ns,
++void ima_store_measurement(struct user_namespace *user_ns,
+ 			   struct integrity_iint_cache *iint, struct file *file,
+ 			   const unsigned char *filename,
+ 			   struct evm_ima_xattr_data *xattr_value,
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 1cb6078e020f..7340e84e7cfd 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -359,7 +359,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
+  *
+  * Must be called with iint->mutex held.
+  */
+-void ima_store_measurement(struct ima_namespace *ns,
++void ima_store_measurement(struct user_namespace *user_ns,
+ 			   struct integrity_iint_cache *iint,
+ 			   struct file *file, const unsigned char *filename,
+ 			   struct evm_ima_xattr_data *xattr_value,
+@@ -368,6 +368,7 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 			   struct ns_status *ns_status,
+ 			   const uuid_t *src_userns)
+ {
++	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
+ 	static const char op[] = "add_template_measure";
+ 	static const char audit_cause[] = "ENOMEM";
+ 	int result = -ENOMEM;
+@@ -392,7 +393,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 	 * appraisal, but a file measurement from earlier might already exist in
+ 	 * the measurement list.
+ 	 */
+-	if ((ns_status->measured_pcrs & (0x1 << pcr)) && !modsig)
++	if ((ns_status->measured_pcrs & (0x1 << pcr)) && !modsig &&
++	    src_userns == &user_ns->uuid)
+ 		return;
+ 
+ 	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index ad445b7113af..50611fe46177 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -236,11 +236,12 @@ void ima_file_free(struct file *file)
+ 	ima_check_last_writer(ns, iint, inode, file);
+ }
+ 
+-static int __process_measurement(struct ima_namespace *ns,
++static int __process_measurement(struct user_namespace *user_ns,
+ 				 struct file *file, const struct cred *cred,
+ 				 u32 secid, char *buf, loff_t size, int mask,
+ 				 enum ima_hooks func, const uuid_t *src_userns)
+ {
++	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
+ 	struct inode *inode = file_inode(file);
+ 	struct integrity_iint_cache *iint = NULL;
+ 	struct ns_status *ns_status = NULL;
+@@ -340,7 +341,11 @@ static int __process_measurement(struct ima_namespace *ns,
+ 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
+ 
+ 	/* If target pcr is already measured, unset IMA_MEASURE action */
+-	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr)))
++	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr))
++#ifdef CONFIG_IMA_NS_LOG_CHILD_DUPLICATES
++	    && (src_userns == &user_ns->uuid)
++#endif
++           )
+ 		action ^= IMA_MEASURE;
+ 
+ 	/* HASH sets the digital signature and update flags, nothing else */
+@@ -396,7 +401,7 @@ static int __process_measurement(struct ima_namespace *ns,
+ 		pathname = ima_d_path(&file->f_path, &pathbuf, filename);
+ 
+ 	if (action & IMA_MEASURE)
+-		ima_store_measurement(ns, iint, file, pathname,
++		ima_store_measurement(user_ns, iint, file, pathname,
+ 				      xattr_value, xattr_len, modsig, pcr,
+ 				      template_desc, ns_status, src_userns);
+ 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
+@@ -461,7 +466,7 @@ static int process_measurement(struct user_namespace *user_ns,
+ 		if (ns_is_active(ns)) {
+ 			int rc;
+ 
+-			rc = __process_measurement(ns, file, cred, secid, buf,
++			rc = __process_measurement(user_ns, file, cred, secid, buf,
+ 						   size, mask, func,
+ 						   src_userns);
+ 			switch (rc) {
+-- 
+2.37.3
+

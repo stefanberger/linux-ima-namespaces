@@ -1,0 +1,88 @@
+From fa928f5db54f63206deff5f9a280b41ccda2d7c9 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 26 Oct 2022 09:49:14 -0400
+Subject: [PATCH 36/83] ima: Move IMA_MUST_MEASURE into ns_status atomic_flags
+
+Introduce atomic_flags for ns_status for use by IMA_MUST_MEASURE.
+Now the IMA_MUST_MEASURE flag is namespace-specific and it avoids
+seeing this flag as being set in another namespace that (may
+have a measurement policy but) would not otherwise emit a ToMToU
+audit message.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_main.c | 15 +++++++++++----
+ security/integrity/integrity.h    |  6 ++++--
+ 2 files changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 50611fe46177..51a4f29910c2 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -130,14 +130,21 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
+ 		if (atomic_read(&inode->i_readcount) && IS_IMA(inode)) {
+ 			if (!iint)
+ 				iint = integrity_iint_find(inode);
++			if (iint && !ns_status)
++				ns_status = ima_find_ns_status(ns, inode, iint);
+ 			/* IMA_MEASURE is set from reader side */
+-			if (iint && test_bit(IMA_MUST_MEASURE,
+-						&iint->atomic_flags))
++			if (ns_status && test_bit(IMA_MUST_MEASURE,
++						  &ns_status->atomic_flags))
+ 				send_tomtou = true;
+ 		}
+ 	} else {
+-		if (must_measure)
+-			set_bit(IMA_MUST_MEASURE, &iint->atomic_flags);
++		if (must_measure) {
++			if (!ns_status)
++				ns_status = ima_get_ns_status(ns, inode, iint);
++			if (!IS_ERR(ns_status))
++				set_bit(IMA_MUST_MEASURE,
++					&ns_status->atomic_flags);
++		}
+ 		if (inode_is_open_for_write(inode) && must_measure)
+ 			send_writers = true;
+ 	}
+diff --git a/security/integrity/integrity.h b/security/integrity/integrity.h
+index 290051b49249..e9785ad8df5a 100644
+--- a/security/integrity/integrity.h
++++ b/security/integrity/integrity.h
+@@ -71,7 +71,7 @@
+ #define IMA_UPDATE_XATTR	1
+ #define IMA_CHANGE_ATTR		2
+ #define IMA_DIGSIG		3
+-#define IMA_MUST_MEASURE	4
++#define IMA_MUST_MEASURE	4	/* in ns_status's atomic_flags */
+ 
+ enum evm_ima_xattr_type {
+ 	IMA_XATTR_DIGEST = 0x01,
+@@ -159,6 +159,7 @@ struct ima_file_id {
+ struct ns_status {
+ 	struct list_head ns_next;
+ 	unsigned long flags;		/* flags split with iint */
++	unsigned long atomic_flags;	/* atomic_flags split with iint */
+ 	unsigned long measured_pcrs;
+ #ifdef CONFIG_IMA_NS
+ 	struct rb_node rb_node;
+@@ -176,6 +177,7 @@ struct ns_status {
+ static inline void ns_status_reset(struct ns_status *ns_status)
+ {
+ 	ns_status->flags = 0;
++	ns_status->atomic_flags = 0;
+ 	ns_status->measured_pcrs = 0;
+ }
+ 
+@@ -192,7 +194,7 @@ struct integrity_iint_cache {
+ 	struct inode *inode;	/* back pointer to inode in question */
+ 	u64 version;		/* track inode changes */
+ 	unsigned long flags;	/* flags split with ns_status */
+-	unsigned long atomic_flags;
++	unsigned long atomic_flags;	/* atomic_flags split with ns_status */
+ 	enum integrity_status ima_file_status:4;
+ 	enum integrity_status ima_mmap_status:4;
+ 	enum integrity_status ima_bprm_status:4;
+-- 
+2.37.3
+
