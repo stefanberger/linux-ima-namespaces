@@ -1,0 +1,94 @@
+From e5539656d9729e97ab498055d9be4f895d1713be Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 15 Dec 2021 17:27:08 -0500
+Subject: [PATCH 06/15] ima: Call ima_init_digests() in init_ima_namespace()
+ for IMA namespaces
+
+Replicate the call to ima_init_digests in init_ima_namespace()
+for the IMA namespaces only and leave the initialization for the
+init_ima_ns in ima_init() to preserve the order of initialization
+there.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h             |  3 ++-
+ security/integrity/ima/ima_init_ima_ns.c | 19 ++++++++++++++++++-
+ security/integrity/ima/ima_queue.c       |  7 ++++++-
+ 3 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 3851aab3ef5a..d8e21cb4adf2 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -232,7 +232,8 @@ int ima_measurements_show(struct seq_file *m, void *v);
+ unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
+ int ima_init_template(void);
+ void ima_init_template_list(void);
+-int __init ima_init_digests(struct ima_namespace *ns);
++int ima_init_digests(struct ima_namespace *ns);
++void ima_free_digests(struct ima_namespace *ns);
+ int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
+ 			  void *lsm_data);
+ 
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index 28a0b70dbcf3..a9f4b976073d 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -16,6 +16,7 @@
+ 
+ int ima_init_namespace(struct ima_namespace *ns)
+ {
++	int ret = 0;
+ 	ns->ns_status_tree = RB_ROOT;
+ 	rwlock_init(&ns->ns_status_lock);
+ 	/* Use KMEM_CACHE for simplicity ? */
+@@ -47,7 +48,23 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 			pr_info("No TPM chip found, activating TPM-bypass!\n");
+ 	}
+ 
+-	return ima_init_crypto(ns);
++	ret = ima_init_crypto(ns);
++	if (ret)
++		goto error;
++
++	if (ns != &init_ima_ns) {
++		ret = ima_init_digests(ns);
++		if (ret)
++			goto err_deinit_crypto;
++	}
++
++	return 0;
++
++err_deinit_crypto:
++	ima_deinit_crypto(ns);
++
++error:
++	return ret;
+ }
+ 
+ int __init ima_ns_init(void)
+diff --git a/security/integrity/ima/ima_queue.c b/security/integrity/ima/ima_queue.c
+index e9cf18b3cec6..340ca0ad23d1 100644
+--- a/security/integrity/ima/ima_queue.c
++++ b/security/integrity/ima/ima_queue.c
+@@ -217,7 +217,7 @@ void ima_free_measurements(struct ima_namespace *ns)
+ 	}
+ }
+ 
+-int __init ima_init_digests(struct ima_namespace *ns)
++int ima_init_digests(struct ima_namespace *ns)
+ {
+ 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
+ 	u16 digest_size;
+@@ -246,3 +246,8 @@ int __init ima_init_digests(struct ima_namespace *ns)
+ 
+ 	return 0;
+ }
++
++void ima_free_digests(struct ima_namespace *ns)
++{
++	kfree(ns->digests);
++}
+-- 
+2.31.1
+
