@@ -1,0 +1,44 @@
+From 367bcf7de253f355966b55bd1861c7ac73db946b Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 24 Jan 2022 09:53:22 -0500
+Subject: [PATCH 58/63] ima: Namespace the IMA_HASH and IMA_HASHED flags
+
+Move the IMA_HASH and IMA_HASHED flags from the iint into the ns_status
+structure to prepare for enablement of hash policy rules for each IMA
+namespace.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index c8c3838e52e4..09663fb2ae00 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -585,7 +585,8 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ #define	POLICY_FILE_FLAGS	S_IWUSR
+ #endif /* CONFIG_IMA_READ_POLICY */
+ 
+-#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE | IMA_APPRAISE)
++#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE | IMA_APPRAISE | \
++				 IMA_HASH)
+ #define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
+ 				 IMA_MEASURE | IMA_MEASURED | IMA_COLLECTED | \
+ 				 IMA_PERMIT_DIRECTIO | IMA_DIGSIG_REQUIRED | \
+@@ -593,9 +594,10 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
+ 				 IMA_APPRAISE | IMA_APPRAISED | \
+ 				 IMA_FILE_APPRAISED | IMA_MMAP_APPRAISED | \
+ 				 IMA_BPRM_APPRAISED | IMA_READ_APPRAISED | \
+-				 IMA_CREDS_APPRAISED | IMA_READ_APPRAISED)
++				 IMA_CREDS_APPRAISED | IMA_READ_APPRAISED | \
++				 IMA_HASH | IMA_HASHED)
+ 
+-#define IMA_IINT_FLAGS		(IMA_APPRAISE | IMA_HASH)
++#define IMA_IINT_FLAGS		0 /* FIXME: remove */
+ 
+ static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
+ 				       struct ns_status *ns_status)
+-- 
+2.34.1
+

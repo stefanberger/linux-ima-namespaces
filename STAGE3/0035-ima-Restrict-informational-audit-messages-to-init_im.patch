@@ -1,0 +1,62 @@
+From f0e1e1f3f6500e4e2513e5e0e833b5b19c96cc06 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 16 Mar 2022 12:32:41 -0400
+Subject: [PATCH 35/63] ima: Restrict informational audit messages to
+ init_ima_ns
+
+Restrict informational audit messages that may be emitted due to IMA
+measurement being active in an IMA namespace to the init_ima_ns.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima_api.c  | 13 ++++++++-----
+ security/integrity/ima/ima_main.c |  2 +-
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 36f6e428a934..50d6f1b1394b 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -117,9 +117,10 @@ int ima_store_template(struct ima_namespace *ns,
+ 						   &entry->template_data[0],
+ 						   entry);
+ 		if (result < 0) {
+-			integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
+-					    template_name, op,
+-					    audit_cause, result, 0);
++			if (ns == &init_ima_ns)
++				integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
++						    template_name, op,
++						    audit_cause, result, 0);
+ 			return result;
+ 		}
+ 	}
+@@ -350,8 +351,10 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 
+ 	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);
+ 	if (result < 0) {
+-		integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
+-				    op, audit_cause, result, 0);
++		if (ns == &init_ima_ns)
++			integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
++					    filename, op, audit_cause, result,
++					    0);
+ 		return;
+ 	}
+ 
+diff --git a/security/integrity/ima/ima_main.c b/security/integrity/ima/ima_main.c
+index 395f2684559e..fc0d1fb24886 100644
+--- a/security/integrity/ima/ima_main.c
++++ b/security/integrity/ima/ima_main.c
+@@ -1104,7 +1104,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
+ 	}
+ 
+ out:
+-	if (ret < 0)
++	if (ret < 0 && ns == &init_ima_ns)
+ 		integrity_audit_message(AUDIT_INTEGRITY_PCR, NULL, eventname,
+ 					func_measure_str(func),
+ 					audit_cause, ret, 0, ret);
+-- 
+2.34.1
+
