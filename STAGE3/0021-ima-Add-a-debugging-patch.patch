@@ -1,0 +1,25 @@
+From 9c4683d7ca4a6c1ba88f030fe5223cb155b7407b Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 14 Mar 2022 16:04:07 -0400
+Subject: [PATCH 21/57] ima: Add a debugging patch
+
+---
+ security/integrity/ima/ima_api.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/security/integrity/ima/ima_api.c b/security/integrity/ima/ima_api.c
+index 03aff2797efa..347d1890ed29 100644
+--- a/security/integrity/ima/ima_api.c
++++ b/security/integrity/ima/ima_api.c
+@@ -334,6 +334,8 @@ void ima_store_measurement(struct ima_namespace *ns,
+ 	int violation = 0;
+ 	unsigned long flags = iint_flags(iint, ns_status);
+ 
++	BUG_ON(ns_status->ima_hash == NULL);
++
+ 	/*
+ 	 * We still need to store the measurement in the case of MODSIG because
+ 	 * we only have its contents to put in the list at the time of
+-- 
+2.31.1
+

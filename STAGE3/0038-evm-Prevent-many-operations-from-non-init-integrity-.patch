@@ -1,0 +1,226 @@
+From f7f0174edcc0124e308c6f673456aa936c5e85e4 Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Mon, 10 Jan 2022 13:22:10 -0500
+Subject: [PATCH 38/57] evm: Prevent many operations from non-init integrity
+ namespace
+
+FIXME: Once the patches 'underneath' have been accepted...
+Consider namespacing of EVM but not giving the securityfs entries
+to the namespace. This way checks for whether EVM has been initialized
+or so would naturally prevent certain operations from the namespace.
+(evm_initialized would remain 0 at all times, evm_key_loaded() will always
+return false etc.)
+
+While avoiding to namespace EVM prevent operations from non-init integrity
+namespace related to the security.evm extended attribute so that this xattr
+cannot be easily changed from an integrity/IMA namespace while changing it
+wouldn't be possible from the host. This is to avoid gaining the ability
+to manipulate security.evm by creating an IMA namespace while EVM is not
+fully virtualized.
+
+Restrict the modification of security.evm, buw allow changes to other
+extended attributes, such as security.ima that IMA namespaces need to be
+able to set.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ include/linux/evm.h                       |  6 +++--
+ security/integrity/evm/evm_main.c         | 31 ++++++++++++++++++++---
+ security/integrity/ima/ima_template_lib.c | 18 ++++++++-----
+ 3 files changed, 44 insertions(+), 11 deletions(-)
+
+diff --git a/include/linux/evm.h b/include/linux/evm.h
+index ef7a6b70e124..3349fa6b710d 100644
+--- a/include/linux/evm.h
++++ b/include/linux/evm.h
+@@ -41,7 +41,8 @@ extern int evm_inode_init_security(struct inode *inode,
+ 				   struct xattr *evm);
+ extern bool evm_revalidate_status(const char *xattr_name);
+ extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
+-extern int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
++extern int evm_read_protected_xattrs(struct integrity_namespace *ns,
++				     struct dentry *dentry, u8 *buffer,
+ 				     int buffer_size, char type,
+ 				     bool canonical_fmt);
+ #ifdef CONFIG_FS_POSIX_ACL
+@@ -127,7 +128,8 @@ static inline int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+ 	return false;
+ }
+ 
+-static inline int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
++static inline int evm_read_protected_xattrs(struct integrity_namespace *ns,
++					    struct dentry *dentry, u8 *buffer,
+ 					    int buffer_size, char type,
+ 					    bool canonical_fmt)
+ {
+diff --git a/security/integrity/evm/evm_main.c b/security/integrity/evm/evm_main.c
+index 4af31fdb7035..9adf26b848b8 100644
+--- a/security/integrity/evm/evm_main.c
++++ b/security/integrity/evm/evm_main.c
+@@ -326,6 +326,7 @@ int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+ 
+ /**
+  * evm_read_protected_xattrs - read EVM protected xattr names, lengths, values
++ * @ns: integrity namespace instance to read protected xattrs from
+  * @dentry: dentry of the read xattrs
+  * @inode: inode of the read xattrs
+  * @buffer: buffer xattr names, lengths or values are copied to
+@@ -339,12 +340,16 @@ int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+  *
+  * Returns the total size on success, a negative value on error.
+  */
+-int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
++int evm_read_protected_xattrs(struct integrity_namespace *ns,
++			      struct dentry *dentry, u8 *buffer,
+ 			      int buffer_size, char type, bool canonical_fmt)
+ {
+ 	struct xattr_list *xattr;
+ 	int rc, size, total_size = 0;
+ 
++	if (ns != &init_integrity_ns)
++		return -EOPNOTSUPP;
++
+ 	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
+ 		rc = __vfs_getxattr(dentry, d_backing_inode(dentry),
+ 				    xattr->name, NULL, 0);
+@@ -416,6 +421,9 @@ enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
+ 				      void *xattr_value, size_t xattr_value_len,
+ 				      struct integrity_iint_cache *iint)
+ {
++	if (ns != &init_integrity_ns)
++		return INTEGRITY_UNKNOWN;
++
+ 	if (!evm_key_loaded() || !evm_protected_xattr(xattr_name))
+ 		return INTEGRITY_UNKNOWN;
+ 
+@@ -638,7 +646,8 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns == &init_integrity_ns &&
++	    (evm_initialized & EVM_ALLOW_METADATA_WRITES))
+ 		return 0;
+ 
+ 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
+@@ -647,6 +656,9 @@ int evm_inode_setxattr(struct user_namespace *mnt_userns, struct dentry *dentry,
+ 		if (xattr_data->type != EVM_IMA_XATTR_DIGSIG &&
+ 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
+ 			return -EPERM;
++
++		if (ns != &init_integrity_ns)
++			return -EPERM;
+ 	}
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name,
+ 				 xattr_value, xattr_value_len);
+@@ -668,7 +680,8 @@ int evm_inode_removexattr(struct user_namespace *mnt_userns,
+ 	/* Policy permits modification of the protected xattrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
++	if (ns == &init_integrity_ns &&
++	    evm_initialized & EVM_ALLOW_METADATA_WRITES)
+ 		return 0;
+ 
+ 	return evm_protect_xattr(ns, mnt_userns, dentry, xattr_name, NULL, 0);
+@@ -694,6 +707,11 @@ static void evm_reset_status(struct inode *inode)
+  */
+ bool evm_revalidate_status(const char *xattr_name)
+ {
++	struct integrity_namespace *ns = current_integrity_ns();
++
++	if (ns != &init_integrity_ns)
++		return false;
++
+ 	if (!evm_key_loaded())
+ 		return false;
+ 
+@@ -790,6 +808,9 @@ int evm_inode_setattr(struct dentry *dentry, struct iattr *attr)
+ 	enum integrity_status evm_status;
+ 	struct integrity_namespace *ns = current_integrity_ns();
+ 
++	if (ns != &init_integrity_ns)
++		return 0;
++
+ 	/* Policy permits modification of the protected attrs even though
+ 	 * there's no HMAC key loaded
+ 	 */
+@@ -852,9 +873,13 @@ int evm_inode_init_security(struct inode *inode,
+ 				 const struct xattr *lsm_xattr,
+ 				 struct xattr *evm_xattr)
+ {
++	struct integrity_namespace *ns = current_integrity_ns();
+ 	struct evm_xattr *xattr_data;
+ 	int rc;
+ 
++	if (ns != &init_integrity_ns)
++		return 0;
++
+ 	if (!(evm_initialized & EVM_INIT_HMAC) ||
+ 	    !evm_protected_xattr(lsm_xattr->name))
+ 		return 0;
+diff --git a/security/integrity/ima/ima_template_lib.c b/security/integrity/ima/ima_template_lib.c
+index a4049ab8e75e..27b8647b02cc 100644
+--- a/security/integrity/ima/ima_template_lib.c
++++ b/security/integrity/ima/ima_template_lib.c
+@@ -637,7 +637,8 @@ int ima_eventinodemode_init(struct ima_namespace *ns,
+ 					     DATA_FMT_UINT, field_data);
+ }
+ 
+-static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
++static int ima_eventinodexattrs_init_common(struct ima_namespace *ns,
++					    struct ima_event_data *event_data,
+ 					    struct ima_field_data *field_data,
+ 					    char type)
+ {
+@@ -647,7 +648,8 @@ static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
+ 	if (!event_data->file)
+ 		return 0;
+ 
+-	rc = evm_read_protected_xattrs(file_dentry(event_data->file), NULL, 0,
++	rc = evm_read_protected_xattrs(ns->integrity_ns,
++				       file_dentry(event_data->file), NULL, 0,
+ 				       type, ima_canonical_fmt);
+ 	if (rc < 0)
+ 		return 0;
+@@ -656,7 +658,8 @@ static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
+ 	if (!buffer)
+ 		return 0;
+ 
+-	rc = evm_read_protected_xattrs(file_dentry(event_data->file), buffer,
++	rc = evm_read_protected_xattrs(ns->integrity_ns,
++				       file_dentry(event_data->file), buffer,
+ 				       rc, type, ima_canonical_fmt);
+ 	if (rc < 0) {
+ 		rc = 0;
+@@ -678,7 +681,8 @@ int ima_eventinodexattrnames_init(struct ima_namespace *ns,
+ 				  struct ima_event_data *event_data,
+ 				  struct ima_field_data *field_data)
+ {
+-	return ima_eventinodexattrs_init_common(event_data, field_data, 'n');
++	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
++						'n');
+ }
+ 
+ /*
+@@ -689,7 +693,8 @@ int ima_eventinodexattrlengths_init(struct ima_namespace *ns,
+ 				    struct ima_event_data *event_data,
+ 				    struct ima_field_data *field_data)
+ {
+-	return ima_eventinodexattrs_init_common(event_data, field_data, 'l');
++	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
++						'l');
+ }
+ 
+ /*
+@@ -700,5 +705,6 @@ int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
+ 				   struct ima_event_data *event_data,
+ 				   struct ima_field_data *field_data)
+ {
+-	return ima_eventinodexattrs_init_common(event_data, field_data, 'v');
++	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
++						'v');
+ }
+-- 
+2.31.1
+

@@ -1,0 +1,102 @@
+From b838849cb8276b1ce19f8b5f9d0b80483881128e Mon Sep 17 00:00:00 2001
+From: Stefan Berger <stefanb@linux.ibm.com>
+Date: Wed, 15 Dec 2021 17:27:08 -0500
+Subject: [PATCH 10/57] ima: Move ima_init_digests() into init_ima_namespace()
+
+Move the call to ima_init_digests() from ima_init() into
+init_ima_namespace() and preserve the order of initialization by
+calling it at the end of init_ima_namespace(). Call this function
+for when any ima_namespace is initialized.
+
+Implement ima_free_digests() to free the ima_digests structure
+of an ima_namespace when the ima_namespace is freed.
+
+Signed-off-by: Stefan Berger <stefanb@linux.ibm.com>
+---
+ security/integrity/ima/ima.h             | 3 ++-
+ security/integrity/ima/ima_init.c        | 3 ---
+ security/integrity/ima/ima_init_ima_ns.c | 4 ++++
+ security/integrity/ima/ima_ns.c          | 1 +
+ security/integrity/ima/ima_queue.c       | 7 ++++++-
+ 5 files changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/security/integrity/ima/ima.h b/security/integrity/ima/ima.h
+index 82c905e3eb1b..7d1ba1541b13 100644
+--- a/security/integrity/ima/ima.h
++++ b/security/integrity/ima/ima.h
+@@ -240,7 +240,8 @@ int ima_measurements_show(struct seq_file *m, void *v);
+ unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
+ int ima_init_template(void);
+ void ima_init_template_list(void);
+-int __init ima_init_digests(struct ima_namespace *ns);
++int ima_init_digests(struct ima_namespace *ns);
++void ima_free_digests(struct ima_namespace *ns);
+ int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
+ 			  void *lsm_data);
+ 
+diff --git a/security/integrity/ima/ima_init.c b/security/integrity/ima/ima_init.c
+index f1a8858be7f6..721e24aa792b 100644
+--- a/security/integrity/ima/ima_init.c
++++ b/security/integrity/ima/ima_init.c
+@@ -127,9 +127,6 @@ int __init ima_init(void)
+ 	if (rc)
+ 		return rc;
+ 
+-	rc = ima_init_digests(&init_ima_ns);
+-	if (rc != 0)
+-		return rc;
+ 	/* boot aggregate must be first entry */
+ 	rc = ima_add_boot_aggregate(&init_ima_ns);
+ 	if (rc != 0)
+diff --git a/security/integrity/ima/ima_init_ima_ns.c b/security/integrity/ima/ima_init_ima_ns.c
+index a55d35e0d27f..9821fcbdef05 100644
+--- a/security/integrity/ima/ima_init_ima_ns.c
++++ b/security/integrity/ima/ima_init_ima_ns.c
+@@ -66,6 +66,10 @@ int ima_init_namespace(struct ima_namespace *ns)
+ 		ima_load_kexec_buffer();
+ 	}
+ 
++	ret = ima_init_digests(ns);
++	if (ret)
++		goto err_deinit_crypto;
++
+ 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
+ 
+ 	return 0;
+diff --git a/security/integrity/ima/ima_ns.c b/security/integrity/ima/ima_ns.c
+index 42327f48fcf5..30504cfbab15 100644
+--- a/security/integrity/ima/ima_ns.c
++++ b/security/integrity/ima/ima_ns.c
+@@ -29,6 +29,7 @@ static void destroy_ima_ns(struct ima_namespace *ns)
+ 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
+ 	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
+ 	kfree(ns->arch_policy_entry);
++	ima_free_digests(ns);
+ 	ima_deinit_crypto(ns);
+ 	ima_free_policy_rules(ns);
+ 	ima_free_ns_status_tree(ns);
+diff --git a/security/integrity/ima/ima_queue.c b/security/integrity/ima/ima_queue.c
+index 70f2b2330a49..f29a23622fc4 100644
+--- a/security/integrity/ima/ima_queue.c
++++ b/security/integrity/ima/ima_queue.c
+@@ -213,7 +213,7 @@ void ima_free_measurements(struct ima_namespace *ns)
+ 	}
+ }
+ 
+-int __init ima_init_digests(struct ima_namespace *ns)
++int ima_init_digests(struct ima_namespace *ns)
+ {
+ 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
+ 	u16 digest_size;
+@@ -242,3 +242,8 @@ int __init ima_init_digests(struct ima_namespace *ns)
+ 
+ 	return 0;
+ }
++
++void ima_free_digests(struct ima_namespace *ns)
++{
++	kfree(ns->digests);
++}
+-- 
+2.31.1
+
