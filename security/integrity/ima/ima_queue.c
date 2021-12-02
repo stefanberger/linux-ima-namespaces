@@ -21,12 +21,6 @@
 
 #define AUDIT_CAUSE_LEN_MAX 32
 
-/* mutex protects atomicity of extending measurement list
- * and extending the TPM PCR aggregate. Since tpm_extend can take
- * long (and the tpm driver uses a mutex), we can't use the spinlock.
- */
-static DEFINE_MUTEX(ima_extend_list_mutex);
-
 /* lookup up the digest value in the hash table, and return the entry */
 static struct ima_queue_entry *ima_lookup_digest_entry
 						(struct ima_namespace *ns,
@@ -161,7 +155,7 @@ int ima_add_template_entry(struct ima_namespace *ns,
 	int audit_info = 1;
 	int result = 0, tpmresult = 0;
 
-	mutex_lock(&ima_extend_list_mutex);
+	mutex_lock(&ns->ima_extend_list_mutex);
 	if (!violation && !IS_ENABLED(CONFIG_IMA_DISABLE_HTABLE)) {
 		if (ima_lookup_digest_entry(ns, digest, entry->pcr)) {
 			audit_cause = "hash_exists";
@@ -189,7 +183,7 @@ int ima_add_template_entry(struct ima_namespace *ns,
 		audit_info = 0;
 	}
 out:
-	mutex_unlock(&ima_extend_list_mutex);
+	mutex_unlock(&ns->ima_extend_list_mutex);
 	integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
 			    op, audit_cause, result, audit_info);
 	return result;
@@ -200,9 +194,9 @@ int ima_restore_measurement_entry(struct ima_namespace *ns,
 {
 	int result = 0;
 
-	mutex_lock(&ima_extend_list_mutex);
+	mutex_lock(&ns->ima_extend_list_mutex);
 	result = ima_add_digest_entry(ns, entry, 0);
-	mutex_unlock(&ima_extend_list_mutex);
+	mutex_unlock(&ns->ima_extend_list_mutex);
 	return result;
 }
 
