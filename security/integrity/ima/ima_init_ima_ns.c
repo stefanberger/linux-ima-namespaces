@@ -32,6 +32,7 @@ int ima_init_namespace(struct ima_namespace *ns)
 		ns->binary_runtime_size = 0;
 	else
 		ns->binary_runtime_size = ULONG_MAX;
+	mutex_init(&ns->ima_extend_list_mutex);
 
 	mutex_init(&ns->ima_write_mutex);
 	ns->valid_policy = 1;
