@@ -145,6 +145,13 @@ struct ima_namespace {
 	struct list_head ima_measurements;	/* list of all measurements */
 	unsigned long binary_runtime_size;	/* used by init_ima_ns */
 
+	/*
+	 * mutex protects atomicity of extending measurement list
+	 * and extending the TPM PCR aggregate. Since tpm_extend can take
+	 * long (and the tpm driver uses a mutex), we can't use the spinlock.
+	 */
+	struct mutex ima_extend_list_mutex;
+
 	/* securityfs support related variables */
 	struct mutex ima_write_mutex;
 	unsigned long ima_fs_flags;
