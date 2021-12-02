@@ -166,6 +166,9 @@ struct ima_namespace {
 	 * and IMA default algo.
 	 */
 	int ima_extra_slots;
+
+	struct crypto_shash *ima_shash_tfm;
+	struct crypto_ahash *ima_ahash_tfm;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
