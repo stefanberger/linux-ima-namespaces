@@ -46,6 +46,12 @@ int ima_init_namespace(struct ima_namespace *ns)
 			goto err_destroy_cache;
 	}
 
+	if (ns == &init_ima_ns) {
+		ns->ima_tpm_chip = tpm_default_chip(&init_user_ns);
+		if (!ns->ima_tpm_chip)
+			pr_info("No TPM chip found, activating TPM-bypass!\n");
+	}
+
 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
 
 	return 0;
