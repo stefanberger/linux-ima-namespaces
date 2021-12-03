@@ -120,10 +120,6 @@ int __init ima_init(void)
 	if (rc)
 		return rc;
 
-	init_ima_ns.ima_tpm_chip = tpm_default_chip(&init_user_ns);
-	if (!init_ima_ns.ima_tpm_chip)
-		pr_info("No TPM chip found, activating TPM-bypass!\n");
-
 	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
 	if (rc)
 		return rc;
