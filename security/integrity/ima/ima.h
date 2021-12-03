@@ -226,6 +226,7 @@ void ima_add_violation(struct ima_namespace *ns,
 		       struct integrity_iint_cache *iint,
 		       const char *op, const char *cause);
 int ima_init_crypto(struct ima_namespace *ns);
+void ima_deinit_crypto(struct ima_namespace *ns);
 void ima_putc(struct seq_file *m, void *data, int datalen);
 void ima_print_digest(struct seq_file *m, u8 *digest, u32 size);
 int template_desc_init_fields(const char *template_fmt,
