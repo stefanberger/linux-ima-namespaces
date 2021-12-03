@@ -59,7 +59,7 @@ struct ima_algo_desc {
 	enum hash_algo algo;
 };
 
-static int __init ima_init_ima_crypto(struct ima_namespace *ns)
+static int ima_init_ima_crypto(struct ima_namespace *ns)
 {
 	long rc;
 
@@ -103,7 +103,7 @@ static struct crypto_shash *ima_alloc_tfm(struct ima_namespace *ns,
 	return tfm;
 }
 
-int __init ima_init_crypto(struct ima_namespace *ns)
+int ima_init_crypto(struct ima_namespace *ns)
 {
 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
 	struct ima_algo_desc *ima_algo_array;
@@ -203,6 +203,25 @@ out_array:
 out:
 	crypto_free_shash(ns->ima_shash_tfm);
 	return rc;
+}
+
+void ima_deinit_crypto(struct ima_namespace *ns)
+{
+	struct ima_algo_desc *ima_algo_array = ns->ima_algo_array;
+	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
+	int i;
+
+	for (i = 0; i < NR_BANKS(ima_tpm_chip) + ns->ima_extra_slots; i++) {
+		if (!ima_algo_array[i].tfm ||
+		    ima_algo_array[i].tfm == ns->ima_shash_tfm)
+			continue;
+
+		crypto_free_shash(ima_algo_array[i].tfm);
+	}
+	kfree(ns->ima_algo_array);
+
+	crypto_free_shash(ns->ima_shash_tfm);
+	crypto_free_ahash(ns->ima_ahash_tfm);
 }
 
 static void ima_free_tfm(struct ima_namespace *ns, struct crypto_shash *tfm)
