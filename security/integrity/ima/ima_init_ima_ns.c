@@ -52,12 +52,20 @@ int ima_init_namespace(struct ima_namespace *ns)
 			pr_info("No TPM chip found, activating TPM-bypass!\n");
 	}
 
+	ret = ima_init_crypto(ns);
+	if (ret < 0)
+		goto err_deregister_notifier;
+
 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
 
 	return 0;
 
+err_deregister_notifier:
+	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
+
 err_destroy_cache:
 	kmem_cache_destroy(ns->ns_status_cache);
+
 	return ret;
 }
 
