@@ -570,10 +570,11 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
 #define	POLICY_FILE_FLAGS	S_IWUSR
 #endif /* CONFIG_IMA_READ_POLICY */
 
-#define IMA_NS_STATUS_ACTIONS   IMA_AUDIT
-#define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED)
+#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
+#define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
+				 IMA_MEASURE | IMA_MEASURED)
 
-#define IMA_IINT_FLAGS		(IMA_MEASURE | IMA_APPRAISE | IMA_HASH)
+#define IMA_IINT_FLAGS		(IMA_APPRAISE | IMA_HASH)
 
 static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
 				       struct ns_status *ns_status)
