@@ -29,6 +29,7 @@ static void destroy_ima_ns(struct ima_namespace *ns)
 	clear_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
 	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
 	kfree(ns->arch_policy_entry);
+	ima_deinit_crypto(ns);
 	ima_free_policy_rules(ns);
 	ima_ns_free_ns_status_list(ns);
 	ima_free_measurements(ns);
