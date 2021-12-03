@@ -124,9 +124,6 @@ int __init ima_init(void)
 	if (rc)
 		return rc;
 
-	rc = ima_init_crypto(&init_ima_ns);
-	if (rc)
-		return rc;
 	rc = ima_init_template();
 	if (rc != 0)
 		return rc;
