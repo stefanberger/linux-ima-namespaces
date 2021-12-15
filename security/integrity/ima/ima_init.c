@@ -38,7 +38,7 @@ const char boot_aggregate_name[] = "boot_aggregate";
  * a different value.) Violations add a zero entry to the measurement
  * list and extend the aggregate PCR value with ff...ff's.
  */
-static int __init ima_add_boot_aggregate(struct ima_namespace *ns)
+int ima_add_boot_aggregate(struct ima_namespace *ns)
 {
 	static const char op[] = "add_boot_aggregate";
 	const char *audit_cause = "ENOMEM";
@@ -92,8 +92,10 @@ static int __init ima_add_boot_aggregate(struct ima_namespace *ns)
 	}
 	return 0;
 err_out:
-	integrity_audit_msg(AUDIT_INTEGRITY_PCR, NULL, boot_aggregate_name, op,
-			    audit_cause, result, 0);
+	if (ns == &init_ima_ns)
+		integrity_audit_msg(AUDIT_INTEGRITY_PCR, NULL,
+				    boot_aggregate_name, op, audit_cause,
+				    result, 0);
 	return result;
 }
 
