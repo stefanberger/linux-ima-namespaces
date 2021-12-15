@@ -257,6 +257,7 @@ int ima_init_digests(struct ima_namespace *ns);
 void ima_free_digests(struct ima_namespace *ns);
 int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 			  void *lsm_data);
+int ima_add_boot_aggregate(struct ima_namespace *ns);
 
 /*
  * used to protect h_table and sha_table
