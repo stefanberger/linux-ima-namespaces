@@ -124,12 +124,8 @@ int __init ima_init(void)
 	if (rc)
 		return rc;
 
-	/* It can be called before ima_init_digests(), it does not use TPM. */
 	ima_load_kexec_buffer();
 
-	rc = ima_init_digests(&init_ima_ns);
-	if (rc != 0)
-		return rc;
 	/* boot aggregate must be first entry */
 	rc = ima_add_boot_aggregate(&init_ima_ns);
 	if (rc != 0)
