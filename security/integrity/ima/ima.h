@@ -253,7 +253,8 @@ int ima_ns_measurements_show(struct ima_namespace *ns,
 unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
 int ima_init_template(void);
 void ima_init_template_list(void);
-int __init ima_init_digests(struct ima_namespace *ns);
+int ima_init_digests(struct ima_namespace *ns);
+void ima_free_digests(struct ima_namespace *ns);
 int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 			  void *lsm_data);
 
