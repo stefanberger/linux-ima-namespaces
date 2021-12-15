@@ -67,9 +67,19 @@ int ima_init_namespace(struct ima_namespace *ns)
 	if (ret)
 		goto err_deinit_crypto;
 
+	if (ns != &init_ima_ns) {
+		/* boot aggregate must be first entry */
+		ret = ima_add_boot_aggregate(ns);
+		if (ret != 0)
+			goto err_free_digests;
+	}
+
 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
 
 	return 0;
+
+err_free_digests:
+	ima_free_digests(ns);
 
 err_deinit_crypto:
 	ima_deinit_crypto(ns);
