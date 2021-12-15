@@ -213,7 +213,7 @@ void ima_free_measurements(struct ima_namespace *ns)
 	}
 }
 
-int __init ima_init_digests(struct ima_namespace *ns)
+int ima_init_digests(struct ima_namespace *ns)
 {
 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
 	u16 digest_size;
@@ -241,4 +241,9 @@ int __init ima_init_digests(struct ima_namespace *ns)
 	}
 
 	return 0;
+}
+
+void ima_free_digests(struct ima_namespace *ns)
+{
+	kfree(ns->digests);
 }

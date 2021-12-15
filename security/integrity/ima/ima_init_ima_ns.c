@@ -63,6 +63,10 @@ int ima_init_namespace(struct ima_namespace *ns)
 			goto err_deinit_crypto;
 	}
 
+	ret = ima_init_digests(ns);
+	if (ret)
+		goto err_deinit_crypto;
+
 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
 
 	return 0;
