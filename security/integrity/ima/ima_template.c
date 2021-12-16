@@ -290,7 +290,7 @@ struct ima_template_desc *ima_template_desc_buf(void)
 	return ima_buf_template;
 }
 
-int __init ima_init_template(void)
+int ima_init_template(void)
 {
 	struct ima_template_desc *template = ima_template_desc_current();
 	int result;
