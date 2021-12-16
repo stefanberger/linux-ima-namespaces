@@ -124,10 +124,6 @@ int __init ima_init(void)
 	if (rc)
 		return rc;
 
-	rc = ima_init_template();
-	if (rc != 0)
-		return rc;
-
 	/* It can be called before ima_init_digests(), it does not use TPM. */
 	ima_load_kexec_buffer();
 
