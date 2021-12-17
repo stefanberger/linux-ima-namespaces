@@ -70,7 +70,8 @@ bool is_ima_appraise_enabled(void)
  *
  * Return 1 to appraise or hash
  */
-int ima_must_appraise(struct mnt_idmap *idmap, struct inode *inode,
+int ima_must_appraise(struct ima_namespace *ns,
+		      struct mnt_idmap *idmap, struct inode *inode,
 		      int mask, enum ima_hooks func)
 {
 	u32 secid;
@@ -79,7 +80,7 @@ int ima_must_appraise(struct mnt_idmap *idmap, struct inode *inode,
 		return 0;
 
 	security_current_getsecid_subj(&secid);
-	return ima_match_policy(idmap, inode, current_cred(), secid,
+	return ima_match_policy(ns, idmap, inode, current_cred(), secid,
 				func, mask, IMA_APPRAISE | IMA_HASH, NULL,
 				NULL, NULL, NULL);
 }
@@ -443,7 +444,8 @@ static int modsig_verify(enum ima_hooks func, const struct modsig *modsig,
  *
  * Returns -EPERM if the hash is blacklisted.
  */
-int ima_check_blacklist(struct integrity_iint_cache *iint,
+int ima_check_blacklist(struct ima_namespace *ns,
+			struct integrity_iint_cache *iint,
 			const struct modsig *modsig, int pcr)
 {
 	enum hash_algo hash_algo;
@@ -462,7 +464,7 @@ int ima_check_blacklist(struct integrity_iint_cache *iint,
 		rc = is_binary_blacklisted(iint->ima_hash->digest, iint->ima_hash->length);
 
 	if ((rc == -EPERM) && (iint->flags & IMA_MEASURE))
-		process_buffer_measurement(&nop_mnt_idmap, NULL, digest, digestsize,
+		process_buffer_measurement(ns, &nop_mnt_idmap, NULL, digest, digestsize,
 					   "blacklisted-hash", NONE,
 					   pcr, NULL, false, NULL, 0);
 
@@ -640,14 +642,16 @@ static void ima_inode_post_setattr(struct mnt_idmap *idmap,
 				   struct dentry *dentry, int ia_valid)
 {
 	struct inode *inode = d_backing_inode(dentry);
+	struct ima_namespace *ns = &init_ima_ns;
 	struct integrity_iint_cache *iint;
 	int action;
 
-	if (!(ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode)
+	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode)
 	    || !(inode->i_opflags & IOP_XATTR))
 		return;
 
-	action = ima_must_appraise(idmap, inode, MAY_ACCESS, POST_SETATTR);
+	action = ima_must_appraise(ns, idmap, inode, MAY_ACCESS,
+				   POST_SETATTR);
 	iint = integrity_iint_find(inode);
 	if (iint) {
 		set_bit(IMA_CHANGE_ATTR, &iint->atomic_flags);
@@ -672,11 +676,12 @@ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
 	return 0;
 }
 
-static void ima_reset_appraise_flags(struct inode *inode, int digsig)
+static void ima_reset_appraise_flags(struct ima_namespace *ns,
+				     struct inode *inode, int digsig)
 {
 	struct integrity_iint_cache *iint;
 
-	if (!(ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
+	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
 		return;
 
 	iint = integrity_iint_find(inode);
@@ -755,6 +760,7 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			      size_t xattr_value_len, int flags)
 {
 	const struct evm_ima_xattr_data *xvalue = xattr_value;
+	struct ima_namespace *ns = &init_ima_ns;
 	int digsig = 0;
 	int result;
 	int err;
@@ -774,7 +780,7 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
 	}
 	if (result == 1 || evm_revalidate_status(xattr_name)) {
-		ima_reset_appraise_flags(d_backing_inode(dentry), digsig);
+		ima_reset_appraise_flags(ns, d_backing_inode(dentry), digsig);
 		if (result == 1)
 			result = 0;
 	}
@@ -784,8 +790,10 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			     const char *acl_name, struct posix_acl *kacl)
 {
+	struct ima_namespace *ns = &init_ima_ns;
+
 	if (evm_revalidate_status(acl_name))
-		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
+		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
 
 	return 0;
 }
@@ -793,11 +801,12 @@ static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 static int ima_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				 const char *xattr_name)
 {
+	struct ima_namespace *ns = &init_ima_ns;
 	int result;
 
 	result = ima_protect_xattr(dentry, xattr_name, NULL, 0);
 	if (result == 1 || evm_revalidate_status(xattr_name)) {
-		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
+		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
 		if (result == 1)
 			result = 0;
 	}
