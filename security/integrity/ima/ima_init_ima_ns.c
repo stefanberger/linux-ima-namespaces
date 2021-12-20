@@ -46,6 +46,8 @@ int ima_init_namespace(struct ima_namespace *ns)
 			goto err_destroy_cache;
 	}
 
+	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
+
 	return 0;
 
 err_destroy_cache:
