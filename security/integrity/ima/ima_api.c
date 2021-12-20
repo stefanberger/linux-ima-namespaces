@@ -50,12 +50,13 @@ int ima_alloc_init_template(struct ima_namespace *ns,
 		template_desc = ima_template_desc_current();
 
 	*entry = kzalloc(struct_size(*entry, template_data,
-				     template_desc->num_fields), GFP_NOFS);
+				     template_desc->num_fields),
+				     GFP_NOFS | __GFP_ACCOUNT);
 	if (!*entry)
 		return -ENOMEM;
 
 	digests = kcalloc(NR_BANKS(ima_tpm_chip) + ns->ima_extra_slots,
-			  sizeof(*ns->digests), GFP_NOFS);
+			  sizeof(*ns->digests), GFP_NOFS | __GFP_ACCOUNT);
 	if (!digests) {
 		kfree(*entry);
 		*entry = NULL;
