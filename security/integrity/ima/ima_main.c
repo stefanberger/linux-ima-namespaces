@@ -216,11 +216,11 @@ static void ima_check_last_writer(struct ima_namespace *ns,
  */
 void ima_file_free(struct file *file)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 	struct inode *inode = file_inode(file);
 	struct integrity_iint_cache *iint;
 
-	if (!ns->ima_policy_flag || !S_ISREG(inode->i_mode))
+	if (!S_ISREG(inode->i_mode))
 		return;
 
 	iint = integrity_iint_find(inode);
@@ -531,7 +531,7 @@ int ima_file_mmap(struct file *file, unsigned long reqprot,
  */
 int ima_file_mprotect(struct vm_area_struct *vma, unsigned long prot)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 	struct ima_template_desc *template = NULL;
 	struct file *file;
 	char filename[NAME_MAX];
@@ -544,7 +544,8 @@ int ima_file_mprotect(struct vm_area_struct *vma, unsigned long prot)
 	int pcr;
 
 	/* Is mprotect making an mmap'ed file executable? */
-	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !vma->vm_file ||
+	if (!ns_is_active(ns) ||
+	    !(ns->ima_policy_flag & IMA_APPRAISE) || !vma->vm_file ||
 	    !(prot & PROT_EXEC) || (vma->vm_flags & VM_EXEC))
 		return 0;
 
@@ -708,9 +709,9 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
  */
 int ima_file_hash(struct file *file, char *buf, size_t buf_size)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 
-	if (!file)
+	if (!ns_is_active(ns) || !file)
 		return -EINVAL;
 
 	return __ima_inode_hash(ns, file_inode(file), file, buf, buf_size);
@@ -737,9 +738,9 @@ EXPORT_SYMBOL_GPL(ima_file_hash);
  */
 int ima_inode_hash(struct inode *inode, char *buf, size_t buf_size)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 
-	if (!inode)
+	if (!ns_is_active(ns) || !inode)
 		return -EINVAL;
 
 	return __ima_inode_hash(ns, inode, NULL, buf, buf_size);
@@ -758,11 +759,12 @@ EXPORT_SYMBOL_GPL(ima_inode_hash);
 void ima_post_create_tmpfile(struct mnt_idmap *idmap,
 			     struct inode *inode)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 	struct integrity_iint_cache *iint;
 	int must_appraise;
 
-	if (!ns->ima_policy_flag || !S_ISREG(inode->i_mode))
+	if (!ns_is_active(ns) || !ns->ima_policy_flag ||
+	    !S_ISREG(inode->i_mode))
 		return;
 
 	must_appraise = ima_must_appraise(ns, idmap, inode, MAY_ACCESS,
@@ -791,12 +793,13 @@ void ima_post_create_tmpfile(struct mnt_idmap *idmap,
 void ima_post_path_mknod(struct mnt_idmap *idmap,
 			 struct dentry *dentry)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 	struct integrity_iint_cache *iint;
 	struct inode *inode = dentry->d_inode;
 	int must_appraise;
 
-	if (!ns->ima_policy_flag || !S_ISREG(inode->i_mode))
+	if (!ns_is_active(ns) || !ns->ima_policy_flag ||
+	    !S_ISREG(inode->i_mode))
 		return;
 
 	must_appraise = ima_must_appraise(ns, idmap, inode, MAY_ACCESS,
@@ -915,7 +918,11 @@ int ima_post_read_file(struct file *file, void *buf, loff_t size,
  */
 int ima_load_data(enum kernel_load_data_id id, bool contents)
 {
+	struct ima_namespace *ns = get_current_ns();
 	bool ima_enforce, sig_enforce;
+
+	if (ns != &init_ima_ns)
+		return 0;
 
 	ima_enforce =
 		(ima_appraise & IMA_APPRAISE_ENFORCE) == IMA_APPRAISE_ENFORCE;
@@ -1121,10 +1128,10 @@ out:
  */
 void ima_kexec_cmdline(int kernel_fd, const void *buf, int size)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
 	struct fd f;
 
-	if (!buf || !size)
+	if (!ns_is_active(ns) || !buf || !size)
 		return;
 
 	f = fdget(kernel_fd);
@@ -1162,7 +1169,10 @@ int ima_measure_critical_data(const char *event_label,
 			      const void *buf, size_t buf_len,
 			      bool hash, u8 *digest, size_t digest_len)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
+
+	if (!ns_is_active(ns))
+		return -EINVAL;
 
 	if (!event_name || !event_label || !buf || !buf_len)
 		return -ENOPARAM;
