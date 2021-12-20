@@ -31,6 +31,7 @@ static void destroy_ima_ns(struct ima_namespace *ns)
 	kfree(ns->arch_policy_entry);
 	ima_free_policy_rules(ns);
 	ima_ns_free_ns_status_list(ns);
+	ima_free_measurements(ns);
 }
 
 void ima_free_ima_ns(struct ima_namespace *ns)
