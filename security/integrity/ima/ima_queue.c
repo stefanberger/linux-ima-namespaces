@@ -76,7 +76,7 @@ static int ima_add_digest_entry(struct ima_namespace *ns,
 	struct ima_queue_entry *qe;
 	unsigned int key;
 
-	qe = kmalloc(sizeof(*qe), GFP_KERNEL);
+	qe = kmalloc(sizeof(*qe), GFP_KERNEL_ACCOUNT);
 	if (qe == NULL) {
 		pr_err("OUT OF MEMORY ERROR creating queue entry\n");
 		return -ENOMEM;
