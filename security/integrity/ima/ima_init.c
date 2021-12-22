@@ -116,11 +116,11 @@ int __init ima_init(void)
 {
 	int rc;
 
-	rc = ima_ns_init();
+	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
 	if (rc)
 		return rc;
 
-	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
+	rc = ima_ns_init();
 	if (rc)
 		return rc;
 
