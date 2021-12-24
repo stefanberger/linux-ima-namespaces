@@ -38,10 +38,19 @@ static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
 #define restrict_link_to_ima restrict_link_by_builtin_trusted
 #endif
 
+extern struct key *find_keyring_by_name(const char *name, bool uid_keyring);
+
 static struct key *integrity_keyring_from_id(const unsigned int id)
 {
+	struct key *ns_key;
+
 	if (id >= INTEGRITY_KEYRING_MAX)
 		return ERR_PTR(-EINVAL);
+
+	/* Travers through keyrings. It calls current_user_ns() inside. */
+	ns_key = find_keyring_by_name(keyring_name[id], false);
+	if (!IS_ERR(ns_key))
+		return ns_key;
 
 	if (!keyring[id]) {
 		keyring[id] =

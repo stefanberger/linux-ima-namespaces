@@ -110,7 +110,9 @@ static void keyring_publish_name(struct key *keyring)
 
 	if (keyring->description &&
 	    keyring->description[0] &&
-	    keyring->description[0] != '.') {
+	    keyring->description[0] != '.') { /* In this case we cannot insert
+						 new .ima keyring in user
+						 namespace */
 		write_lock(&keyring_name_lock);
 		list_add_tail(&keyring->name_link, &ns->keyring_name_list);
 		write_unlock(&keyring_name_lock);
