@@ -858,8 +858,8 @@ void ima_update_policy_flags(struct ima_namespace *ns)
 	}
 	rcu_read_unlock();
 
-	ima_appraise |= (build_ima_appraise | temp_ima_appraise);
-	if (!ima_appraise)
+	ns->ima_appraise |= (build_ima_appraise | temp_ima_appraise);
+	if (!ns->ima_appraise)
 		new_policy_flag &= ~IMA_APPRAISE;
 
 	ns->ima_policy_flag = new_policy_flag;
@@ -2401,7 +2401,8 @@ bool ima_appraise_signature(enum kernel_read_file_id id)
 	if (id >= READING_MAX_ID)
 		return false;
 
-	if (id == READING_KEXEC_IMAGE && !(ima_appraise & IMA_APPRAISE_ENFORCE)
+	if (id == READING_KEXEC_IMAGE
+	    && !(ns->ima_appraise & IMA_APPRAISE_ENFORCE)
 	    && security_locked_down(LOCKDOWN_KEXEC))
 		return false;
 
