@@ -39,6 +39,8 @@ struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
 	/* inherit config from parent */
 	ns->config = *ic;
 
+	ns->integrity_ns = user_ns->integrity_ns;
+
 	return ns;
 }
 

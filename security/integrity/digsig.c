@@ -14,12 +14,11 @@
 #include <linux/key-type.h>
 #include <linux/digsig.h>
 #include <linux/vmalloc.h>
+#include <linux/integrity_namespace.h>
 #include <crypto/public_key.h>
 #include <keys/system_keyring.h>
 
 #include "integrity.h"
-
-static struct key *keyring[INTEGRITY_KEYRING_MAX];
 
 static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
 #ifndef CONFIG_INTEGRITY_TRUSTED_KEYRING
@@ -39,26 +38,28 @@ static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
 #define restrict_link_to_ima restrict_link_by_digsig_builtin
 #endif
 
-static struct key *integrity_keyring_from_id(const unsigned int id)
+static struct key *integrity_keyring_from_id(struct integrity_namespace *ns,
+					     const unsigned int id)
 {
 	if (id >= INTEGRITY_KEYRING_MAX)
 		return ERR_PTR(-EINVAL);
 
-	if (!keyring[id]) {
-		keyring[id] =
+	if (!ns->keyring[id]) {
+		ns->keyring[id] =
 			request_key(&key_type_keyring, keyring_name[id], NULL);
-		if (IS_ERR(keyring[id])) {
-			int err = PTR_ERR(keyring[id]);
+		if (IS_ERR(ns->keyring[id])) {
+			int err = PTR_ERR(ns->keyring[id]);
 			pr_err("no %s keyring: %d\n", keyring_name[id], err);
-			keyring[id] = NULL;
+			ns->keyring[id] = NULL;
 			return ERR_PTR(err);
 		}
 	}
 
-	return keyring[id];
+	return ns->keyring[id];
 }
 
-int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
+int integrity_digsig_verify(struct integrity_namespace *ns,
+			    const unsigned int id, const char *sig, int siglen,
 			    const char *digest, int digestlen)
 {
 	struct key *keyring;
@@ -66,7 +67,7 @@ int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
 	if (siglen < 2)
 		return -EINVAL;
 
-	keyring = integrity_keyring_from_id(id);
+	keyring = integrity_keyring_from_id(ns, id);
 	if (IS_ERR(keyring))
 		return PTR_ERR(keyring);
 
@@ -84,45 +85,49 @@ int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
 	return -EOPNOTSUPP;
 }
 
-int integrity_modsig_verify(const unsigned int id, const struct modsig *modsig)
+int integrity_modsig_verify(struct integrity_namespace *ns,
+			    const unsigned int id, const struct modsig *modsig)
 {
 	struct key *keyring;
 
-	keyring = integrity_keyring_from_id(id);
+	keyring = integrity_keyring_from_id(ns, id);
 	if (IS_ERR(keyring))
 		return PTR_ERR(keyring);
 
 	return ima_modsig_verify(keyring, modsig);
 }
 
-static int __init __integrity_init_keyring(const unsigned int id,
+static int __init __integrity_init_keyring(struct integrity_namespace *ns,
+					   const unsigned int id,
 					   key_perm_t perm,
 					   struct key_restriction *restriction)
 {
 	const struct cred *cred = current_cred();
 	int err = 0;
 
-	keyring[id] = keyring_alloc(keyring_name[id], KUIDT_INIT(0),
-				    KGIDT_INIT(0), cred, perm,
-				    KEY_ALLOC_NOT_IN_QUOTA, restriction, NULL);
-	if (IS_ERR(keyring[id])) {
-		err = PTR_ERR(keyring[id]);
+	ns->keyring[id] = keyring_alloc(keyring_name[id], KUIDT_INIT(0),
+					KGIDT_INIT(0), cred, perm,
+					KEY_ALLOC_NOT_IN_QUOTA, restriction,
+					NULL);
+	if (IS_ERR(ns->keyring[id])) {
+		err = PTR_ERR(ns->keyring[id]);
 		pr_info("Can't allocate %s keyring (%d)\n",
 			keyring_name[id], err);
-		keyring[id] = NULL;
+		ns->keyring[id] = NULL;
 	} else {
 		if (id == INTEGRITY_KEYRING_PLATFORM)
-			set_platform_trusted_keys(keyring[id]);
+			set_platform_trusted_keys(ns->keyring[id]);
 		if (id == INTEGRITY_KEYRING_MACHINE && imputed_trust_enabled())
-			set_machine_trusted_keys(keyring[id]);
+			set_machine_trusted_keys(ns->keyring[id]);
 		if (id == INTEGRITY_KEYRING_IMA)
-			load_module_cert(keyring[id]);
+			load_module_cert(ns->keyring[id]);
 	}
 
 	return err;
 }
 
-int __init integrity_init_keyring(const unsigned int id)
+int __init integrity_init_keyring(struct integrity_namespace *ns,
+				  const unsigned int id)
 {
 	struct key_restriction *restriction;
 	key_perm_t perm;
@@ -159,22 +164,24 @@ int __init integrity_init_keyring(const unsigned int id)
 		perm |= KEY_USR_WRITE;
 
 out:
-	ret = __integrity_init_keyring(id, perm, restriction);
+	ret = __integrity_init_keyring(ns, id, perm, restriction);
 	if (ret)
 		kfree(restriction);
 	return ret;
 }
 
-static int __init integrity_add_key(const unsigned int id, const void *data,
+static int __init integrity_add_key(struct integrity_namespace *ns,
+				    const unsigned int id, const void *data,
 				    off_t size, key_perm_t perm)
 {
 	key_ref_t key;
 	int rc = 0;
 
-	if (!keyring[id])
+	if (!ns->keyring[id])
 		return -EINVAL;
 
-	key = key_create_or_update(make_key_ref(keyring[id], 1), "asymmetric",
+	key = key_create_or_update(make_key_ref(ns->keyring[id], 1),
+				   "asymmetric",
 				   NULL, data, size, perm,
 				   KEY_ALLOC_NOT_IN_QUOTA);
 	if (IS_ERR(key)) {
@@ -190,7 +197,8 @@ static int __init integrity_add_key(const unsigned int id, const void *data,
 
 }
 
-int __init integrity_load_x509(const unsigned int id, const char *path)
+int __init integrity_load_x509(struct integrity_namespace *ns,
+			       const unsigned int id, const char *path)
 {
 	void *data = NULL;
 	size_t size;
@@ -208,18 +216,19 @@ int __init integrity_load_x509(const unsigned int id, const char *path)
 	perm = (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_VIEW | KEY_USR_READ;
 
 	pr_info("Loading X.509 certificate: %s\n", path);
-	rc = integrity_add_key(id, (const void *)data, size, perm);
+	rc = integrity_add_key(ns, id, (const void *)data, size, perm);
 
 	vfree(data);
 	return rc;
 }
 
-int __init integrity_load_cert(const unsigned int id, const char *source,
+int __init integrity_load_cert(struct integrity_namespace *ns,
+			       const unsigned int id, const char *source,
 			       const void *data, size_t len, key_perm_t perm)
 {
 	if (!data)
 		return -EINVAL;
 
 	pr_info("Loading X.509 certificate: %s\n", source);
-	return integrity_add_key(id, data, len, perm);
+	return integrity_add_key(ns, id, data, len, perm);
 }

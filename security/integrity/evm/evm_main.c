@@ -21,6 +21,7 @@
 #include <linux/magic.h>
 #include <linux/posix_acl_xattr.h>
 #include <linux/lsm_hooks.h>
+#include <linux/integrity_namespace.h>
 
 #include <crypto/hash.h>
 #include <crypto/hash_info.h>
@@ -164,7 +165,8 @@ static int evm_find_protected_xattrs(struct dentry *dentry)
  *
  * Returns integrity status
  */
-static enum integrity_status evm_verify_hmac(struct dentry *dentry,
+static enum integrity_status evm_verify_hmac(struct integrity_namespace *ns,
+					     struct dentry *dentry,
 					     const char *xattr_name,
 					     char *xattr_value,
 					     size_t xattr_value_len,
@@ -236,9 +238,10 @@ static enum integrity_status evm_verify_hmac(struct dentry *dentry,
 				   xattr_value_len, xattr_data->type, &digest);
 		if (rc)
 			break;
-		rc = integrity_digsig_verify(INTEGRITY_KEYRING_EVM,
-					(const char *)xattr_data, xattr_len,
-					digest.digest, digest.hdr.length);
+		rc = integrity_digsig_verify
+					(ns, INTEGRITY_KEYRING_EVM,
+					 (const char *)xattr_data, xattr_len,
+					 digest.digest, digest.hdr.length);
 		if (!rc) {
 			inode = d_backing_inode(dentry);
 
@@ -385,6 +388,7 @@ int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
 
 /**
  * evm_verifyxattr - verify the integrity of the requested xattr
+ * @ns: integrity namespace to user for verification
  * @dentry: object of the verify xattr
  * @xattr_name: requested xattr
  * @xattr_value: requested xattr value
@@ -400,7 +404,8 @@ int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
  * This function requires the caller to lock the inode's i_mutex before it
  * is executed.
  */
-enum integrity_status evm_verifyxattr(struct dentry *dentry,
+enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
+				      struct dentry *dentry,
 				      const char *xattr_name,
 				      void *xattr_value, size_t xattr_value_len,
 				      struct integrity_iint_cache *iint)
@@ -413,7 +418,7 @@ enum integrity_status evm_verifyxattr(struct dentry *dentry,
 		if (!iint)
 			return INTEGRITY_UNKNOWN;
 	}
-	return evm_verify_hmac(dentry, xattr_name, xattr_value,
+	return evm_verify_hmac(ns, dentry, xattr_name, xattr_value,
 				 xattr_value_len, iint);
 }
 EXPORT_SYMBOL_GPL(evm_verifyxattr);
@@ -425,13 +430,14 @@ EXPORT_SYMBOL_GPL(evm_verifyxattr);
  * Verify and return the dentry's metadata integrity. The exceptions are
  * before EVM is initialized or in 'fix' mode.
  */
-static enum integrity_status evm_verify_current_integrity(struct dentry *dentry)
+static enum integrity_status evm_verify_current_integrity
+			(struct integrity_namespace *ns, struct dentry *dentry)
 {
 	struct inode *inode = d_backing_inode(dentry);
 
 	if (!evm_key_loaded() || !S_ISREG(inode->i_mode) || evm_fixmode)
 		return INTEGRITY_PASS;
-	return evm_verify_hmac(dentry, NULL, NULL, 0, NULL);
+	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL);
 }
 
 /*
@@ -482,7 +488,8 @@ out:
  * For posix xattr acls only, permit security.evm, even if it currently
  * doesn't exist, to be updated unless the EVM signature is immutable.
  */
-static int evm_protect_xattr(struct mnt_idmap *idmap,
+static int evm_protect_xattr(struct integrity_namespace *ns,
+			     struct mnt_idmap *idmap,
 			     struct dentry *dentry, const char *xattr_name,
 			     const void *xattr_value, size_t xattr_value_len)
 {
@@ -494,14 +501,14 @@ static int evm_protect_xattr(struct mnt_idmap *idmap,
 	} else if (!evm_protected_xattr(xattr_name)) {
 		if (!posix_xattr_acl(xattr_name))
 			return 0;
-		evm_status = evm_verify_current_integrity(dentry);
+		evm_status = evm_verify_current_integrity(ns, dentry);
 		if ((evm_status == INTEGRITY_PASS) ||
 		    (evm_status == INTEGRITY_NOXATTRS))
 			return 0;
 		goto out;
 	}
 
-	evm_status = evm_verify_current_integrity(dentry);
+	evm_status = evm_verify_current_integrity(ns, dentry);
 	if (evm_status == INTEGRITY_NOXATTRS) {
 		struct integrity_iint_cache *iint;
 
@@ -571,6 +578,7 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			      size_t xattr_value_len, int flags)
 {
 	const struct evm_ima_xattr_data *xattr_data = xattr_value;
+	struct integrity_namespace *ns = current_integrity_ns();
 
 	/* Policy permits modification of the protected xattrs even though
 	 * there's no HMAC key loaded
@@ -585,8 +593,8 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
 			return -EPERM;
 	}
-	return evm_protect_xattr(idmap, dentry, xattr_name, xattr_value,
-				 xattr_value_len);
+	return evm_protect_xattr(ns, idmap, dentry, xattr_name,
+				 xattr_value, xattr_value_len);
 }
 
 /**
@@ -601,13 +609,14 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 static int evm_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				 const char *xattr_name)
 {
+	struct integrity_namespace *ns = current_integrity_ns();
 	/* Policy permits modification of the protected xattrs even though
 	 * there's no HMAC key loaded
 	 */
 	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
 		return 0;
 
-	return evm_protect_xattr(idmap, dentry, xattr_name, NULL, 0);
+	return evm_protect_xattr(ns, idmap, dentry, xattr_name, NULL, 0);
 }
 
 #ifdef CONFIG_FS_POSIX_ACL
@@ -655,6 +664,7 @@ static inline int evm_inode_set_acl_change(struct mnt_idmap *idmap,
 static int evm_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			     const char *acl_name, struct posix_acl *kacl)
 {
+	struct integrity_namespace *ns = current_integrity_ns();
 	enum integrity_status evm_status;
 
 	/* Policy permits modification of the protected xattrs even though
@@ -663,7 +673,7 @@ static int evm_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
 		return 0;
 
-	evm_status = evm_verify_current_integrity(dentry);
+	evm_status = evm_verify_current_integrity(ns, dentry);
 	if ((evm_status == INTEGRITY_PASS) ||
 	    (evm_status == INTEGRITY_NOXATTRS))
 		return 0;
@@ -864,6 +874,7 @@ static int evm_inode_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 {
 	unsigned int ia_valid = attr->ia_valid;
 	enum integrity_status evm_status;
+	struct integrity_namespace *ns = current_integrity_ns();
 
 	/* Policy permits modification of the protected attrs even though
 	 * there's no HMAC key loaded
@@ -873,7 +884,7 @@ static int evm_inode_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 
 	if (!(ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID)))
 		return 0;
-	evm_status = evm_verify_current_integrity(dentry);
+	evm_status = evm_verify_current_integrity(ns, dentry);
 	/*
 	 * Writing attrs is safe for portable signatures, as portable signatures
 	 * are immutable and can never be updated.
@@ -980,11 +991,12 @@ out:
 EXPORT_SYMBOL_GPL(evm_inode_init_security);
 
 #ifdef CONFIG_EVM_LOAD_X509
-void __init evm_load_x509(void)
+void __init evm_load_x509(struct integrity_namespace *ns)
 {
 	int rc;
 
-	rc = integrity_load_x509(INTEGRITY_KEYRING_EVM, CONFIG_EVM_X509_PATH);
+	rc = integrity_load_x509(ns, INTEGRITY_KEYRING_EVM,
+				 CONFIG_EVM_X509_PATH);
 	if (!rc)
 		evm_initialized |= EVM_INIT_X509;
 }
@@ -994,10 +1006,11 @@ static int __init init_evm(void)
 {
 	int error;
 	struct list_head *pos, *q;
+	struct integrity_namespace *ns = &init_integrity_ns;
 
 	evm_init_config();
 
-	error = integrity_init_keyring(INTEGRITY_KEYRING_EVM);
+	error = integrity_init_keyring(ns, INTEGRITY_KEYRING_EVM);
 	if (error)
 		goto error;
 

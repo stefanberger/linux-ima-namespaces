@@ -14,6 +14,7 @@
 #include <linux/ima.h>
 #include <linux/evm.h>
 #include <linux/fsverity.h>
+#include <linux/integrity_namespace.h>
 #include <keys/system_keyring.h>
 #include <uapi/linux/fsverity.h>
 
@@ -349,7 +350,8 @@ static int xattr_verify(struct ima_namespace *ns,
 			*status = INTEGRITY_FAIL;
 			break;
 		}
-		rc = integrity_digsig_verify(INTEGRITY_KEYRING_IMA,
+		rc = integrity_digsig_verify(ns->integrity_ns,
+					     INTEGRITY_KEYRING_IMA,
 					     (const char *)xattr_value,
 					     xattr_len,
 					     ima_hash->digest,
@@ -360,7 +362,8 @@ static int xattr_verify(struct ima_namespace *ns,
 		}
 		if (IS_ENABLED(CONFIG_INTEGRITY_PLATFORM_KEYRING) && rc &&
 		    func == KEXEC_KERNEL_CHECK)
-			rc = integrity_digsig_verify(INTEGRITY_KEYRING_PLATFORM,
+			rc = integrity_digsig_verify(ns->integrity_ns,
+						     INTEGRITY_KEYRING_PLATFORM,
 						     (const char *)xattr_value,
 						     xattr_len,
 						     ima_hash->digest,
@@ -399,7 +402,8 @@ static int xattr_verify(struct ima_namespace *ns,
 			break;
 		}
 
-		rc = integrity_digsig_verify(INTEGRITY_KEYRING_IMA,
+		rc = integrity_digsig_verify(ns->integrity_ns,
+					     INTEGRITY_KEYRING_IMA,
 					     (const char *)xattr_value,
 					     xattr_len, hash.digest,
 					     hash.hdr.length);
@@ -427,15 +431,18 @@ static int xattr_verify(struct ima_namespace *ns,
  *
  * Return 0 on success, error code otherwise.
  */
-static int modsig_verify(enum ima_hooks func, const struct modsig *modsig,
+static int modsig_verify(struct ima_namespace *ns,
+			 enum ima_hooks func, const struct modsig *modsig,
 			 enum integrity_status *status, const char **cause)
 {
 	int rc;
 
-	rc = integrity_modsig_verify(INTEGRITY_KEYRING_IMA, modsig);
+	rc = integrity_modsig_verify(ns->integrity_ns,
+				     INTEGRITY_KEYRING_IMA, modsig);
 	if (IS_ENABLED(CONFIG_INTEGRITY_PLATFORM_KEYRING) && rc &&
 	    func == KEXEC_KERNEL_CHECK)
-		rc = integrity_modsig_verify(INTEGRITY_KEYRING_PLATFORM,
+		rc = integrity_modsig_verify(ns->integrity_ns,
+					     INTEGRITY_KEYRING_PLATFORM,
 					     modsig);
 	if (rc) {
 		*cause = "invalid-signature";
@@ -536,8 +543,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 		goto out;
 	}
 
-	status = evm_verifyxattr(dentry, XATTR_NAME_IMA, xattr_value,
-				 rc < 0 ? 0 : rc, iint);
+	status = evm_verifyxattr(ns->integrity_ns, dentry, XATTR_NAME_IMA,
+				 xattr_value, rc < 0 ? 0 : rc, iint);
 	switch (status) {
 	case INTEGRITY_PASS:
 	case INTEGRITY_PASS_IMMUTABLE:
@@ -563,8 +570,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 	}
 
 	if (xattr_value)
-		rc = xattr_verify(ns, func, iint, ns_status, xattr_value, xattr_len,
-				  &status, &cause);
+		rc = xattr_verify(ns, func, iint, ns_status,
+				  xattr_value, xattr_len, &status, &cause);
 
 	/*
 	 * If we have a modsig and either no imasig or the imasig's key isn't
@@ -573,7 +580,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 	if (try_modsig &&
 	    (!xattr_value || xattr_value->type == IMA_XATTR_DIGEST_NG ||
 	     rc == -ENOKEY))
-		rc = modsig_verify(func, modsig, &status, &cause);
+		rc = modsig_verify(ns, func, modsig, &status, &cause);
 
 out:
 	/*
