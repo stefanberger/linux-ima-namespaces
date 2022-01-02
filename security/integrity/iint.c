@@ -19,6 +19,7 @@
 #include <linux/security.h>
 #include <linux/lsm_hooks.h>
 #include <linux/ima.h>
+#include <linux/integrity_namespace.h>
 #include "integrity.h"
 
 static struct kmem_cache *iint_cache __read_mostly;
@@ -169,10 +170,12 @@ int integrity_kernel_read(struct file *file, loff_t offset,
  */
 void __init integrity_load_keys(void)
 {
-	ima_load_x509();
+	struct integrity_namespace *ns = &init_integrity_ns;
+
+	ima_load_x509(ns);
 
 	if (!IS_ENABLED(CONFIG_IMA_LOAD_X509))
-		evm_load_x509();
+		evm_load_x509(ns);
 }
 
 static int __init integrity_fs_init(void)

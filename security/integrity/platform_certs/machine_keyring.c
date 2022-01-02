@@ -6,13 +6,15 @@
  */
 
 #include <linux/efi.h>
+#include <linux/integrity_namespace.h>
 #include "../integrity.h"
 
 static __init int machine_keyring_init(void)
 {
 	int rc;
 
-	rc = integrity_init_keyring(INTEGRITY_KEYRING_MACHINE);
+	rc = integrity_init_keyring(&init_integrity_ns,
+				    INTEGRITY_KEYRING_MACHINE);
 	if (rc)
 		return rc;
 
@@ -23,11 +25,13 @@ device_initcall(machine_keyring_init);
 
 void __init add_to_machine_keyring(const char *source, const void *data, size_t len)
 {
+	struct integrity_namespace *ns = &init_integrity_ns;
 	key_perm_t perm;
 	int rc;
 
 	perm = (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_VIEW;
-	rc = integrity_load_cert(INTEGRITY_KEYRING_MACHINE, source, data, len, perm);
+	rc = integrity_load_cert(ns, INTEGRITY_KEYRING_MACHINE, source,
+				 data, len, perm);
 
 	/*
 	 * Some MOKList keys may not pass the machine keyring restrictions.
@@ -36,7 +40,7 @@ void __init add_to_machine_keyring(const char *source, const void *data, size_t 
 	 */
 	if (rc && efi_enabled(EFI_BOOT) &&
 	    IS_ENABLED(CONFIG_INTEGRITY_PLATFORM_KEYRING))
-		rc = integrity_load_cert(INTEGRITY_KEYRING_PLATFORM, source,
+		rc = integrity_load_cert(ns, INTEGRITY_KEYRING_PLATFORM, source,
 					 data, len, perm);
 
 	if (rc)

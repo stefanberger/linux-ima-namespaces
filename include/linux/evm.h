@@ -10,13 +10,16 @@
 #define _LINUX_EVM_H
 
 #include <linux/integrity.h>
+#include <linux/integrity_namespace.h>
 #include <linux/xattr.h>
 
 struct integrity_iint_cache;
+struct integrity_namespace;
 
 #ifdef CONFIG_EVM
 extern int evm_set_key(void *key, size_t keylen);
-extern enum integrity_status evm_verifyxattr(struct dentry *dentry,
+extern enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
+					     struct dentry *dentry,
 					     const char *xattr_name,
 					     void *xattr_value,
 					     size_t xattr_value_len,
@@ -45,10 +48,12 @@ static inline int evm_set_key(void *key, size_t keylen)
 }
 
 #ifdef CONFIG_INTEGRITY
-static inline enum integrity_status evm_verifyxattr(struct dentry *dentry,
-						    const char *xattr_name,
-						    void *xattr_value,
-						    size_t xattr_value_len,
+static inline enum integrity_status evm_verifyxattr(
+					struct integrity_namespace *ns,
+					struct dentry *dentry,
+					const char *xattr_name,
+					void *xattr_value,
+					size_t xattr_value_len,
 					struct integrity_iint_cache *iint)
 {
 	return INTEGRITY_UNKNOWN;

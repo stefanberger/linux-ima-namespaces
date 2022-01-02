@@ -220,12 +220,6 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode);
 int integrity_kernel_read(struct file *file, loff_t offset,
 			  void *addr, unsigned long count);
 
-#define INTEGRITY_KEYRING_EVM		0
-#define INTEGRITY_KEYRING_IMA		1
-#define INTEGRITY_KEYRING_PLATFORM	2
-#define INTEGRITY_KEYRING_MACHINE	3
-#define INTEGRITY_KEYRING_MAX		4
-
 extern struct dentry *integrity_dir;
 extern struct lsm_blob_sizes integrity_blob_sizes;
 
@@ -248,6 +242,7 @@ static inline void integrity_inode_set_iint(const struct inode *inode,
 }
 
 struct modsig;
+struct integrity_namespace;
 
 #ifdef CONFIG_IMA
 void __init init_ima_lsm(void);
@@ -267,35 +262,44 @@ static inline void __init init_evm_lsm(void)
 
 #ifdef CONFIG_INTEGRITY_SIGNATURE
 
-int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,
+int integrity_digsig_verify(struct integrity_namespace *ns,
+			    const unsigned int id, const char *sig, int siglen,
 			    const char *digest, int digestlen);
-int integrity_modsig_verify(unsigned int id, const struct modsig *modsig);
+int integrity_modsig_verify(struct integrity_namespace *ns,
+			    unsigned int id, const struct modsig *modsig);
 
-int __init integrity_init_keyring(const unsigned int id);
-int __init integrity_load_x509(const unsigned int id, const char *path);
-int __init integrity_load_cert(const unsigned int id, const char *source,
+int __init integrity_init_keyring(struct integrity_namespace *ns,
+				  const unsigned int id);
+int __init integrity_load_x509(struct integrity_namespace *ns,
+			       const unsigned int id, const char *path);
+int __init integrity_load_cert(struct integrity_namespace *ns,
+			       const unsigned int id, const char *source,
 			       const void *data, size_t len, key_perm_t perm);
 #else
 
-static inline int integrity_digsig_verify(const unsigned int id,
+static inline int integrity_digsig_verify(struct integrity_namespace *ns,
+					  const unsigned int id,
 					  const char *sig, int siglen,
 					  const char *digest, int digestlen)
 {
 	return -EOPNOTSUPP;
 }
 
-static inline int integrity_modsig_verify(unsigned int id,
+static inline int integrity_modsig_verify(struct integrity_namespace *ns,
+					  unsigned int id,
 					  const struct modsig *modsig)
 {
 	return -EOPNOTSUPP;
 }
 
-static inline int integrity_init_keyring(const unsigned int id)
+static inline int integrity_init_keyring(struct integrity_namespace *ns,
+					 const unsigned int id)
 {
 	return 0;
 }
 
-static inline int __init integrity_load_cert(const unsigned int id,
+static inline int __init integrity_load_cert(struct integrity_namespace *ns,
+					     const unsigned int id,
 					     const char *source,
 					     const void *data, size_t len,
 					     key_perm_t perm)
@@ -332,17 +336,17 @@ static inline int ima_modsig_verify(struct key *keyring,
 #endif
 
 #ifdef CONFIG_IMA_LOAD_X509
-void __init ima_load_x509(void);
+void __init ima_load_x509(struct integrity_namespace *ns);
 #else
-static inline void ima_load_x509(void)
+static inline void ima_load_x509(struct integrity_namespace *ns)
 {
 }
 #endif
 
 #ifdef CONFIG_EVM_LOAD_X509
-void __init evm_load_x509(void);
+void __init evm_load_x509(struct integrity_namespace *ns);
 #else
-static inline void evm_load_x509(void)
+static inline void evm_load_x509(struct integrity_namespace *ns)
 {
 }
 #endif
