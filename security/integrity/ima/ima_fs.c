@@ -384,8 +384,7 @@ static ssize_t ima_write_policy(struct file *file, const char __user *buf,
 
 	if (data[0] == '/') {
 		result = ima_read_policy(user_ns, data);
-	} else if (ns == &init_ima_ns &&
-		   (ima_appraise & IMA_APPRAISE_POLICY)) {
+	} else if (ns->ima_appraise & IMA_APPRAISE_POLICY) {
 		pr_err("signed policy file (specified as an absolute pathname) required\n");
 		integrity_audit_msg(AUDIT_INTEGRITY_STATUS, NULL, NULL,
 				    "policy_update", "signed policy required",

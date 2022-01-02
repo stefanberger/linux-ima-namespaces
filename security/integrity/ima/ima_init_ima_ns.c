@@ -50,6 +50,10 @@ int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
 	ns->timer_expired = false;
 #endif
 
+#ifdef CONFIG_IMA_APPRAISE
+	ns->ima_appraise = IMA_APPRAISE_ENFORCE;
+#endif
+
 	if (ns != &init_ima_ns) {
 		ns->ima_lsm_policy_notifier.notifier_call =
 						ima_lsm_policy_change;
@@ -124,5 +128,8 @@ struct ima_namespace init_ima_ns = {
 	.ima_keys = LIST_HEAD_INIT(init_ima_ns.ima_keys),
 #endif
 	.integrity_ns = &init_integrity_ns,
+#ifdef CONFIG_IMA_APPRAISE
+	.ima_appraise = IMA_APPRAISE_ENFORCE,
+#endif
 };
 EXPORT_SYMBOL(init_ima_ns);
