@@ -221,6 +221,8 @@ struct ima_namespace {
 	struct delayed_work ima_keys_delayed_work;
 	bool timer_expired;
 #endif
+
+	struct integrity_namespace *integrity_ns;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
@@ -504,7 +506,8 @@ static inline int ima_check_blacklist(struct ima_namespace *ns,
 	return 0;
 }
 
-static inline int ima_appraise_measurement(enum ima_hooks func,
+static inline int ima_appraise_measurement(struct ima_namespace *ns,
+					   enum ima_hooks func,
 					   struct integrity_iint_cache *iint,
 					   struct ns_status *ns_status,
 					   struct file *file,
