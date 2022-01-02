@@ -20,18 +20,6 @@
 
 #include "integrity.h"
 
-static const char * const keyring_name[INTEGRITY_KEYRING_MAX] = {
-#ifndef CONFIG_INTEGRITY_TRUSTED_KEYRING
-	"_evm",
-	"_ima",
-#else
-	".evm",
-	".ima",
-#endif
-	".platform",
-	".machine",
-};
-
 #ifdef CONFIG_IMA_KEYRINGS_PERMIT_SIGNED_BY_BUILTIN_OR_SECONDARY
 #define restrict_link_to_ima restrict_link_by_digsig_builtin_and_secondary
 #else
@@ -46,12 +34,13 @@ static struct key *integrity_keyring_from_id(struct integrity_namespace *ns,
 
 	if (!ns->keyring[id]) {
 		ns->keyring[id] =
-			request_key(&key_type_keyring, keyring_name[id], NULL);
+			request_key(&key_type_keyring, ns->keyring_name[id],
+				    NULL);
 		if (IS_ERR(ns->keyring[id])) {
 			int err = PTR_ERR(ns->keyring[id]);
 			if (ns == &init_integrity_ns)
-				pr_err("no %s keyring: %d\n", keyring_name[id],
-				       err);
+				pr_err("no %s keyring: %d\n",
+				       ns->keyring_name[id], err);
 			ns->keyring[id] = NULL;
 			return ERR_PTR(err);
 		}
@@ -107,14 +96,14 @@ static int __init __integrity_init_keyring(struct integrity_namespace *ns,
 	const struct cred *cred = current_cred();
 	int err = 0;
 
-	ns->keyring[id] = keyring_alloc(keyring_name[id], KUIDT_INIT(0),
+	ns->keyring[id] = keyring_alloc(ns->keyring_name[id], KUIDT_INIT(0),
 					KGIDT_INIT(0), cred, perm,
 					KEY_ALLOC_NOT_IN_QUOTA, restriction,
 					NULL);
 	if (IS_ERR(ns->keyring[id])) {
 		err = PTR_ERR(ns->keyring[id]);
 		pr_info("Can't allocate %s keyring (%d)\n",
-			keyring_name[id], err);
+			ns->keyring_name[id], err);
 		ns->keyring[id] = NULL;
 	} else {
 		if (id == INTEGRITY_KEYRING_PLATFORM)
