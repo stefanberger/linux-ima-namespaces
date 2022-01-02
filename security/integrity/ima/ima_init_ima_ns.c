@@ -5,6 +5,7 @@
  *   Yuqiong Sun <suny@us.ibm.com>
  *   Stefan Berger <stefanb@linux.vnet.ibm.com>
  */
+#include <linux/integrity_namespace.h>
 
 #include "ima.h"
 
@@ -122,5 +123,6 @@ struct ima_namespace init_ima_ns = {
 	.ima_keys_lock = __MUTEX_INITIALIZER(init_ima_ns.ima_keys_lock),
 	.ima_keys = LIST_HEAD_INIT(init_ima_ns.ima_keys),
 #endif
+	.integrity_ns = &init_integrity_ns,
 };
 EXPORT_SYMBOL(init_ima_ns);
