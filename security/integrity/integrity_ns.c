@@ -6,6 +6,7 @@
  * Stefan Berger <stefanb@us.ibm.com>
  */
 
+#include <linux/slab.h>
 #include <linux/ima.h>
 #include <linux/integrity_namespace.h>
 
@@ -13,6 +14,7 @@ struct integrity_namespace init_integrity_ns = {
 #ifdef CONFIG_IMA
 	.ima_ns = &init_ima_ns,
 #endif
+	.keyring = {NULL, },
 };
 EXPORT_SYMBOL(init_integrity_ns);
 
@@ -34,8 +36,12 @@ struct integrity_namespace *create_integrity_ns(void)
 void free_integrity_ns(struct user_namespace *user_ns)
 {
 	struct integrity_namespace *ns = user_ns->integrity_ns;
+	size_t i;
 
 	free_ima_ns(user_ns);
+
+	for (i = 0; i < ARRAY_SIZE(ns->keyring); i++)
+		key_put(ns->keyring[i]);
 
 	kmem_cache_free(integrityns_cachep, ns);
 }

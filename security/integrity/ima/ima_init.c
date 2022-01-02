@@ -17,6 +17,7 @@
 #include <linux/err.h>
 #include <linux/ima.h>
 #include <generated/utsrelease.h>
+#include <linux/integrity_namespace.h>
 
 #include "ima.h"
 
@@ -100,15 +101,15 @@ err_out:
 }
 
 #ifdef CONFIG_IMA_LOAD_X509
-void __init ima_load_x509(void)
+void __init ima_load_x509(struct integrity_namespace *ns)
 {
 	int unset_flags = init_ima_ns.ima_policy_flag & IMA_APPRAISE;
 
 	init_ima_ns.ima_policy_flag &= ~unset_flags;
-	integrity_load_x509(INTEGRITY_KEYRING_IMA, CONFIG_IMA_X509_PATH);
+	integrity_load_x509(ns, INTEGRITY_KEYRING_IMA, CONFIG_IMA_X509_PATH);
 
 	/* load also EVM key to avoid appraisal */
-	evm_load_x509();
+	evm_load_x509(ns);
 
 	init_ima_ns.ima_policy_flag |= unset_flags;
 }
@@ -118,7 +119,8 @@ int __init ima_init(void)
 {
 	int rc;
 
-	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
+	rc = integrity_init_keyring(&init_integrity_ns,
+				    INTEGRITY_KEYRING_IMA);
 	if (rc)
 		return rc;
 
