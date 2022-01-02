@@ -28,7 +28,8 @@ void __init ima_appraise_parse_cmdline(void)
 {
 	const char *str = ima_appraise_cmdline_default;
 	bool sb_state = arch_ima_get_secureboot();
-	int appraisal_state = ima_appraise;
+	struct ima_namespace *ns = get_current_ns();
+	int appraisal_state = ns->ima_appraise;
 
 	if (!str)
 		return;
@@ -51,7 +52,7 @@ void __init ima_appraise_parse_cmdline(void)
 			pr_info("Secure boot enabled: ignoring ima_appraise=%s option",
 				str);
 	} else {
-		ima_appraise = appraisal_state;
+		ns->ima_appraise = appraisal_state;
 	}
 }
 #endif
@@ -61,9 +62,9 @@ void __init ima_appraise_parse_cmdline(void)
  *
  * Only return enabled, if not in ima_appraise="fix" or "log" modes.
  */
-bool is_ima_appraise_enabled(void)
+bool is_ima_appraise_enabled(struct ima_namespace *ns)
 {
-	return ima_appraise & IMA_APPRAISE_ENFORCE;
+	return ns->ima_appraise & IMA_APPRAISE_ENFORCE;
 }
 
 /*
@@ -77,10 +78,7 @@ int ima_must_appraise(struct ima_namespace *ns,
 {
 	u32 secid;
 
-	if (ns != &init_ima_ns)
-		return 0;
-
-	if (!ima_appraise)
+	if (!ns->ima_appraise)
 		return 0;
 
 	security_current_getsecid_subj(&secid);
@@ -598,7 +596,7 @@ out:
 				    op, cause, rc, 0);
 	} else if (status != INTEGRITY_PASS) {
 		/* Fix mode, but don't replace file signatures. */
-		if ((ima_appraise & IMA_APPRAISE_FIX) && !try_modsig &&
+		if ((ns->ima_appraise & IMA_APPRAISE_FIX) && !try_modsig &&
 		    (!xattr_value ||
 		     xattr_value->type != EVM_IMA_XATTR_DIGSIG)) {
 			if (!ima_fix_xattr(dentry, ns_status))

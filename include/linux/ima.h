@@ -103,9 +103,9 @@ static inline void ima_add_kexec_buffer(struct kimage *image)
 #endif
 
 #ifdef CONFIG_IMA_APPRAISE
-extern bool is_ima_appraise_enabled(void);
+extern bool is_ima_appraise_enabled(struct ima_namespace *ns);
 #else
-static inline bool is_ima_appraise_enabled(void)
+static inline bool is_ima_appraise_enabled(struct ima_namespace *ns)
 {
 	return 0;
 }
