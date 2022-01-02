@@ -12,6 +12,7 @@
 #include <linux/cred.h>
 #include <linux/err.h>
 #include <linux/slab.h>
+#include <linux/integrity_namespace.h>
 #include "../integrity.h"
 
 /**
@@ -26,13 +27,14 @@
 void __init add_to_platform_keyring(const char *source, const void *data,
 				    size_t len)
 {
+	struct integrity_namespace *ns = current_integrity_ns();
 	key_perm_t perm;
 	int rc;
 
 	perm = (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_VIEW;
 
-	rc = integrity_load_cert(INTEGRITY_KEYRING_PLATFORM, source, data, len,
-				 perm);
+	rc = integrity_load_cert(ns, INTEGRITY_KEYRING_PLATFORM, source,
+				 data, len, perm);
 	if (rc)
 		pr_info("Error adding keys to platform keyring %s\n", source);
 }
@@ -42,9 +44,10 @@ void __init add_to_platform_keyring(const char *source, const void *data,
  */
 static __init int platform_keyring_init(void)
 {
+	struct integrity_namespace *ns = current_integrity_ns();
 	int rc;
 
-	rc = integrity_init_keyring(INTEGRITY_KEYRING_PLATFORM);
+	rc = integrity_init_keyring(ns, INTEGRITY_KEYRING_PLATFORM);
 	if (rc)
 		return rc;
 
