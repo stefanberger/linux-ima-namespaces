@@ -14,6 +14,7 @@
 #include <linux/uaccess.h>
 #include <linux/init.h>
 #include <linux/mutex.h>
+#include <linux/integrity_namespace.h>
 #include "evm.h"
 
 static struct dentry *evm_dir;
@@ -298,11 +299,11 @@ static int evm_init_xattrs(void)
 }
 #endif
 
-int __init evm_init_secfs(void)
+int __init evm_init_secfs(struct integrity_namespace *ns)
 {
 	int error = 0;
 
-	evm_dir = securityfs_create_dir("evm", integrity_dir);
+	evm_dir = securityfs_create_dir("evm", ns->integrity_dir);
 	if (!evm_dir || IS_ERR(evm_dir))
 		return -EFAULT;
 

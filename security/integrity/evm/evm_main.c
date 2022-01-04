@@ -1015,7 +1015,7 @@ static int __init init_evm(void)
 	if (error)
 		goto error;
 
-	error = evm_init_secfs();
+	error = evm_init_secfs(&init_integrity_ns);
 	if (error < 0) {
 		pr_info("Error registering secfs\n");
 		goto error;
