@@ -222,7 +222,6 @@ struct integrity_iint_cache *integrity_iint_find(struct inode *inode);
 int integrity_kernel_read(struct file *file, loff_t offset,
 			  void *addr, unsigned long count);
 
-extern struct dentry *integrity_dir;
 extern struct lsm_blob_sizes integrity_blob_sizes;
 
 struct modsig;
@@ -243,6 +242,10 @@ static inline void __init init_evm_lsm(void)
 {
 }
 #endif
+
+struct dentry *integrity_fs_init(struct integrity_namespace *ns,
+				 struct dentry *root);
+void integrity_fs_free(struct integrity_namespace *ns);
 
 #ifdef CONFIG_INTEGRITY_SIGNATURE
 
