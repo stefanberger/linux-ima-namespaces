@@ -22,6 +22,7 @@
 #include <linux/parser.h>
 #include <linux/vmalloc.h>
 #include <linux/ima.h>
+#include <linux/integrity_namespace.h>
 
 #include "ima.h"
 
@@ -696,21 +697,20 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 			return PTR_ERR(ns);
 	}
 
-	/* FIXME: update when evm and integrity are namespaced */
 	if (user_ns != &init_user_ns) {
-		int_dir = securityfs_create_dir("integrity", root);
+		int_dir = integrity_fs_init(user_ns->integrity_ns, root);
 		if (IS_ERR(int_dir)) {
 			ret = PTR_ERR(int_dir);
 			goto free_ns;
 		}
 	} else {
-		int_dir = integrity_dir;
+		int_dir = ns->integrity_ns->integrity_dir;
 	}
 
 	ima_dir = securityfs_create_dir("ima", int_dir);
 	if (IS_ERR(ima_dir)) {
 		ret = PTR_ERR(ima_dir);
-		goto out;
+		goto free_ns;
 	}
 
 	ima_symlink = securityfs_create_symlink("ima", root, "integrity/ima",
@@ -809,8 +809,6 @@ out:
 	securityfs_remove(binary_runtime_measurements);
 	securityfs_remove(ima_symlink);
 	securityfs_remove(ima_dir);
-	if (user_ns != &init_user_ns)
-		securityfs_remove(int_dir);
 
 free_ns:
 	if (!ima_ns_from_user_ns(user_ns))

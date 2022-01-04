@@ -24,6 +24,7 @@ struct integrity_namespace {
 #endif
 	struct key *keyring[INTEGRITY_KEYRING_MAX];
 	const char *keyring_name[INTEGRITY_KEYRING_MAX];
+	struct dentry *integrity_dir;
 };
 
 extern struct integrity_namespace init_integrity_ns;
