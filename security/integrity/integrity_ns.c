@@ -10,6 +10,8 @@
 #include <linux/ima.h>
 #include <linux/integrity_namespace.h>
 
+#include "integrity.h"
+
 struct integrity_namespace init_integrity_ns = {
 #ifdef CONFIG_IMA
 	.ima_ns = &init_ima_ns,
@@ -55,6 +57,7 @@ void free_integrity_ns(struct user_namespace *user_ns)
 	size_t i;
 
 	free_ima_ns(user_ns);
+	integrity_fs_free(ns);
 
 	for (i = 0; i < ARRAY_SIZE(ns->keyring); i++)
 		key_put(ns->keyring[i]);
