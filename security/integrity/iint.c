@@ -27,8 +27,6 @@ static struct rb_root integrity_iint_tree = RB_ROOT;
 static DEFINE_RWLOCK(integrity_iint_lock);
 static struct kmem_cache *iint_cache __read_mostly;
 
-struct dentry *integrity_dir;
-
 /*
  * __integrity_iint_find - return the iint associated with an inode
  */
@@ -260,20 +258,37 @@ void __init integrity_load_keys(void)
 		evm_load_x509(ns);
 }
 
-static int __init integrity_fs_init(void)
+void integrity_fs_free(struct integrity_namespace *ns)
 {
-	integrity_dir = securityfs_create_dir("integrity", NULL);
-	if (IS_ERR(integrity_dir)) {
-		int ret = PTR_ERR(integrity_dir);
+	/* nothing to do */
+}
+
+struct dentry *integrity_fs_init(struct integrity_namespace *ns,
+				 struct dentry *secfs_root)
+{
+	ns->integrity_dir = securityfs_create_dir("integrity", secfs_root);
+	if (IS_ERR(ns->integrity_dir)) {
+		int ret = PTR_ERR(ns->integrity_dir);
 
 		if (ret != -ENODEV)
 			pr_err("Unable to create integrity sysfs dir: %d\n",
 			       ret);
-		integrity_dir = NULL;
-		return ret;
+		ns->integrity_dir = NULL;
+		return ERR_PTR(ret);
 	}
+
+	return ns->integrity_dir;
+}
+
+static int __init init_integrity_ns_fs_init(void)
+{
+	struct dentry *d;
+
+	d = integrity_fs_init(&init_integrity_ns, NULL);
+	if (IS_ERR(d))
+		return PTR_ERR(d);
 
 	return 0;
 }
 
-late_initcall(integrity_fs_init)
+late_initcall(init_integrity_ns_fs_init)
