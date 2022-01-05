@@ -51,7 +51,6 @@
 #define INVALID_PCR(a) (((a) < 0) || \
 	(a) >= (sizeof_field(struct ns_status, measured_pcrs) * 8))
 
-static int temp_ima_appraise;
 static int build_ima_appraise __ro_after_init;
 
 atomic_t ima_setxattr_allowed_hash_algorithms;
@@ -858,7 +857,7 @@ void ima_update_policy_flags(struct ima_namespace *ns)
 	}
 	rcu_read_unlock();
 
-	ns->ima_appraise |= (build_ima_appraise | temp_ima_appraise);
+	ns->ima_appraise |= (build_ima_appraise | ns->temp_ima_appraise);
 	if (!ns->ima_appraise)
 		new_policy_flag &= ~IMA_APPRAISE;
 
@@ -900,7 +899,7 @@ static void add_rules(struct ima_namespace *ns,
 		}
 		if (entries[i].action == APPRAISE) {
 			if (entries != build_appraise_rules)
-				temp_ima_appraise |=
+				ns->temp_ima_appraise |=
 					ima_appraise_flag(entries[i].func);
 			else
 				build_ima_appraise |=
@@ -1962,7 +1961,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
 	if (!result && !ima_validate_rule(entry))
 		result = -EINVAL;
 	else if (entry->action == APPRAISE)
-		temp_ima_appraise |= ima_appraise_flag(entry->func);
+		ns->temp_ima_appraise |= ima_appraise_flag(entry->func);
 
 	if (!result && entry->flags & IMA_MODSIG_ALLOWED) {
 		template_desc = entry->template ? entry->template :
@@ -2047,9 +2046,7 @@ void ima_delete_rules(struct ima_namespace *ns)
 {
 	struct ima_rule_entry *entry, *tmp;
 
-	if (ns == &init_ima_ns)
-		temp_ima_appraise = 0;
-
+	ns->temp_ima_appraise = 0;
 	list_for_each_entry_safe(entry, tmp, &ns->ima_temp_rules, list) {
 		list_del(&entry->list);
 		ima_free_rule(entry);
