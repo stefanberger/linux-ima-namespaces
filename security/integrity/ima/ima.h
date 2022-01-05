@@ -224,6 +224,8 @@ struct ima_namespace {
 
 	/* set during initialization */
 	int ima_appraise;
+
+	int temp_ima_appraise;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
