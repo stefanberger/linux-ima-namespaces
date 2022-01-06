@@ -322,6 +322,7 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
 			/* Same inode but stale iint: free it and get new */
 			ns_status_unlink(ns, ns_status);
 			ns_status_free(ns, ns_status);
+			printk(KERN_INFO "UNLIKELY CASE!\n");
 		} else if (inode->i_ino == ns_status->i_ino &&
 			   inode->i_generation == ns_status->i_generation) {
 			goto unlock;
