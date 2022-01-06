@@ -390,7 +390,7 @@ static int __process_measurement(struct user_namespace *user_ns,
 		 * an additional measurement list entry, if needed, based on the
 		 * template format and whether the file was already measured.
 		 */
-		if (iint->flags & IMA_MODSIG_ALLOWED) {
+		if (flags & IMA_MODSIG_ALLOWED) {
 			rc = ima_read_modsig(func, buf, size, &modsig);
 
 			if (!rc && ima_template_has_modsig(template_desc) &&
