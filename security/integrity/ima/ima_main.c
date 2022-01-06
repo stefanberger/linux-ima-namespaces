@@ -278,6 +278,8 @@ static int __process_measurement(struct user_namespace *user_ns,
 	action = ima_get_action(ns, file_mnt_idmap(file), inode, cred, secid,
 				mask, func, &pcr, &template_desc, NULL,
 				&allowed_algos);
+	if (ns != &init_ima_ns)
+		pr_debug("actions: 0x%x  ns:%p (init_ima_ns: %p)\n", action, ns, &init_ima_ns);
 	violation_check = ((func == FILE_CHECK || func == MMAP_CHECK ||
 			    func == MMAP_CHECK_REQPROT) &&
 			   (ns->ima_policy_flag & IMA_MEASURE));
@@ -362,6 +364,13 @@ static int __process_measurement(struct user_namespace *user_ns,
 	flags = set_iint_flags(iint, ns_status, flags | action);
 	action &= IMA_DO_MASK;
 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
+
+	if (ns != &init_ima_ns
+#ifdef CONFIG_IMA_NS
+	    || (!list_empty(&iint->ns_list) && !list_is_singular(&iint->ns_list))
+#endif
+	)
+		pr_debug("flags: 0x%lx actions: 0x%x  ns:%p (init_ima_ns: %p)\n", flags, action, ns, &init_ima_ns);
 
 	/* If target pcr is already measured, unset IMA_MEASURE action */
 	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr))
@@ -505,6 +514,7 @@ static int process_measurement(struct user_namespace *user_ns,
 			case -EACCES:
 				/* return this error at the end but continue */
 				ret = -EACCES;
+				pr_debug("-EACCESS by ns: %p (init_ima_ns: %p)\n", ns, &init_ima_ns);
 				break;
 			default:
 				/* should not happen */

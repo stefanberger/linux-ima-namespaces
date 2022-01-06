@@ -786,4 +786,20 @@ static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
 
 #endif /* CONFIG_IMA_NS */
 
+static inline int filename_contains(struct file *file, const char *needle)
+{
+	char *pathbuf = NULL;
+	char filename[NAME_MAX];
+	const char *pathname = NULL;
+	int b = 0;
+
+	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
+	if (pathbuf) {
+		b = (strstr(pathname, needle) != NULL);
+		__putname(pathbuf);
+	}
+	return b;
+}
+
+
 #endif /* __LINUX_IMA_H */
