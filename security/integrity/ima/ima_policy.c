@@ -1944,10 +1944,9 @@ static int ima_parse_rule(struct user_namespace *user_ns,
 			break;
 		}
 
-		/* IMA namespace only accepts AUDIT & MEASURE rules */
+		/* IMA namespace only rejects HASH rules */
 		if (ns != &init_ima_ns && result == 0) {
 			switch (entry->action) {
-			case APPRAISE:
 			case HASH:
 				result = -EINVAL;
 				goto err_audit;
