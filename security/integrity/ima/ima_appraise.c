@@ -156,28 +156,32 @@ static void ima_set_cache_status(struct integrity_iint_cache *iint,
 }
 
 static void ima_cache_flags(struct integrity_iint_cache *iint,
+			    struct ns_status *ns_status,
 			     enum ima_hooks func)
 {
+	unsigned long flags = iint_flags(iint, ns_status);
+
 	switch (func) {
 	case MMAP_CHECK:
 	case MMAP_CHECK_REQPROT:
-		iint->flags |= (IMA_MMAP_APPRAISED | IMA_APPRAISED);
+		flags |= (IMA_MMAP_APPRAISED | IMA_APPRAISED);
 		break;
 	case BPRM_CHECK:
-		iint->flags |= (IMA_BPRM_APPRAISED | IMA_APPRAISED);
+		flags |= (IMA_BPRM_APPRAISED | IMA_APPRAISED);
 		break;
 	case CREDS_CHECK:
-		iint->flags |= (IMA_CREDS_APPRAISED | IMA_APPRAISED);
+		flags |= (IMA_CREDS_APPRAISED | IMA_APPRAISED);
 		break;
 	case FILE_CHECK:
 	case POST_SETATTR:
-		iint->flags |= (IMA_FILE_APPRAISED | IMA_APPRAISED);
+		flags |= (IMA_FILE_APPRAISED | IMA_APPRAISED);
 		break;
 	case MODULE_CHECK ... MAX_CHECK - 1:
 	default:
-		iint->flags |= (IMA_READ_APPRAISED | IMA_APPRAISED);
+		flags |= (IMA_READ_APPRAISED | IMA_APPRAISED);
 		break;
 	}
+	set_iint_flags(iint, ns_status, flags);
 }
 
 enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
@@ -302,8 +306,8 @@ static int xattr_verify(struct ima_namespace *ns,
 		fallthrough;
 	case IMA_XATTR_DIGEST:
 		if (*status != INTEGRITY_PASS_IMMUTABLE) {
-			if (iint->flags & IMA_DIGSIG_REQUIRED) {
-				if (iint->flags & IMA_VERITY_REQUIRED)
+			if (iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) {
+				if (iint_flags(iint, ns_status) & IMA_VERITY_REQUIRED)
 					*cause = "verity-signature-required";
 				else
 					*cause = "IMA-signature-required";
@@ -336,7 +340,7 @@ static int xattr_verify(struct ima_namespace *ns,
 		set_bit(IMA_DIGSIG, &iint->atomic_flags);
 
 		mask = IMA_DIGSIG_REQUIRED | IMA_VERITY_REQUIRED;
-		if ((iint->flags & mask) == mask) {
+		if ((iint_flags(iint, ns_status) & mask) == mask) {
 			*cause = "verity-signature-required";
 			*status = INTEGRITY_FAIL;
 			break;
@@ -376,8 +380,8 @@ static int xattr_verify(struct ima_namespace *ns,
 	case IMA_VERITY_DIGSIG:
 		set_bit(IMA_DIGSIG, &iint->atomic_flags);
 
-		if (iint->flags & IMA_DIGSIG_REQUIRED) {
-			if (!(iint->flags & IMA_VERITY_REQUIRED)) {
+		if (iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) {
+			if (!(iint_flags(iint, ns_status) & IMA_VERITY_REQUIRED)) {
 				*cause = "IMA-signature-required";
 				*status = INTEGRITY_FAIL;
 				break;
@@ -471,10 +475,10 @@ int ima_check_blacklist(struct ima_namespace *ns,
 	u32 digestsize = 0;
 	int rc = 0;
 
-	if (!(iint->flags & IMA_CHECK_BLACKLIST))
+	if (flags & IMA_CHECK_BLACKLIST)
 		return 0;
 
-	if (iint->flags & IMA_MODSIG_ALLOWED && modsig) {
+	if ((flags & IMA_MODSIG_ALLOWED) && modsig) {
 		ima_get_modsig_digest(modsig, &hash_algo, &digest, &digestsize);
 
 		rc = is_binary_blacklisted(digest, digestsize);
@@ -510,8 +514,9 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 	struct dentry *dentry = file_dentry(file);
 	struct inode *inode = d_backing_inode(dentry);
 	enum integrity_status status = INTEGRITY_UNKNOWN;
+	unsigned long flags = iint_flags(iint, ns_status);
 	int rc = xattr_len;
-	bool try_modsig = iint->flags & IMA_MODSIG_ALLOWED && modsig;
+	bool try_modsig = flags & IMA_MODSIG_ALLOWED && modsig;
 
 	/* If not appraising a modsig, we need an xattr. */
 	if (!(inode->i_opflags & IOP_XATTR) && !try_modsig)
@@ -522,8 +527,8 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 		if (rc && rc != -ENODATA)
 			goto out;
 
-		if (iint->flags & IMA_DIGSIG_REQUIRED) {
-			if (iint->flags & IMA_VERITY_REQUIRED)
+		if (iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) {
+			if (iint_flags(iint, ns_status) & IMA_VERITY_REQUIRED)
 				cause = "verity-signature-required";
 			else
 				cause = "IMA-signature-required";
@@ -535,7 +540,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 		if (file->f_mode & FMODE_CREATED)
 			iint->flags |= IMA_NEW_FILE;
 		if ((iint->flags & IMA_NEW_FILE) &&
-		    (!(iint->flags & IMA_DIGSIG_REQUIRED) ||
+		    (!(iint_flags(iint, ns_status) & IMA_DIGSIG_REQUIRED) ||
 		     (inode->i_size == 0)))
 			status = INTEGRITY_PASS;
 		goto out;
@@ -616,7 +621,7 @@ out:
 		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
 				    op, cause, rc, 0);
 	} else {
-		ima_cache_flags(iint, func);
+		ima_cache_flags(iint, ns_status, func);
 	}
 
 	ima_set_cache_status(iint, func, status);
