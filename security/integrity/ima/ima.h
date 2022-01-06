@@ -634,10 +634,15 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
 #define	POLICY_FILE_FLAGS	S_IWUSR
 #endif /* CONFIG_IMA_READ_POLICY */
 
-#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
+#define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE | IMA_APPRAISE)
 #define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
 				 IMA_MEASURE | IMA_MEASURED | IMA_COLLECTED | \
-				 IMA_PERMIT_DIRECTIO)
+				 IMA_PERMIT_DIRECTIO | IMA_DIGSIG_REQUIRED | \
+				 IMA_MODSIG_ALLOWED | IMA_CHECK_BLACKLIST | \
+				 IMA_APPRAISE | IMA_APPRAISED | \
+				 IMA_FILE_APPRAISED | IMA_MMAP_APPRAISED | \
+				 IMA_BPRM_APPRAISED | IMA_READ_APPRAISED | \
+				 IMA_CREDS_APPRAISED | IMA_READ_APPRAISED)
 
 static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
 				       struct ns_status *ns_status)
