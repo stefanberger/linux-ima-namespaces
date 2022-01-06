@@ -444,7 +444,8 @@ static int __process_measurement(struct user_namespace *user_ns,
 	if (action & IMA_AUDIT)
 		ima_audit_measurement(iint, pathname, ns_status);
 
-	if ((file->f_flags & O_DIRECT) && (iint->flags & IMA_PERMIT_DIRECTIO))
+	if ((file->f_flags & O_DIRECT) &&
+	    (iint_flags(iint, ns_status) & IMA_PERMIT_DIRECTIO))
 		rc = 0;
 
 	/* Ensure the digest was generated using an allowed algorithm */
