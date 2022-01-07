@@ -678,22 +678,37 @@ static void ima_inode_post_setattr(struct mnt_idmap *idmap,
 				   struct dentry *dentry, int ia_valid)
 {
 	struct inode *inode = d_backing_inode(dentry);
-	struct ima_namespace *ns = &init_ima_ns;
 	struct integrity_iint_cache *iint;
+	struct ns_status *ns_status;
+	bool found_action = false;
+	bool has_appraise = false;
 	int action;
 
-	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode)
-	    || !(inode->i_opflags & IOP_XATTR))
+	if (!S_ISREG(inode->i_mode) || !(inode->i_opflags & IOP_XATTR))
 		return;
 
-	action = ima_must_appraise(ns, idmap, inode, MAY_ACCESS,
-				   POST_SETATTR);
 	iint = integrity_iint_find(inode);
-	if (iint) {
-		set_bit(IMA_CHANGE_ATTR, &iint->atomic_flags);
-		if (!action)
-			clear_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
+	if (!iint)
+		return;
+
+	set_bit(IMA_CHANGE_ATTR, &iint->atomic_flags);
+
+	read_lock(&iint->ns_list_lock);
+	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
+		if (!(ns_status->ns->ima_policy_flag & IMA_APPRAISE))
+			continue;
+		has_appraise = true;
+		action = ima_must_appraise(ns_status->ns, idmap, inode,
+					   MAY_ACCESS, POST_SETATTR);
+		if (action) {
+			found_action = true;
+			break;
+		}
 	}
+	read_unlock(&iint->ns_list_lock);
+
+	if (has_appraise && !found_action)
+		clear_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
 }
 
 /*
