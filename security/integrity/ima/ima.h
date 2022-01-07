@@ -754,6 +754,7 @@ static inline struct ns_status *ima_get_ns_status
 
 	if (list_empty(&iint->ns_list)) {
 		ns_status_init(ns_status);
+		ns_status->ns = &init_ima_ns;
 		list_add(&ns_status->ns_next, &iint->ns_list);
 	}
 
