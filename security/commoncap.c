@@ -1004,6 +1004,17 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
 	if (strcmp(name, XATTR_NAME_CAPS) == 0)
 		return 0;
 
+	/*
+	 * If IMA namespacing is enabled then setting security.ima is allowed
+	 * for users as well and the check for XATTR_NAME_IMA will be done in
+	 * ima_inode_setxattr() once CONIG_IMA_APPRAISE is set.
+	 */
+	if (IS_ENABLED(CONFIG_IMA_NS)) {
+		if (IS_ENABLED(CONFIG_IMA_APPRAISE) &&
+		    strcmp(name, XATTR_NAME_IMA) == 0)
+			return 0;
+	}
+
 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 	return 0;
@@ -1047,6 +1058,18 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
 			return -EPERM;
 		return 0;
 	}
+
+	/*
+	 * If IMA namespacing is enabled then removing security.ima is allowed
+	 * for users as well and the check for XATTR_NAME_IMA will be done in
+	 * ima_inode_removexattr() once CONIG_IMA_APPRAISE is set.
+	 */
+	if (IS_ENABLED(CONFIG_IMA_NS)) {
+		if (IS_ENABLED(CONFIG_IMA_APPRAISE) &&
+		    strcmp(name, XATTR_NAME_IMA) == 0)
+			return 0;
+	}
+
 
 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
 		return -EPERM;

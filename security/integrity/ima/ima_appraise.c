@@ -704,10 +704,20 @@ static void ima_inode_post_setattr(struct mnt_idmap *idmap,
 static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
 			     const void *xattr_value, size_t xattr_value_len)
 {
+	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
+	struct inode *inode = d_backing_inode(dentry);
+	struct mnt_idmap *idmap = &nop_mnt_idmap; // FIXME: idmap must be parameter to this function
+
 	if (strcmp(xattr_name, XATTR_NAME_IMA) == 0) {
-		if (!capable(CAP_SYS_ADMIN))
-			return -EPERM;
-		return 1;
+		if (ns_capable(user_ns, CAP_SYS_ADMIN) ||
+		    capable(CAP_SYS_ADMIN))
+			return 1;
+		/* Allow users to set security.ima in user namespace */
+		if (mac_admin_ns_capable(current_user_ns()) &&
+		    privileged_wrt_inode_uidgid(current_user_ns(),
+						idmap, inode))
+			return 1;
+		return -EPERM;
 	}
 	return 0;
 }
