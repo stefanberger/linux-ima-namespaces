@@ -162,11 +162,11 @@ struct ns_status {
 	unsigned long flags;		/* flags split with iint */
 	unsigned long atomic_flags;	/* atomic_flags split with iint */
 	unsigned long measured_pcrs;
+	struct ima_namespace *ns;
 #ifdef CONFIG_IMA_NS
 	struct list_head ns_node;	/* list connected to ima_namespace */
 	struct integrity_iint_cache *iint;
 	struct inode *inode;
-	struct ima_namespace *ns;
 	ino_t i_ino;
 	u32 i_generation;
 #endif
