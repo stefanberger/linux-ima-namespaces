@@ -737,13 +737,13 @@ static int ima_protect_xattr(struct dentry *dentry, const char *xattr_name,
 	return 0;
 }
 
-static void ima_reset_appraise_flags(struct ima_namespace *ns,
-				     struct inode *inode, int digsig)
+static void ima_reset_appraise_flags(struct inode *inode, int digsig)
 {
 	struct integrity_iint_cache *iint;
 	struct ns_status *ns_status;
+	bool found = false;
 
-	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
+	if (!S_ISREG(inode->i_mode))
 		return;
 
 	iint = integrity_iint_find(inode);
@@ -751,15 +751,22 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
 		return;
 
 	read_lock(&iint->ns_list_lock);
-	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
+	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
+		if (!(ns_status->ns->ima_policy_flag & IMA_APPRAISE))
+			continue;
+
 		ns_status->measured_pcrs = 0;
+		found = true;
+	}
 	read_unlock(&iint->ns_list_lock);
 
-	set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
-	if (digsig)
-		set_bit(IMA_DIGSIG, &iint->atomic_flags);
-	else
-		clear_bit(IMA_DIGSIG, &iint->atomic_flags);
+	if (found) {
+		set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
+		if (digsig)
+			set_bit(IMA_DIGSIG, &iint->atomic_flags);
+		else
+			clear_bit(IMA_DIGSIG, &iint->atomic_flags);
+	}
 }
 
 /**
@@ -832,8 +839,8 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			      size_t xattr_value_len, int flags)
 {
 	const struct evm_ima_xattr_data *xvalue = xattr_value;
-	struct evm_namespace *evm_ns = &init_evm_ns;
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns = get_current_ns();
+	struct evm_namespace *evm_ns;
 	int digsig = 0;
 	int result;
 	int err;
@@ -852,8 +859,11 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	} else if (!strcmp(xattr_name, XATTR_NAME_EVM) && xattr_value_len > 0) {
 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
 	}
+	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
 	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), digsig);
+		if (!ns_is_active(ns))
+			return -EPERM;
+		ima_reset_appraise_flags(d_backing_inode(dentry), digsig);
 		if (result == 1)
 			result = 0;
 	}
@@ -864,10 +874,9 @@ static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			     const char *acl_name, struct posix_acl *kacl)
 {
 	struct evm_namespace *evm_ns = &init_evm_ns;
-	struct ima_namespace *ns = &init_ima_ns;
 
 	if (evm_revalidate_status(evm_ns, acl_name))
-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
+		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
 
 	return 0;
 }
@@ -875,13 +884,14 @@ static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 static int ima_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				 const char *xattr_name)
 {
-	struct evm_namespace *evm_ns = &init_evm_ns;
-	struct ima_namespace *ns = &init_ima_ns;
+	struct evm_namespace *evm_ns;
 	int result;
+
+	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
 
 	result = ima_protect_xattr(dentry, xattr_name, NULL, 0);
 	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
-		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
+		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
 		if (result == 1)
 			result = 0;
 	}
