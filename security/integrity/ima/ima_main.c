@@ -250,7 +250,7 @@ static int __process_measurement(struct user_namespace *user_ns,
 	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
 	struct inode *inode = file_inode(file);
 	struct integrity_iint_cache *iint = NULL;
-	struct ns_status *ns_status = NULL;
+	struct ns_status *ns_status = NULL, *ns_stat;
 	struct ima_template_desc *template_desc = NULL;
 	char *pathbuf = NULL;
 	char filename[NAME_MAX];
@@ -318,13 +318,18 @@ static int __process_measurement(struct user_namespace *user_ns,
 
 	mutex_lock(&iint->mutex);
 
-	flags = iint_flags(iint, ns_status);
-
-	if (test_and_clear_bit(IMA_CHANGE_ATTR, &iint->atomic_flags))
+	if (test_and_clear_bit(IMA_CHANGE_ATTR, &iint->atomic_flags)) {
 		/* reset appraisal flags if ima_inode_post_setattr was called */
-		flags &= ~(IMA_APPRAISE | IMA_APPRAISED |
-			   IMA_APPRAISE_SUBMASK | IMA_APPRAISED_SUBMASK |
-			   IMA_NONACTION_FLAGS);
+		read_lock(&iint->ns_list_lock);
+		list_for_each_entry(ns_stat, &iint->ns_list, ns_next) {
+			flags = iint_flags(iint, ns_stat);
+			flags &= ~(IMA_APPRAISE | IMA_APPRAISED |
+				   IMA_APPRAISE_SUBMASK |
+				   IMA_APPRAISED_SUBMASK | IMA_NONACTION_FLAGS);
+			set_iint_flags(iint, ns_stat, flags);
+		}
+		read_unlock(&iint->ns_list_lock);
+	}
 
 	/*
 	 * Re-evaulate the file if either the xattr has changed or the
@@ -335,9 +340,17 @@ static int __process_measurement(struct user_namespace *user_ns,
 	    ((inode->i_sb->s_iflags & SB_I_IMA_UNVERIFIABLE_SIGNATURE) &&
 	     !(inode->i_sb->s_iflags & SB_I_UNTRUSTED_MOUNTER) &&
 	     !(action & IMA_FAIL_UNVERIFIABLE_SIGS))) {
-		flags &= ~IMA_DONE_MASK;
-		ns_status->measured_pcrs = 0;
+		read_lock(&iint->ns_list_lock);
+		list_for_each_entry(ns_stat, &iint->ns_list, ns_next) {
+			flags = iint_flags(iint, ns_stat);
+			flags &= ~IMA_DONE_MASK;
+			set_iint_flags(iint, ns_stat, flags);
+			ns_stat->measured_pcrs = 0;
+		}
+		read_unlock(&iint->ns_list_lock);
 	}
+
+	flags = iint_flags(iint, ns_status);
 
 	/* Determine if already appraised/measured based on bitmask
 	 * (IMA_MEASURE, IMA_MEASURED, IMA_XXXX_APPRAISE, IMA_XXXX_APPRAISED,
