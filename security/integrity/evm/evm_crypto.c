@@ -39,6 +39,7 @@ static const char evm_hmac[] = "hmac(sha1)";
 
 /**
  * evm_set_key() - set EVM HMAC key from the kernel
+ * @ns: The EVM namespace to set the key on
  * @key: pointer to a buffer with the key data
  * @keylen: length of the key data
  *
@@ -49,9 +50,12 @@ static const char evm_hmac[] = "hmac(sha1)";
  *
  * key length should be between 32 and 128 bytes long
  */
-int evm_set_key(void *key, size_t keylen)
+int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
 {
 	int rc;
+
+	if (ns != &init_evm_ns)
+		return -EINVAL;
 
 	rc = -EBUSY;
 	if (test_and_set_bit(EVM_SET_KEY_BUSY, &evm_set_key_flags))
@@ -412,7 +416,7 @@ int evm_init_hmac(struct inode *inode, const struct xattr *xattrs,
 /*
  * Get the key from the TPM for the SHA1-HMAC
  */
-int evm_init_key(void)
+int evm_init_key(struct evm_namespace *ns)
 {
 	struct key *evm_key;
 	struct encrypted_key_payload *ekp;
@@ -425,7 +429,7 @@ int evm_init_key(void)
 	down_read(&evm_key->sem);
 	ekp = evm_key->payload.data[0];
 
-	rc = evm_set_key(ekp->decrypted_data, ekp->decrypted_datalen);
+	rc = evm_set_key(ns, ekp->decrypted_data, ekp->decrypted_datalen);
 
 	/* burn the original key contents */
 	memset(ekp->decrypted_data, 0, ekp->decrypted_datalen);
