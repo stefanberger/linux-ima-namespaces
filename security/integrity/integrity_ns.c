@@ -7,6 +7,7 @@
  */
 
 #include <linux/slab.h>
+#include <linux/evm.h>
 #include <linux/ima.h>
 #include <linux/integrity_namespace.h>
 
@@ -15,6 +16,9 @@
 struct integrity_namespace init_integrity_ns = {
 #ifdef CONFIG_IMA
 	.ima_ns = &init_ima_ns,
+#endif
+#ifdef CONFIG_EVM
+	.evm_ns = &init_evm_ns,
 #endif
 	.keyring = {NULL, },
 	.keyring_name = {
@@ -43,6 +47,14 @@ struct integrity_namespace *create_integrity_ns(void)
 	if (!ns)
 		return ERR_PTR(-ENOMEM);
 
+#ifdef CONFIG_EVM
+	ns->evm_ns = create_evm_ns(ns);
+	if (IS_ERR(ns->evm_ns)) {
+		kmem_cache_free(integrityns_cachep, ns);
+		return ERR_PTR(PTR_ERR(ns->evm_ns));
+	}
+#endif
+
 	ns->keyring_name[INTEGRITY_KEYRING_EVM] = "_evm";
 	ns->keyring_name[INTEGRITY_KEYRING_IMA] = "_ima";
 	ns->keyring_name[INTEGRITY_KEYRING_PLATFORM] = "";
@@ -57,6 +69,9 @@ void free_integrity_ns(struct user_namespace *user_ns)
 	size_t i;
 
 	free_ima_ns(user_ns);
+#ifdef CONFIG_EVM
+	free_evm_ns(ns);
+#endif
 	integrity_fs_free(ns);
 
 	for (i = 0; i < ARRAY_SIZE(ns->keyring); i++)
