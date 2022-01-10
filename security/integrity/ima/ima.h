@@ -491,7 +491,7 @@ int ima_must_appraise(struct ima_namespace *ns,
 		      int mask, enum ima_hooks func);
 void ima_update_xattr(struct ima_namespace *ns,
 		      struct integrity_iint_cache *iint, struct file *file);
-enum integrity_status ima_get_cache_status(struct integrity_iint_cache *iint,
+enum integrity_status ima_get_cache_status(struct ns_status *ns_status,
 					   enum ima_hooks func);
 enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
 				 const struct evm_ima_xattr_data *xattr_value,
@@ -536,8 +536,8 @@ static inline void ima_update_xattr(struct ima_namespace *ns,
 {
 }
 
-static inline enum integrity_status ima_get_cache_status(struct integrity_iint_cache
-							 *iint,
+static inline enum integrity_status ima_get_cache_status(struct ns_status
+							 *ns_status,
 							 enum ima_hooks func)
 {
 	return INTEGRITY_UNKNOWN;
