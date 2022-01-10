@@ -46,9 +46,14 @@ struct evm_digest {
 	char digest[IMA_MAX_DIGEST_SIZE];
 } __packed;
 
+static inline struct evm_namespace *current_evm_ns(void)
+{
+	return current_integrity_ns()->evm_ns;
+}
+
 int evm_protected_xattr(const char *req_xattr_name);
 
-int evm_init_key(void);
+int evm_init_key(struct evm_namespace *ns);
 int evm_update_evmxattr(struct dentry *dentry,
 			const char *req_xattr_name,
 			const char *req_xattr_value,
@@ -62,6 +67,9 @@ int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
 		  struct evm_digest *data);
 int evm_init_hmac(struct inode *inode, const struct xattr *xattrs,
 		  char *hmac_val);
-int evm_init_secfs(struct integrity_namespace *ns);
+int evm_init_secfs(struct evm_namespace *ns);
+int __init evm_init_ns(void);
+int evm_init_namespace(struct evm_namespace *ns,
+		       struct integrity_namespace *integrity_ns);
 
 #endif

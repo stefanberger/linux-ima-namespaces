@@ -17,10 +17,14 @@
 #define INTEGRITY_KEYRING_MAX		4
 
 struct ima_namespace;
+struct evm_namespace;
 
 struct integrity_namespace {
 #ifdef CONFIG_IMA
 	struct ima_namespace *ima_ns;
+#endif
+#ifdef CONFIG_EVM
+	struct evm_namespace *evm_ns;
 #endif
 	struct key *keyring[INTEGRITY_KEYRING_MAX];
 	const char *keyring_name[INTEGRITY_KEYRING_MAX];
@@ -28,6 +32,21 @@ struct integrity_namespace {
 };
 
 extern struct integrity_namespace init_integrity_ns;
+
+/* Functions to get evm_ns */
+#ifdef CONFIG_EVM
+static inline struct evm_namespace *integrity_ns_get_evm_ns
+					(struct integrity_namespace *ns)
+{
+	return ns->evm_ns;
+}
+#else
+static inline struct evm_namespace *integrity_ns_get_evm_ns
+					(struct integrity_namespace *ns)
+{
+	return NULL;
+}
+#endif
 
 #ifdef CONFIG_IMA_NS
 

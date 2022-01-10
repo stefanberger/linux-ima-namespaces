@@ -706,7 +706,8 @@ int ima_eventinodemode_init(struct ima_namespace *ns,
 					     DATA_FMT_UINT, field_data);
 }
 
-static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
+static int ima_eventinodexattrs_init_common(struct ima_namespace *ns,
+					    struct ima_event_data *event_data,
 					    struct ima_field_data *field_data,
 					    char type)
 {
@@ -716,7 +717,8 @@ static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
 	if (!event_data->file)
 		return 0;
 
-	rc = evm_read_protected_xattrs(file_dentry(event_data->file), NULL, 0,
+	rc = evm_read_protected_xattrs(integrity_ns_get_evm_ns(ns->integrity_ns),
+				       file_dentry(event_data->file), NULL, 0,
 				       type, ima_canonical_fmt);
 	if (rc < 0)
 		return 0;
@@ -725,7 +727,8 @@ static int ima_eventinodexattrs_init_common(struct ima_event_data *event_data,
 	if (!buffer)
 		return 0;
 
-	rc = evm_read_protected_xattrs(file_dentry(event_data->file), buffer,
+	rc = evm_read_protected_xattrs(integrity_ns_get_evm_ns(ns->integrity_ns),
+				       file_dentry(event_data->file), buffer,
 				       rc, type, ima_canonical_fmt);
 	if (rc < 0) {
 		rc = 0;
@@ -747,7 +750,8 @@ int ima_eventinodexattrnames_init(struct ima_namespace *ns,
 				  struct ima_event_data *event_data,
 				  struct ima_field_data *field_data)
 {
-	return ima_eventinodexattrs_init_common(event_data, field_data, 'n');
+	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
+						'n');
 }
 
 /*
@@ -758,7 +762,8 @@ int ima_eventinodexattrlengths_init(struct ima_namespace *ns,
 				    struct ima_event_data *event_data,
 				    struct ima_field_data *field_data)
 {
-	return ima_eventinodexattrs_init_common(event_data, field_data, 'l');
+	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
+						'l');
 }
 
 /*
@@ -769,7 +774,8 @@ int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
 				   struct ima_event_data *event_data,
 				   struct ima_field_data *field_data)
 {
-	return ima_eventinodexattrs_init_common(event_data, field_data, 'v');
+	return ima_eventinodexattrs_init_common(ns, event_data, field_data,
+						'v');
 }
 
 /*

@@ -16,9 +16,22 @@
 struct integrity_iint_cache;
 struct integrity_namespace;
 
+struct evm_namespace {
+	struct integrity_namespace *integrity_ns;
+};
+
+extern struct evm_namespace init_evm_ns;
+
+#if defined(CONFIG_IMA_NS) && defined(CONFIG_EVM)
+extern struct evm_namespace *create_evm_ns
+				(struct integrity_namespace *integrity_ns);
+extern void free_evm_ns(struct integrity_namespace *evm_ns);
+#endif
+
 #ifdef CONFIG_EVM
-extern int evm_set_key(void *key, size_t keylen);
-extern enum integrity_status evm_verifyxattr(struct integrity_namespace *ns,
+extern int evm_set_key(struct evm_namespace *ns,
+		       void *key, size_t keylen);
+extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 					     struct dentry *dentry,
 					     const char *xattr_name,
 					     void *xattr_value,
@@ -29,7 +42,8 @@ int evm_inode_init_security(struct inode *inode, struct inode *dir,
 			    int *xattr_count);
 extern bool evm_revalidate_status(const char *xattr_name);
 extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
-extern int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
+extern int evm_read_protected_xattrs(struct evm_namespace *ns,
+				     struct dentry *dentry, u8 *buffer,
 				     int buffer_size, char type,
 				     bool canonical_fmt);
 #ifdef CONFIG_FS_POSIX_ACL
@@ -42,14 +56,15 @@ static inline int posix_xattr_acl(const char *xattrname)
 #endif
 #else
 
-static inline int evm_set_key(void *key, size_t keylen)
+static inline int evm_set_key(struct evm_namespace *ns,
+			      void *key, size_t keylen)
 {
 	return -EOPNOTSUPP;
 }
 
 #ifdef CONFIG_INTEGRITY
 static inline enum integrity_status evm_verifyxattr(
-					struct integrity_namespace *ns,
+					struct evm_namespace *ns,
 					struct dentry *dentry,
 					const char *xattr_name,
 					void *xattr_value,
@@ -78,7 +93,8 @@ static inline int evm_protected_xattr_if_enabled(const char *req_xattr_name)
 	return false;
 }
 
-static inline int evm_read_protected_xattrs(struct dentry *dentry, u8 *buffer,
+static inline int evm_read_protected_xattrs(struct evm_namespace *ns,
+					    struct dentry *dentry, u8 *buffer,
 					    int buffer_size, char type,
 					    bool canonical_fmt)
 {
