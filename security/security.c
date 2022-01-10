@@ -27,7 +27,6 @@
 #include <linux/string.h>
 #include <linux/xattr.h>
 #include <linux/msg.h>
-#include <linux/integrity_namespace.h>
 #include <net/flow.h>
 
 /* How many LSMs were built into the kernel? */
