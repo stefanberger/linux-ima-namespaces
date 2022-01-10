@@ -387,7 +387,7 @@ static int __process_measurement(struct user_namespace *user_ns,
 			rc = mmap_violation_check(func, file, &pathbuf,
 						  &pathname, filename);
 			if (!rc)
-				rc = ima_get_cache_status(iint, func);
+				rc = ima_get_cache_status(ns_status, func);
 		}
 		goto out_locked;
 	}
@@ -807,6 +807,7 @@ static void ima_post_create_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 	struct ima_namespace *ns = get_current_ns();
 	struct integrity_iint_cache *iint;
 	struct inode *inode = file_inode(file);
+	struct ns_status *ns_status;
 	int must_appraise;
 
 	if (!ns_is_active(ns) || !ns->ima_policy_flag ||
@@ -825,7 +826,11 @@ static void ima_post_create_tmpfile(struct mnt_idmap *idmap, struct inode *dir,
 
 	/* needed for writing the security xattrs */
 	set_bit(IMA_UPDATE_XATTR, &iint->atomic_flags);
-	iint->ima_file_status = INTEGRITY_PASS;
+
+	read_lock(&iint->ns_list_lock);
+	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
+		ns_status->ima_file_status = INTEGRITY_PASS;
+	read_unlock(&iint->ns_list_lock);
 }
 
 /**
