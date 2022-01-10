@@ -14,7 +14,7 @@
 #include <linux/uaccess.h>
 #include <linux/init.h>
 #include <linux/mutex.h>
-#include <linux/integrity_namespace.h>
+#include <linux/evm.h>
 #include "evm.h"
 
 static struct dentry *evm_dir;
@@ -67,6 +67,7 @@ static ssize_t evm_read_key(struct file *filp, char __user *buf,
 static ssize_t evm_write_key(struct file *file, const char __user *buf,
 			     size_t count, loff_t *ppos)
 {
+	struct evm_namespace *ns = current_evm_ns();
 	unsigned int i;
 	int ret;
 
@@ -91,7 +92,7 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
 		return -EPERM;
 
 	if (i & EVM_INIT_HMAC) {
-		ret = evm_init_key();
+		ret = evm_init_key(ns);
 		if (ret != 0)
 			return ret;
 		/* Forbid further writes after the symmetric key is loaded */
@@ -299,11 +300,11 @@ static int evm_init_xattrs(void)
 }
 #endif
 
-int __init evm_init_secfs(struct integrity_namespace *ns)
+int __init evm_init_secfs(struct evm_namespace *ns)
 {
 	int error = 0;
 
-	evm_dir = securityfs_create_dir("evm", ns->integrity_dir);
+	evm_dir = securityfs_create_dir("evm", ns->integrity_ns->integrity_dir);
 	if (!evm_dir || IS_ERR(evm_dir))
 		return -EFAULT;
 
