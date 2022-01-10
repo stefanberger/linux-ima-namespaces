@@ -163,6 +163,11 @@ struct ns_status {
 	unsigned long atomic_flags;	/* atomic_flags split with iint */
 	unsigned long measured_pcrs;
 	struct ima_namespace *ns;
+	enum integrity_status ima_file_status:4;
+	enum integrity_status ima_mmap_status:4;
+	enum integrity_status ima_bprm_status:4;
+	enum integrity_status ima_read_status:4;
+	enum integrity_status ima_creds_status:4;
 #ifdef CONFIG_IMA_NS
 	struct list_head ns_node;	/* list connected to ima_namespace */
 	struct integrity_iint_cache *iint;
@@ -178,6 +183,11 @@ static inline void ns_status_reset(struct ns_status *ns_status)
 	ns_status->flags = 0;
 	ns_status->atomic_flags = 0;
 	ns_status->measured_pcrs = 0;
+	ns_status->ima_file_status = INTEGRITY_UNKNOWN;
+	ns_status->ima_mmap_status = INTEGRITY_UNKNOWN;
+	ns_status->ima_bprm_status = INTEGRITY_UNKNOWN;
+	ns_status->ima_read_status = INTEGRITY_UNKNOWN;
+	ns_status->ima_creds_status = INTEGRITY_UNKNOWN;
 }
 
 static inline void ns_status_init(struct ns_status *ns_status)
@@ -195,11 +205,6 @@ struct integrity_iint_cache {
 	unsigned long atomic_flags;     /* atomic_flags split with ns_status */
 	unsigned long real_ino;
 	dev_t real_dev;
-	enum integrity_status ima_file_status:4;
-	enum integrity_status ima_mmap_status:4;
-	enum integrity_status ima_bprm_status:4;
-	enum integrity_status ima_read_status:4;
-	enum integrity_status ima_creds_status:4;
 	enum integrity_status evm_status:4;
 
 	/*

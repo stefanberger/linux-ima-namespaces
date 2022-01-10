@@ -109,48 +109,48 @@ static int ima_fix_xattr(struct dentry *dentry,
 }
 
 /* Return specific func appraised cached result */
-enum integrity_status ima_get_cache_status(struct integrity_iint_cache *iint,
+enum integrity_status ima_get_cache_status(struct ns_status *ns_status,
 					   enum ima_hooks func)
 {
 	switch (func) {
 	case MMAP_CHECK:
 	case MMAP_CHECK_REQPROT:
-		return iint->ima_mmap_status;
+		return ns_status->ima_mmap_status;
 	case BPRM_CHECK:
-		return iint->ima_bprm_status;
+		return ns_status->ima_bprm_status;
 	case CREDS_CHECK:
-		return iint->ima_creds_status;
+		return ns_status->ima_creds_status;
 	case FILE_CHECK:
 	case POST_SETATTR:
-		return iint->ima_file_status;
+		return ns_status->ima_file_status;
 	case MODULE_CHECK ... MAX_CHECK - 1:
 	default:
-		return iint->ima_read_status;
+		return ns_status->ima_read_status;
 	}
 }
 
-static void ima_set_cache_status(struct integrity_iint_cache *iint,
+static void ima_set_cache_status(struct ns_status *ns_status,
 				 enum ima_hooks func,
 				 enum integrity_status status)
 {
 	switch (func) {
 	case MMAP_CHECK:
 	case MMAP_CHECK_REQPROT:
-		iint->ima_mmap_status = status;
+		ns_status->ima_mmap_status = status;
 		break;
 	case BPRM_CHECK:
-		iint->ima_bprm_status = status;
+		ns_status->ima_bprm_status = status;
 		break;
 	case CREDS_CHECK:
-		iint->ima_creds_status = status;
+		ns_status->ima_creds_status = status;
 		break;
 	case FILE_CHECK:
 	case POST_SETATTR:
-		iint->ima_file_status = status;
+		ns_status->ima_file_status = status;
 		break;
 	case MODULE_CHECK ... MAX_CHECK - 1:
 	default:
-		iint->ima_read_status = status;
+		ns_status->ima_read_status = status;
 		break;
 	}
 }
@@ -624,7 +624,7 @@ out:
 		ima_cache_flags(iint, ns_status, func);
 	}
 
-	ima_set_cache_status(iint, func, status);
+	ima_set_cache_status(ns_status, func, status);
 	return status;
 }
 
@@ -638,6 +638,7 @@ void ima_update_xattr(struct ima_namespace *ns,
 {
 	struct dentry *dentry = file_dentry(file);
 	struct ns_status *ns_status;
+	bool found = false;
 	int rc = 0;
 
 	if (!ns_is_active(ns) || !(ns->ima_policy_flag & IMA_HASH))
@@ -647,11 +648,18 @@ void ima_update_xattr(struct ima_namespace *ns,
 	if (test_bit(IMA_DIGSIG, &iint->atomic_flags))
 		return;
 
-	if ((iint->ima_file_status != INTEGRITY_PASS) &&
-	    !(iint->flags & IMA_HASH))
-		return;
+	read_lock(&iint->ns_list_lock);
+	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
+		if (ns_status->ima_file_status == INTEGRITY_PASS ||
+		    (iint_flags(iint, ns_status) & IMA_HASH) != 0) {
+			found = true;
+			break;
+		}
+	}
+	read_unlock(&iint->ns_list_lock);
 
-	ns_status =  ima_get_ns_status(ns, file_inode(file), iint);
+	if (!found)
+		return;
 
 	rc = ima_collect_measurement(ns, iint, ns_status, file, NULL, 0,
 				     ns->config.ima_hash_algo, NULL);
