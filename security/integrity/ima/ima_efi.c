@@ -65,6 +65,11 @@ static const char * const sb_arch_rules[] = {
 	NULL
 };
 
+static const char * const test_arch_rules[] = {
+	"measure func=MODULE_CHECK",
+	NULL
+};
+
 const char * const *arch_get_ima_policy(void)
 {
 	if (IS_ENABLED(CONFIG_IMA_ARCH_POLICY) && arch_ima_get_secureboot()) {
@@ -74,5 +79,11 @@ const char * const *arch_get_ima_policy(void)
 			set_kexec_sig_enforced();
 		return sb_arch_rules;
 	}
+#if 0
+	if (IS_ENABLED(CONFIG_IMA_ARCH_POLICY)) {
+		printk(KERN_INFO ">>> ima: adding arch policy for testing\n");
+		return test_arch_rules;
+	}
+#endif
 	return NULL;
 }
