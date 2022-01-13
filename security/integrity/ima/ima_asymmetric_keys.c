@@ -33,8 +33,7 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
 	struct ima_namespace *ns = get_current_ns();
 	bool queued = false;
 
-	/* only handle key if related to init_ima_ns */
-	if (ns != &init_ima_ns)
+	if (!ns_is_active(ns))
 		return;
 
 	/* Only asymmetric keys are handled by this hook. */
@@ -44,8 +43,8 @@ void ima_post_key_create_or_update(struct key *keyring, struct key *key,
 	if (!payload || (payload_len == 0))
 		return;
 
-	if (ima_should_queue_key())
-		queued = ima_queue_key(keyring, payload, payload_len);
+	if (ima_should_queue_key(ns))
+		queued = ima_queue_key(ns, keyring, payload, payload_len);
 
 	if (queued)
 		return;
