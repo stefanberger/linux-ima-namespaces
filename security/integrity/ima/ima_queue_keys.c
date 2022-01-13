@@ -15,12 +15,6 @@
 #include "ima.h"
 
 /*
- * Flag to indicate whether a key can be processed
- * right away or should be queued for processing later.
- */
-static bool ima_process_keys;
-
-/*
  * To synchronize access to the list of keys that need to be measured
  */
 static DEFINE_MUTEX(ima_keys_lock);
@@ -102,8 +96,8 @@ out:
 	return entry;
 }
 
-bool ima_queue_key(struct key *keyring, const void *payload,
-		   size_t payload_len)
+bool ima_queue_key(struct ima_namespace *ns, struct key *keyring,
+		   const void *payload, size_t payload_len)
 {
 	bool queued = false;
 	struct ima_key_entry *entry;
@@ -113,7 +107,7 @@ bool ima_queue_key(struct key *keyring, const void *payload,
 		return false;
 
 	mutex_lock(&ima_keys_lock);
-	if (!ima_process_keys) {
+	if (!ns->ima_process_keys) {
 		list_add_tail(&entry->list, &ima_keys);
 		queued = true;
 	}
@@ -140,7 +134,7 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 	if (ns != &init_ima_ns)
 		return;
 
-	if (ima_process_keys)
+	if (ns->ima_process_keys)
 		return;
 
 	/*
@@ -150,8 +144,8 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 	 * process the queued keys.
 	 */
 	mutex_lock(&ima_keys_lock);
-	if (!ima_process_keys) {
-		ima_process_keys = true;
+	if (!ns->ima_process_keys) {
+		ns->ima_process_keys = true;
 		process = true;
 	}
 	mutex_unlock(&ima_keys_lock);
@@ -176,7 +170,7 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 	}
 }
 
-inline bool ima_should_queue_key(void)
+inline bool ima_should_queue_key(struct ima_namespace *ns)
 {
-	return !ima_process_keys;
+	return !ns->ima_process_keys;
 }
