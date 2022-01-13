@@ -38,6 +38,11 @@ int ima_init_namespace(struct ima_namespace *ns)
 	ns->valid_policy = 1;
 	ns->ima_fs_flags = 0;
 
+	if (ns == &init_ima_ns)
+		ns->ima_process_keys = false;
+	else
+		ns->ima_process_keys = true;
+
 	if (ns != &init_ima_ns) {
 		ns->ima_lsm_policy_notifier.notifier_call =
 						ima_lsm_policy_change;
@@ -46,7 +51,6 @@ int ima_init_namespace(struct ima_namespace *ns)
 		if (ret)
 			goto err_destroy_cache;
 	}
-
 	if (ns == &init_ima_ns) {
 		ns->ima_tpm_chip = tpm_default_chip(&init_user_ns);
 		if (!ns->ima_tpm_chip)
