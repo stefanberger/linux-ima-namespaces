@@ -176,6 +176,12 @@ struct ima_namespace {
 
 	struct crypto_shash *ima_shash_tfm;
 	struct crypto_ahash *ima_ahash_tfm;
+
+	/*
+	 * Flag to indicate whether a key can be processed
+	 * right away or should be queued for processing later.
+	 */
+	bool ima_process_keys;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
@@ -325,14 +331,18 @@ struct ima_key_entry {
 	char *keyring_name;
 };
 void ima_init_key_queue(void);
-bool ima_should_queue_key(void);
-bool ima_queue_key(struct key *keyring, const void *payload,
-		   size_t payload_len);
+bool ima_should_queue_key(struct ima_namespace *ns);
+bool ima_queue_key(struct ima_namespace *ns, struct key *keyring,
+		   const void *payload, size_t payload_len);
 void ima_process_queued_keys(struct ima_namespace *ns);
 #else
 static inline void ima_init_key_queue(void) {}
-static inline bool ima_should_queue_key(void) { return false; }
-static inline bool ima_queue_key(struct key *keyring,
+static inline bool ima_should_queue_key(struct ima_namespace)
+{
+	return false;
+}
+static inline bool ima_queue_key(struct ima_namespace *ns,
+				 struct key *keyring,
 				 const void *payload,
 				 size_t payload_len) { return false; }
 static inline void ima_process_queued_keys(struct ima_namespace *ns) {}
