@@ -181,9 +181,11 @@ static void ima_cache_flags(struct integrity_iint_cache *iint,
 	}
 }
 
-enum hash_algo ima_get_hash_algo(const struct evm_ima_xattr_data *xattr_value,
+enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
+				 const struct evm_ima_xattr_data *xattr_value,
 				 int xattr_len)
 {
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	struct signature_v2_hdr *sig;
 	enum hash_algo ret;
 
@@ -640,7 +642,7 @@ void ima_update_xattr(struct ima_namespace *ns,
 	ns_status =  ima_get_ns_status(ns, file_inode(file), iint);
 
 	rc = ima_collect_measurement(ns, iint, ns_status, file, NULL, 0,
-				     ima_hash_algo, NULL);
+				     ns->config.ima_hash_algo, NULL);
 	if (rc < 0)
 		return;
 
@@ -725,6 +727,7 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
 
 /**
  * validate_hash_algo() - Block setxattr with unsupported hash algorithms
+ * @ns: IMA namespace
  * @dentry: object of the setxattr()
  * @xattr_value: userland supplied xattr value
  * @xattr_value_len: length of xattr_value
@@ -736,7 +739,8 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
  *
  * Return: 0 on success, else an error.
  */
-static int validate_hash_algo(struct dentry *dentry,
+static int validate_hash_algo(struct ima_namespace *ns,
+			      struct dentry *dentry,
 			      const struct evm_ima_xattr_data *xattr_value,
 			      size_t xattr_value_len)
 {
@@ -745,7 +749,10 @@ static int validate_hash_algo(struct dentry *dentry,
 	const char *errmsg = "unavailable-hash-algorithm";
 	unsigned int allowed_hashes;
 
-	xattr_hash_algo = ima_get_hash_algo(xattr_value, xattr_value_len);
+	if (!ns_is_active(ns))
+		return -EPERM;
+
+	xattr_hash_algo = ima_get_hash_algo(ns, xattr_value, xattr_value_len);
 
 	allowed_hashes = atomic_read(&ima_setxattr_allowed_hash_algorithms);
 
@@ -761,7 +768,7 @@ static int validate_hash_algo(struct dentry *dentry,
 		 */
 		errmsg = "denied-hash-algorithm";
 	} else {
-		if (likely(xattr_hash_algo == ima_hash_algo))
+		if (likely(xattr_hash_algo == ns->config.ima_hash_algo))
 			return 0;
 
 		/* allow any xattr using an algorithm built in the kernel */
@@ -799,7 +806,7 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		if (!xattr_value_len || (xvalue->type >= IMA_XATTR_LAST))
 			return -EINVAL;
 
-		err = validate_hash_algo(dentry, xvalue, xattr_value_len);
+		err = validate_hash_algo(ns, dentry, xvalue, xattr_value_len);
 		if (err)
 			return err;
 

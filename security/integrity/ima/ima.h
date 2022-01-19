@@ -48,7 +48,6 @@ enum tpm_pcrs { TPM_PCR0 = 0, TPM_PCR8 = 8, TPM_PCR10 = 10 };
 extern atomic_t ima_setxattr_allowed_hash_algorithms;
 
 /* set during initialization */
-extern int ima_hash_algo __ro_after_init;
 extern int ima_appraise;
 extern const char boot_aggregate_name[];
 
@@ -121,6 +120,15 @@ struct ima_h_table {
 	struct hlist_head queue[IMA_MEASURE_HTABLE_SIZE];
 };
 
+/*
+ * Configuration for init_ima_ns from boot line parameters and parameters for
+ * IMA namespaces.
+ */
+struct ima_config {
+	int ima_hash_algo;
+	int hash_setup_done;
+};
+
 struct ima_namespace {
 	unsigned long ima_ns_flags;
 /* Bit numbers for above flags; use BIT() to get flag */
@@ -184,6 +192,8 @@ struct ima_namespace {
 	 * right away or should be queued for processing later.
 	 */
 	bool ima_process_keys;
+
+	struct ima_config config;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
@@ -438,7 +448,8 @@ void ima_update_xattr(struct ima_namespace *ns,
 		      struct integrity_iint_cache *iint, struct file *file);
 enum integrity_status ima_get_cache_status(struct integrity_iint_cache *iint,
 					   enum ima_hooks func);
-enum hash_algo ima_get_hash_algo(const struct evm_ima_xattr_data *xattr_value,
+enum hash_algo ima_get_hash_algo(struct ima_namespace *ns,
+				 const struct evm_ima_xattr_data *xattr_value,
 				 int xattr_len);
 int ima_read_xattr(struct dentry *dentry,
 		   struct evm_ima_xattr_data **xattr_value, int xattr_len);
@@ -487,9 +498,10 @@ static inline enum integrity_status ima_get_cache_status(struct integrity_iint_c
 }
 
 static inline enum hash_algo
-ima_get_hash_algo(struct evm_ima_xattr_data *xattr_value, int xattr_len)
+ima_get_hash_algo(struct ima_namespace *ns,
+		  struct evm_ima_xattr_data *xattr_value, int xattr_len)
 {
-	return ima_hash_algo;
+	return ns->config.ima_hash_algo;
 }
 
 static inline int ima_read_xattr(struct dentry *dentry,
@@ -632,7 +644,7 @@ static inline struct ima_namespace *get_current_ns(void)
 	return ima_ns_from_user_ns(current_user_ns());
 }
 
-struct ima_namespace *create_ima_ns(void);
+struct ima_namespace *create_ima_ns(struct user_namespace *user_ns);
 
 void ima_free_ima_ns(struct ima_namespace *ns);
 
@@ -672,7 +684,8 @@ static inline struct ima_namespace *get_current_ns(void)
 	return &init_ima_ns;
 }
 
-static inline struct ima_namespace *create_ima_ns(void)
+static inline struct ima_namespace *
+create_ima_ns(struct user_namespace *user_ns)
 {
 	WARN(1, "Cannot create an IMA namespace\n");
 	return ERR_PTR(-EFAULT);

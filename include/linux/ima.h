@@ -19,7 +19,7 @@ struct integrity_iint_cache;
 extern struct ima_namespace init_ima_ns;
 
 #ifdef CONFIG_IMA
-extern enum hash_algo ima_get_current_hash_algo(void);
+extern enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns);
 extern int ima_file_hash(struct file *file, char *buf, size_t buf_size);
 extern int ima_inode_hash(struct inode *inode, char *buf, size_t buf_size);
 extern void ima_kexec_cmdline(int kernel_fd, const void *buf, int size);
@@ -40,7 +40,7 @@ extern void ima_add_kexec_buffer(struct kimage *image);
 #endif
 
 #else
-static inline enum hash_algo ima_get_current_hash_algo(void)
+static inline enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
 {
 	return HASH_ALGO__LAST;
 }
