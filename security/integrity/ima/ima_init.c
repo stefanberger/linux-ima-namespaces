@@ -48,6 +48,7 @@ int ima_add_boot_aggregate(struct ima_namespace *ns)
 					     .filename = boot_aggregate_name };
 	int result = -ENOMEM;
 	int violation = 0;
+	int ima_hash_algo = ns->config.ima_hash_algo;
 
 	memset(&hash, 0, sizeof(hash));
 	event_data.ima_hash = &hash.hdr;
