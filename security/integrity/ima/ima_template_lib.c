@@ -341,6 +341,7 @@ int ima_eventdigest_init(struct ima_namespace *ns,
 			 struct ima_field_data *field_data)
 {
 	struct ima_max_digest_data hash;
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	u8 *cur_digest = NULL;
 	u32 cur_digestsize = 0;
 	struct inode *inode;
@@ -403,7 +404,7 @@ int ima_eventdigest_ng_init(struct ima_namespace *ns,
 			    struct ima_event_data *event_data,
 			    struct ima_field_data *field_data)
 {
-	u8 *cur_digest = NULL, hash_algo = ima_hash_algo;
+	u8 *cur_digest = NULL, hash_algo = ns->config.ima_hash_algo;
 	u32 cur_digestsize = 0;
 
 	if (event_data->violation)	/* recording a violation. */
@@ -427,7 +428,7 @@ int ima_eventdigest_ngv2_init(struct ima_namespace *ns,
 			      struct ima_event_data *event_data,
 			      struct ima_field_data *field_data)
 {
-	u8 *cur_digest = NULL, hash_algo = ima_hash_algo;
+	u8 *cur_digest = NULL, hash_algo = ns->config.ima_hash_algo;
 	u32 cur_digestsize = 0;
 	u8 digest_type = DIGEST_TYPE_IMA;
 
