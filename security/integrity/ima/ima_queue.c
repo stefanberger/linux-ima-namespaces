@@ -27,6 +27,7 @@ static struct ima_queue_entry *ima_lookup_digest_entry
 						 u8 *digest_value,
 						 int pcr)
 {
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	struct ima_queue_entry *qe, *ret = NULL;
 	unsigned int key;
 	int rc;

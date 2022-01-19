@@ -103,6 +103,8 @@ bool ima_template_has_modsig(const struct ima_template_desc *ima_template)
 
 static int __init ima_template_setup(char *str)
 {
+	struct ima_namespace *ns = &init_ima_ns;
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	struct ima_template_desc *template_desc;
 	int template_len = strlen(str);
 
