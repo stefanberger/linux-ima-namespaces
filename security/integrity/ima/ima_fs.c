@@ -593,7 +593,7 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 	 * user_ns->ima_ns can't change while we're in here.
 	 */
 	if (!ns) {
-		ns = create_ima_ns();
+		ns = create_ima_ns(user_ns);
 		if (IS_ERR(ns))
 			return PTR_ERR(ns);
 	}
