@@ -12,13 +12,32 @@
 
 static struct kmem_cache *imans_cachep;
 
-struct ima_namespace *create_ima_ns(void)
+static struct ima_config *get_parent_config(struct user_namespace *user_ns)
 {
+	struct ima_namespace *ns;
+
+	do {
+		ns = ima_ns_from_user_ns(user_ns);
+		if (ns_is_active(ns))
+			return &ns->config;
+		user_ns = user_ns->parent;
+	} while (user_ns);
+
+	/* init_ima_ns is always active, so this cannot happen */
+	return NULL;
+}
+
+struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
+{
+	struct ima_config *ic = get_parent_config(user_ns);
 	struct ima_namespace *ns;
 
 	ns = kmem_cache_zalloc(imans_cachep, GFP_KERNEL);
 	if (!ns)
 		return ERR_PTR(-ENOMEM);
+
+	/* inherit config from parent */
+	ns->config = *ic;
 
 	return ns;
 }

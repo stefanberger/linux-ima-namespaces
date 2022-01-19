@@ -34,22 +34,19 @@ int ima_appraise = IMA_APPRAISE_ENFORCE;
 int ima_appraise;
 #endif
 
-int __ro_after_init ima_hash_algo = HASH_ALGO_SHA1;
-static int hash_setup_done;
-
-static int __init hash_setup(char *str)
+static int __init hash_setup(struct ima_config *ic, char *str)
 {
 	struct ima_template_desc *template_desc = ima_template_desc_current();
 	int i;
 
-	if (hash_setup_done)
+	if (ic->hash_setup_done)
 		return 1;
 
 	if (strcmp(template_desc->name, IMA_TEMPLATE_IMA_NAME) == 0) {
 		if (strncmp(str, "sha1", 4) == 0) {
-			ima_hash_algo = HASH_ALGO_SHA1;
+			ic->ima_hash_algo = HASH_ALGO_SHA1;
 		} else if (strncmp(str, "md5", 3) == 0) {
-			ima_hash_algo = HASH_ALGO_MD5;
+			ic->ima_hash_algo = HASH_ALGO_MD5;
 		} else {
 			pr_err("invalid hash algorithm \"%s\" for template \"%s\"",
 				str, IMA_TEMPLATE_IMA_NAME);
@@ -64,16 +61,21 @@ static int __init hash_setup(char *str)
 		return 1;
 	}
 
-	ima_hash_algo = i;
+	ic->ima_hash_algo = i;
 out:
-	hash_setup_done = 1;
+	ic->hash_setup_done = 1;
 	return 1;
 }
-__setup("ima_hash=", hash_setup);
 
-enum hash_algo ima_get_current_hash_algo(void)
+static int __init init_ima_ns_hash_setup(char *str)
 {
-	return ima_hash_algo;
+	return hash_setup(&init_ima_ns.config, str);
+}
+__setup("ima_hash=", init_ima_ns_hash_setup);
+
+enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
+{
+	return ns->config.ima_hash_algo;
 }
 
 /* Prevent mmap'ing a file execute that is already mmap'ed write */
@@ -387,7 +389,7 @@ static int __process_measurement(struct ima_namespace *ns,
 		}
 	}
 
-	hash_algo = ima_get_hash_algo(xattr_value, xattr_len);
+	hash_algo = ima_get_hash_algo(ns, xattr_value, xattr_len);
 
 	rc = ima_collect_measurement(ns, iint, ns_status, file, buf, size,
 				     hash_algo, modsig);
@@ -666,8 +668,8 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
 		memset(&tmp_ns_status, 0, sizeof(tmp_ns_status));
 
 		rc = ima_collect_measurement(ns, &tmp_iint, &tmp_ns_status,
-					     file, NULL, 0, ima_hash_algo,
-					     NULL);
+					     file, NULL, 0,
+					     ns->config.ima_hash_algo, NULL);
 		if (rc < 0)
 			return -EOPNOTSUPP;
 
@@ -1054,6 +1056,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 					    .buf_len = size};
 	struct ima_template_desc *template;
 	char digest_hash[IMA_MAX_DIGEST_SIZE];
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	int digest_hash_len = hash_digest_size[ima_hash_algo];
 	int violation = 0;
 	int action = 0;
@@ -1212,19 +1215,21 @@ EXPORT_SYMBOL_GPL(ima_measure_critical_data);
 static int __init init_ima(void)
 {
 	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_config *ic = &ns->config;
+	int ima_hash_algo = ic->ima_hash_algo;
 	int error;
 
 	ima_appraise_parse_cmdline();
 	ima_init_template_list();
-	hash_setup(CONFIG_IMA_DEFAULT_HASH);
+	hash_setup(ic, CONFIG_IMA_DEFAULT_HASH);
 	error = ima_init();
 
 	if (error && strcmp(hash_algo_name[ima_hash_algo],
 			    CONFIG_IMA_DEFAULT_HASH) != 0) {
 		pr_info("Allocating %s failed, going to use default hash algorithm %s\n",
 			hash_algo_name[ima_hash_algo], CONFIG_IMA_DEFAULT_HASH);
-		hash_setup_done = 0;
-		hash_setup(CONFIG_IMA_DEFAULT_HASH);
+		ic->hash_setup_done = 0;
+		hash_setup(ic, CONFIG_IMA_DEFAULT_HASH);
 		error = ima_init();
 	}
 

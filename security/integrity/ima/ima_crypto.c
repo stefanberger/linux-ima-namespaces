@@ -61,6 +61,7 @@ struct ima_algo_desc {
 
 static int ima_init_ima_crypto(struct ima_namespace *ns)
 {
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	long rc;
 
 	ns->ima_shash_tfm = crypto_alloc_shash(hash_algo_name[ima_hash_algo], 0, 0);
@@ -82,6 +83,7 @@ static struct crypto_shash *ima_alloc_tfm(struct ima_namespace *ns,
 	struct ima_algo_desc *ima_algo_array = ns->ima_algo_array;
 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
 	struct crypto_shash *tfm = ns->ima_shash_tfm;
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	int rc, i;
 
 	if (algo < 0 || algo >= HASH_ALGO__LAST)
@@ -106,6 +108,7 @@ static struct crypto_shash *ima_alloc_tfm(struct ima_namespace *ns,
 int ima_init_crypto(struct ima_namespace *ns)
 {
 	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	struct ima_algo_desc *ima_algo_array;
 	enum hash_algo algo;
 	long rc;
@@ -306,6 +309,7 @@ static struct crypto_ahash *ima_alloc_atfm(struct ima_namespace *ns,
 					   enum hash_algo algo)
 {
 	struct crypto_ahash *tfm = ns->ima_ahash_tfm;
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	int rc;
 
 	if (algo < 0 || algo >= HASH_ALGO__LAST)
@@ -555,6 +559,7 @@ static int ima_calc_file_shash(struct ima_namespace *ns,
 int ima_calc_file_hash(struct ima_namespace *ns,
 		       struct file *file, struct ima_digest_data *hash)
 {
+	int ima_hash_algo = ns->config.ima_hash_algo;
 	loff_t i_size;
 	int rc;
 	struct file *f = file;
