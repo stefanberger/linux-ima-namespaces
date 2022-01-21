@@ -392,7 +392,8 @@ static void ima_free_rule(struct ima_rule_entry *entry)
 	kfree(entry);
 }
 
-static struct ima_rule_entry *ima_lsm_copy_rule(struct ima_rule_entry *entry)
+static struct ima_rule_entry *ima_lsm_copy_rule(struct ima_namespace *ns,
+						struct ima_rule_entry *entry)
 {
 	struct ima_rule_entry *nentry;
 	int i;
@@ -417,19 +418,26 @@ static struct ima_rule_entry *ima_lsm_copy_rule(struct ima_rule_entry *entry)
 		ima_filter_rule_init(nentry->lsm[i].type, Audit_equal,
 				     nentry->lsm[i].args_p,
 				     &nentry->lsm[i].rule);
-		if (!nentry->lsm[i].rule)
-			pr_warn("rule for LSM \'%s\' is undefined\n",
-				nentry->lsm[i].args_p);
+		if (!nentry->lsm[i].rule) {
+			if (ns == &init_ima_ns)
+				pr_warn("rule for LSM \'%s\' is undefined\n",
+					nentry->lsm[i].args_p);
+			else
+				pr_warn_ratelimited
+					("rule for LSM \'%s\' is undefined\n",
+					 nentry->lsm[i].args_p);
+		}
 	}
 	return nentry;
 }
 
-static int ima_lsm_update_rule(struct ima_rule_entry *entry)
+static int ima_lsm_update_rule(struct ima_namespace *ns,
+			       struct ima_rule_entry *entry)
 {
 	int i;
 	struct ima_rule_entry *nentry;
 
-	nentry = ima_lsm_copy_rule(entry);
+	nentry = ima_lsm_copy_rule(ns, entry);
 	if (!nentry)
 		return -ENOMEM;
 
@@ -473,7 +481,7 @@ static void ima_lsm_update_rules(struct ima_namespace *ns)
 		if (!ima_rule_contains_lsm_cond(entry))
 			continue;
 
-		result = ima_lsm_update_rule(entry);
+		result = ima_lsm_update_rule(ns, entry);
 		if (result) {
 			pr_err("lsm rule update error %d\n", result);
 			return;
@@ -484,12 +492,14 @@ static void ima_lsm_update_rules(struct ima_namespace *ns)
 int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 			  void *lsm_data)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_namespace *ns;
 
 	if (event != LSM_POLICY_CHANGE)
 		return NOTIFY_DONE;
 
+	ns = container_of(nb, struct ima_namespace, ima_lsm_policy_notifier);
 	ima_lsm_update_rules(ns);
+
 	return NOTIFY_OK;
 }
 
@@ -544,6 +554,7 @@ static bool ima_match_rule_data(struct ima_rule_entry *rule,
 
 /**
  * ima_match_rules - determine whether an inode matches the policy rule.
+ * @ns: IMA namespace that has the policy
  * @rule: a pointer to a rule
  * @idmap: idmap of the mount the inode was found from
  * @inode: a pointer to an inode
@@ -555,7 +566,8 @@ static bool ima_match_rule_data(struct ima_rule_entry *rule,
  *
  * Returns true on rule match, false on failure.
  */
-static bool ima_match_rules(struct ima_rule_entry *rule,
+static bool ima_match_rules(struct ima_namespace *ns,
+			    struct ima_rule_entry *rule,
 			    struct mnt_idmap *idmap,
 			    struct inode *inode, const struct cred *cred,
 			    u32 secid, enum ima_hooks func, int mask,
@@ -657,7 +669,7 @@ retry:
 		}
 
 		if (rc == -ESTALE && !rule_reinitialized) {
-			lsm_rule = ima_lsm_copy_rule(rule);
+			lsm_rule = ima_lsm_copy_rule(ns, rule);
 			if (lsm_rule) {
 				rule_reinitialized = true;
 				goto retry;
@@ -749,7 +761,7 @@ int ima_match_policy(struct ima_namespace *ns,
 		if (!(entry->action & actmask))
 			continue;
 
-		if (!ima_match_rules(entry, idmap, inode, cred, secid,
+		if (!ima_match_rules(ns, entry, idmap, inode, cred, secid,
 				     func, mask, func_data))
 			continue;
 
