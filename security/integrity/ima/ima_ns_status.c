@@ -141,8 +141,7 @@ static void ns_status_free(struct ima_namespace *ns,
  */
 static bool __iint_is_unused(struct integrity_iint_cache *iint)
 {
-	return list_empty(&iint->ns_list) &&
-		(iint_flags(iint, NULL) & IMA_IINT_FLAGS) == 0;
+	return list_empty(&iint->ns_list);
 }
 
 static bool iint_is_unused(struct integrity_iint_cache *iint)
