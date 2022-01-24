@@ -375,7 +375,7 @@ static int __process_measurement(struct ima_namespace *ns,
 			rc = ima_read_modsig(func, buf, size, &modsig);
 
 			if (!rc && ima_template_has_modsig(template_desc) &&
-			    iint->flags & IMA_MEASURED)
+			    iint_flags(iint, ns_status) & IMA_MEASURED)
 				action |= IMA_MEASURE;
 		}
 	}
