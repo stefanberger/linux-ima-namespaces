@@ -409,7 +409,7 @@ static int __process_measurement(struct ima_namespace *ns,
 				      xattr_value, xattr_len, modsig, pcr,
 				      template_desc, ns_status);
 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
-		rc = ima_check_blacklist(ns, iint, modsig, pcr);
+		rc = ima_check_blacklist(ns, iint, ns_status, modsig, pcr);
 		if (rc != -EPERM) {
 			inode_lock(inode);
 			rc = ima_appraise_measurement(ns, func, iint, file,

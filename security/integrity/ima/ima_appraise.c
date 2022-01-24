@@ -453,8 +453,10 @@ static int modsig_verify(enum ima_hooks func, const struct modsig *modsig,
  */
 int ima_check_blacklist(struct ima_namespace *ns,
 			struct integrity_iint_cache *iint,
+			struct ns_status *ns_status,
 			const struct modsig *modsig, int pcr)
 {
+	unsigned long flags = iint_flags(iint, ns_status);
 	enum hash_algo hash_algo;
 	const u8 *digest = NULL;
 	u32 digestsize = 0;
@@ -470,7 +472,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
 	} else if (iint->flags & IMA_DIGSIG_REQUIRED && iint->ima_hash)
 		rc = is_binary_blacklisted(iint->ima_hash->digest, iint->ima_hash->length);
 
-	if ((rc == -EPERM) && (iint->flags & IMA_MEASURE))
+	if ((rc == -EPERM) && (flags & IMA_MEASURE))
 		process_buffer_measurement(ns, &nop_mnt_idmap, NULL, digest, digestsize,
 					   "blacklisted-hash", NONE,
 					   pcr, NULL, false, NULL, 0);
