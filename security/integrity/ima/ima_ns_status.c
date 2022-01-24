@@ -178,8 +178,7 @@ void ima_ns_free_ns_status_list(struct ima_namespace *ns)
 			 * ==> iint->ns_list cannot change
 			 * Free the iint if it has no more ns_status.
 			 */
-			if (list_empty(&ns_status->iint->ns_list) &&
-			    (iint_flags(iint, NULL) & IMA_IINT_FLAGS) == 0)
+			if (list_empty(&ns_status->iint->ns_list))
 				integrity_inode_free_list(ns_status->iint->inode,
 							  false);
 			ns_status_free(ns, ns_status);
