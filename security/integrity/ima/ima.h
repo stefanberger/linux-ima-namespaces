@@ -418,6 +418,7 @@ int ima_policy_show(struct seq_file *m, void *v);
 #ifdef CONFIG_IMA_APPRAISE
 int ima_check_blacklist(struct ima_namespace *ns,
 			struct integrity_iint_cache *iint,
+			struct ns_status *ns_status,
 			const struct modsig *modsig, int pcr);
 int ima_appraise_measurement(struct ima_namespace *ns,
 			     enum ima_hooks func,
@@ -441,6 +442,7 @@ void __init init_ima_appraise_lsm(void);
 #else
 static inline int ima_check_blacklist(struct ima_namespace *ns,
 				      struct integrity_iint_cache *iint,
+				      struct ns_status *ns_status,
 				      const struct modsig *modsig, int pcr)
 {
 	return 0;
