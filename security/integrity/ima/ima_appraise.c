@@ -254,7 +254,8 @@ int ima_read_xattr(struct dentry *dentry,
  *
  * Return 0 on success, error code otherwise.
  */
-static int calc_file_id_hash(enum evm_ima_xattr_type type,
+static int calc_file_id_hash(struct ima_namespace *ns,
+			     enum evm_ima_xattr_type type,
 			     enum hash_algo algo, const u8 *digest,
 			     struct ima_digest_data *hash)
 {
@@ -270,7 +271,8 @@ static int calc_file_id_hash(enum evm_ima_xattr_type type,
 	hash->algo = algo;
 	hash->length = hash_digest_size[algo];
 
-	return ima_calc_buffer_hash(&file_id, sizeof(file_id) - unused, hash);
+	return ima_calc_buffer_hash(ns, &file_id, sizeof(file_id) - unused,
+				    hash);
 }
 
 /*
@@ -280,7 +282,8 @@ static int calc_file_id_hash(enum evm_ima_xattr_type type,
  *
  * Return 0 on success, error code otherwise.
  */
-static int xattr_verify(enum ima_hooks func, struct integrity_iint_cache *iint,
+static int xattr_verify(struct ima_namespace *ns,
+			enum ima_hooks func, struct integrity_iint_cache *iint,
 			struct evm_ima_xattr_data *xattr_value, int xattr_len,
 			enum integrity_status *status, const char **cause)
 {
@@ -383,7 +386,8 @@ static int xattr_verify(enum ima_hooks func, struct integrity_iint_cache *iint,
 			break;
 		}
 
-		rc = calc_file_id_hash(IMA_VERITY_DIGSIG, iint->ima_hash->algo,
+		rc = calc_file_id_hash(ns, IMA_VERITY_DIGSIG,
+				       iint->ima_hash->algo,
 				       iint->ima_hash->digest, &hash.hdr);
 		if (rc) {
 			*cause = "sigv3-hashing-error";
@@ -482,7 +486,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
  *
  * Return 0 on success, error code otherwise
  */
-int ima_appraise_measurement(enum ima_hooks func,
+int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 			     struct integrity_iint_cache *iint,
 			     struct file *file, const unsigned char *filename,
 			     struct evm_ima_xattr_data *xattr_value,
@@ -551,8 +555,8 @@ int ima_appraise_measurement(enum ima_hooks func,
 	}
 
 	if (xattr_value)
-		rc = xattr_verify(func, iint, xattr_value, xattr_len, &status,
-				  &cause);
+		rc = xattr_verify(ns, func, iint, xattr_value, xattr_len,
+				  &status, &cause);
 
 	/*
 	 * If we have a modsig and either no imasig or the imasig's key isn't

@@ -34,10 +34,12 @@ void ima_free_template_entry(struct ima_template_entry *entry)
 /*
  * ima_alloc_init_template - create and initialize a new template entry
  */
-int ima_alloc_init_template(struct ima_event_data *event_data,
+int ima_alloc_init_template(struct ima_namespace *ns,
+			    struct ima_event_data *event_data,
 			    struct ima_template_entry **entry,
 			    struct ima_template_desc *desc)
 {
+	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
 	struct ima_template_desc *template_desc;
 	struct tpm_digest *digests;
 	int i, result = 0;
@@ -52,8 +54,8 @@ int ima_alloc_init_template(struct ima_event_data *event_data,
 	if (!*entry)
 		return -ENOMEM;
 
-	digests = kcalloc(NR_BANKS(ima_tpm_chip) + ima_extra_slots,
-			  sizeof(*digests), GFP_NOFS);
+	digests = kcalloc(NR_BANKS(ima_tpm_chip) + ns->ima_extra_slots,
+			  sizeof(*ns->digests), GFP_NOFS);
 	if (!digests) {
 		kfree(*entry);
 		*entry = NULL;
@@ -67,7 +69,7 @@ int ima_alloc_init_template(struct ima_event_data *event_data,
 			template_desc->fields[i];
 		u32 len;
 
-		result = field->field_init(event_data,
+		result = field->field_init(ns, event_data,
 					   &((*entry)->template_data[i]));
 		if (result != 0)
 			goto out;
@@ -110,7 +112,8 @@ int ima_store_template(struct ima_namespace *ns,
 	int result;
 
 	if (!violation) {
-		result = ima_calc_field_array_hash(&entry->template_data[0],
+		result = ima_calc_field_array_hash(ns,
+						   &entry->template_data[0],
 						   entry);
 		if (result < 0) {
 			integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
@@ -149,7 +152,7 @@ void ima_add_violation(struct ima_namespace *ns,
 	/* can overflow, only indicator */
 	atomic_long_inc(&ns->ima_htable.violations);
 
-	result = ima_alloc_init_template(&event_data, &entry, NULL);
+	result = ima_alloc_init_template(ns, &event_data, &entry, NULL);
 	if (result < 0) {
 		result = -ENOMEM;
 		goto err_out;
@@ -292,9 +295,9 @@ int ima_collect_measurement(struct ima_namespace *ns,
 			result = -ENODATA;
 		}
 	} else if (buf) {
-		result = ima_calc_buffer_hash(buf, size, &hash.hdr);
+		result = ima_calc_buffer_hash(ns, buf, size, &hash.hdr);
 	} else {
-		result = ima_calc_file_hash(file, &hash.hdr);
+		result = ima_calc_file_hash(ns, file, &hash.hdr);
 	}
 
 	if (result && result != -EBADF && result != -EINVAL)
@@ -374,7 +377,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 	if (iint->measured_pcrs & (0x1 << pcr) && !modsig)
 		return;
 
-	result = ima_alloc_init_template(&event_data, &entry, template_desc);
+	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);
 	if (result < 0) {
 		integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
 				    op, audit_cause, result, 0);

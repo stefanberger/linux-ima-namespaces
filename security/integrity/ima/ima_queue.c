@@ -21,9 +21,6 @@
 
 #define AUDIT_CAUSE_LEN_MAX 32
 
-/* pre-allocated array of tpm_digest structures to extend a PCR */
-static struct tpm_digest *digests;
-
 /* mutex protects atomicity of extending measurement list
  * and extending the TPM PCR aggregate. Since tpm_extend can take
  * long (and the tpm driver uses a mutex), we can't use the spinlock.
@@ -43,7 +40,7 @@ static struct ima_queue_entry *ima_lookup_digest_entry
 	key = ima_hash_key(digest_value);
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(qe, &ns->ima_htable.queue[key], hnext) {
-		rc = memcmp(qe->entry->digests[ima_hash_algo_idx].digest,
+		rc = memcmp(qe->entry->digests[ns->ima_hash_algo_idx].digest,
 			    digest_value, hash_digest_size[ima_hash_algo]);
 		if ((rc == 0) && (qe->entry->pcr == pcr)) {
 			ret = qe;
@@ -97,7 +94,7 @@ static int ima_add_digest_entry(struct ima_namespace *ns,
 
 	atomic_long_inc(&ns->ima_htable.len);
 	if (update_htable) {
-		key = ima_hash_key(entry->digests[ima_hash_algo_idx].digest);
+		key = ima_hash_key(entry->digests[ns->ima_hash_algo_idx].digest);
 		hlist_add_head_rcu(&qe->hnext, &ns->ima_htable.queue[key]);
 	} else {
 		INIT_HLIST_NODE(&qe->hnext);
@@ -130,14 +127,15 @@ unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns)
 		return ns->binary_runtime_size + sizeof(struct ima_kexec_hdr);
 }
 
-static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
+static int ima_pcr_extend(struct ima_namespace *ns,
+			  struct tpm_digest *digests_arg, int pcr)
 {
 	int result = 0;
 
-	if (!ima_tpm_chip)
+	if (!ns->ima_tpm_chip)
 		return result;
 
-	result = tpm_pcr_extend(ima_tpm_chip, pcr, digests_arg);
+	result = tpm_pcr_extend(ns->ima_tpm_chip, pcr, digests_arg);
 	if (result != 0)
 		pr_err("Error Communicating to TPM chip, result: %d\n", result);
 	return result;
@@ -156,7 +154,7 @@ int ima_add_template_entry(struct ima_namespace *ns,
 			   const char *op, struct inode *inode,
 			   const unsigned char *filename)
 {
-	u8 *digest = entry->digests[ima_hash_algo_idx].digest;
+	u8 *digest = entry->digests[ns->ima_hash_algo_idx].digest;
 	struct tpm_digest *digests_arg = entry->digests;
 	const char *audit_cause = "hash_added";
 	char tpm_audit_cause[AUDIT_CAUSE_LEN_MAX];
@@ -181,9 +179,9 @@ int ima_add_template_entry(struct ima_namespace *ns,
 	}
 
 	if (violation)		/* invalidate pcr */
-		digests_arg = digests;
+		digests_arg = ns->digests;
 
-	tpmresult = ima_pcr_extend(digests_arg, entry->pcr);
+	tpmresult = ima_pcr_extend(ns, digests_arg, entry->pcr);
 	if (tpmresult != 0) {
 		snprintf(tpm_audit_cause, AUDIT_CAUSE_LEN_MAX, "TPM_error(%d)",
 			 tpmresult);
@@ -221,8 +219,9 @@ void ima_free_measurements(struct ima_namespace *ns)
 	}
 }
 
-int __init ima_init_digests(void)
+int __init ima_init_digests(struct ima_namespace *ns)
 {
+	struct tpm_chip *ima_tpm_chip = ns->ima_tpm_chip;
 	u16 digest_size;
 	u16 crypto_id;
 	int i;
@@ -230,13 +229,13 @@ int __init ima_init_digests(void)
 	if (!ima_tpm_chip)
 		return 0;
 
-	digests = kcalloc(ima_tpm_chip->nr_allocated_banks, sizeof(*digests),
-			  GFP_NOFS);
-	if (!digests)
+	ns->digests = kcalloc(ima_tpm_chip->nr_allocated_banks,
+			      sizeof(*ns->digests), GFP_NOFS);
+	if (!ns->digests)
 		return -ENOMEM;
 
 	for (i = 0; i < ima_tpm_chip->nr_allocated_banks; i++) {
-		digests[i].alg_id = ima_tpm_chip->allocated_banks[i].alg_id;
+		ns->digests[i].alg_id = ima_tpm_chip->allocated_banks[i].alg_id;
 		digest_size = ima_tpm_chip->allocated_banks[i].digest_size;
 		crypto_id = ima_tpm_chip->allocated_banks[i].crypto_id;
 
@@ -244,7 +243,7 @@ int __init ima_init_digests(void)
 		if (crypto_id == HASH_ALGO__LAST)
 			digest_size = SHA1_DIGEST_SIZE;
 
-		memset(digests[i].digest, 0xff, digest_size);
+		memset(ns->digests[i].digest, 0xff, digest_size);
 	}
 
 	return 0;
