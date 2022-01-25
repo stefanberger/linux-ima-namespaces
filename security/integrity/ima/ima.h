@@ -49,11 +49,7 @@ extern atomic_t ima_setxattr_allowed_hash_algorithms;
 
 /* set during initialization */
 extern int ima_hash_algo __ro_after_init;
-extern int ima_sha1_idx __ro_after_init;
-extern int ima_hash_algo_idx __ro_after_init;
-extern int ima_extra_slots __ro_after_init;
 extern int ima_appraise;
-extern struct tpm_chip *ima_tpm_chip;
 extern const char boot_aggregate_name[];
 
 /* IMA event related data */
@@ -78,7 +74,8 @@ struct ima_field_data {
 /* IMA template field definition */
 struct ima_template_field {
 	const char field_id[IMA_TEMPLATE_FIELD_ID_MAX_LEN];
-	int (*field_init)(struct ima_event_data *event_data,
+	int (*field_init)(struct ima_namespace *ns,
+			  struct ima_event_data *event_data,
 			  struct ima_field_data *field_data);
 	void (*field_show)(struct seq_file *m, enum ima_show_type show,
 			   struct ima_field_data *field_data);
@@ -157,6 +154,18 @@ struct ima_namespace {
 	bool ima_policy_removed;
 
 	struct notifier_block ima_lsm_policy_notifier;
+
+	/* TPM and hash algo related */
+	struct tpm_chip *ima_tpm_chip;
+	struct tpm_digest *digests;
+	struct ima_algo_desc *ima_algo_array;
+	int ima_sha1_idx;
+	int ima_hash_algo_idx;
+	/*
+	 * Additional number of slots reserved, as needed, for SHA1
+	 * and IMA default algo.
+	 */
+	int ima_extra_slots;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
@@ -199,17 +208,21 @@ int ima_add_template_entry(struct ima_namespace *ns,
 			   struct ima_template_entry *entry, int violation,
 			   const char *op, struct inode *inode,
 			   const unsigned char *filename);
-int ima_calc_file_hash(struct file *file, struct ima_digest_data *hash);
-int ima_calc_buffer_hash(const void *buf, loff_t len,
+int ima_calc_file_hash(struct ima_namespace *ns,
+		       struct file *file, struct ima_digest_data *hash);
+int ima_calc_buffer_hash(struct ima_namespace *ns,
+			 const void *buf, loff_t len,
 			 struct ima_digest_data *hash);
-int ima_calc_field_array_hash(struct ima_field_data *field_data,
+int ima_calc_field_array_hash(struct ima_namespace *ns,
+			      struct ima_field_data *field_data,
 			      struct ima_template_entry *entry);
-int ima_calc_boot_aggregate(struct ima_digest_data *hash);
+int ima_calc_boot_aggregate(struct ima_namespace *ns,
+			    struct ima_digest_data *hash);
 void ima_add_violation(struct ima_namespace *ns,
 		       struct file *file, const unsigned char *filename,
 		       struct integrity_iint_cache *iint,
 		       const char *op, const char *cause);
-int ima_init_crypto(void);
+int ima_init_crypto(struct ima_namespace *ns);
 void ima_putc(struct seq_file *m, void *data, int datalen);
 void ima_print_digest(struct seq_file *m, u8 *digest, u32 size);
 int template_desc_init_fields(const char *template_fmt,
@@ -224,11 +237,12 @@ int ima_restore_measurement_entry(struct ima_namespace *ns,
 int ima_restore_measurement_list(struct ima_namespace *ns,
 				 loff_t bufsize, void *buf);
 void ima_free_measurements(struct ima_namespace *ns);
-int ima_measurements_show(struct seq_file *m, void *v);
+int ima_ns_measurements_show(struct ima_namespace *ns,
+			     struct seq_file *m, void *v);
 unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
 int ima_init_template(void);
 void ima_init_template_list(void);
-int __init ima_init_digests(void);
+int __init ima_init_digests(struct ima_namespace *ns);
 int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 			  void *lsm_data);
 
@@ -338,7 +352,8 @@ int process_buffer_measurement(struct ima_namespace *ns,
 void ima_audit_measurement(struct integrity_iint_cache *iint,
 			   const unsigned char *filename,
 			   struct ns_status *ns_status);
-int ima_alloc_init_template(struct ima_event_data *event_data,
+int ima_alloc_init_template(struct ima_namespace *ns,
+			    struct ima_event_data *event_data,
 			    struct ima_template_entry **entry,
 			    struct ima_template_desc *template_desc);
 int ima_store_template(struct ima_namespace *ns,
@@ -380,7 +395,8 @@ int ima_policy_show(struct seq_file *m, void *v);
 int ima_check_blacklist(struct ima_namespace *ns,
 			struct integrity_iint_cache *iint,
 			const struct modsig *modsig, int pcr);
-int ima_appraise_measurement(enum ima_hooks func,
+int ima_appraise_measurement(struct ima_namespace *ns,
+			     enum ima_hooks func,
 			     struct integrity_iint_cache *iint,
 			     struct file *file, const unsigned char *filename,
 			     struct evm_ima_xattr_data *xattr_value,

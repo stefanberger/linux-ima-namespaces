@@ -22,7 +22,6 @@
 
 /* name for boot aggregate entry */
 const char boot_aggregate_name[] = "boot_aggregate";
-struct tpm_chip *ima_tpm_chip;
 
 /* Add the boot aggregate to the IMA measurement list and extend
  * the PCR register.
@@ -69,15 +68,15 @@ static int __init ima_add_boot_aggregate(struct ima_namespace *ns)
 	 * Ultimately select SHA1 also for TPM 2.0 if the SHA256 PCR bank
 	 * is not found.
 	 */
-	if (ima_tpm_chip) {
-		result = ima_calc_boot_aggregate(&hash.hdr);
+	if (ns->ima_tpm_chip) {
+		result = ima_calc_boot_aggregate(ns, &hash.hdr);
 		if (result < 0) {
 			audit_cause = "hashing_error";
 			goto err_out;
 		}
 	}
 
-	result = ima_alloc_init_template(&event_data, &entry, NULL);
+	result = ima_alloc_init_template(ns, &event_data, &entry, NULL);
 	if (result < 0) {
 		audit_cause = "alloc_entry";
 		goto err_out;
@@ -121,15 +120,15 @@ int __init ima_init(void)
 	if (rc)
 		return rc;
 
-	ima_tpm_chip = tpm_default_chip(&init_user_ns);
-	if (!ima_tpm_chip)
+	init_ima_ns.ima_tpm_chip = tpm_default_chip(&init_user_ns);
+	if (!init_ima_ns.ima_tpm_chip)
 		pr_info("No TPM chip found, activating TPM-bypass!\n");
 
 	rc = integrity_init_keyring(INTEGRITY_KEYRING_IMA);
 	if (rc)
 		return rc;
 
-	rc = ima_init_crypto();
+	rc = ima_init_crypto(&init_ima_ns);
 	if (rc)
 		return rc;
 	rc = ima_init_template();
@@ -139,7 +138,7 @@ int __init ima_init(void)
 	/* It can be called before ima_init_digests(), it does not use TPM. */
 	ima_load_kexec_buffer();
 
-	rc = ima_init_digests();
+	rc = ima_init_digests(&init_ima_ns);
 	if (rc != 0)
 		return rc;
 	/* boot aggregate must be first entry */
