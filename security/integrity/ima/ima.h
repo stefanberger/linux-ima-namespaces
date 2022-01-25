@@ -21,6 +21,7 @@
 #include <linux/tpm.h>
 #include <linux/audit.h>
 #include <linux/user_namespace.h>
+#include <linux/integrity_namespace.h>
 #include <crypto/hash_info.h>
 
 #include "../integrity.h"
@@ -72,6 +73,8 @@ struct ima_field_data {
 	u8 *data;
 	u32 len;
 };
+
+struct ima_namespace;
 
 /* IMA template field definition */
 struct ima_template_field {
@@ -666,14 +669,14 @@ static inline struct ima_namespace
 *ima_ns_from_user_ns(struct user_namespace *user_ns)
 {
 	/* Pairs with smp_store_releases() in user_ns_set_ima_ns(). */
-	return smp_load_acquire(&user_ns->ima_ns);
+	return smp_load_acquire(&user_ns->integrity_ns->ima_ns);
 }
 
 static inline void user_ns_set_ima_ns(struct user_namespace *user_ns,
 				      struct ima_namespace *ns)
 {
 	/* Pairs with smp_load_acquire() in ima_ns_from_user_ns() */
-	smp_store_release(&user_ns->ima_ns, ns);
+	smp_store_release(&user_ns->integrity_ns->ima_ns, ns);
 }
 
 static inline struct ima_namespace *get_current_ns(void)

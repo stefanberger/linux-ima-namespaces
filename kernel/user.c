@@ -20,7 +20,7 @@
 #include <linux/user_namespace.h>
 #include <linux/binfmts.h>
 #include <linux/proc_ns.h>
-#include <linux/ima.h>
+#include <linux/integrity_namespace.h>
 
 #if IS_ENABLED(CONFIG_BINFMT_MISC)
 struct binfmt_misc init_binfmt_misc = {
@@ -81,9 +81,7 @@ struct user_namespace init_user_ns = {
 #if IS_ENABLED(CONFIG_BINFMT_MISC)
 	.binfmt_misc = &init_binfmt_misc,
 #endif
-#ifdef CONFIG_IMA_NS
-	.ima_ns = &init_ima_ns,
-#endif
+	.integrity_ns = &init_integrity_ns,
 };
 EXPORT_SYMBOL_GPL(init_user_ns);
 

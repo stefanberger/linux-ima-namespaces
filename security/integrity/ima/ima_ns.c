@@ -74,7 +74,7 @@ void free_ima_ns(struct user_namespace *user_ns)
 
 	ima_free_ima_ns(ns);
 
-	user_ns->ima_ns = NULL;
+	user_ns->integrity_ns->ima_ns = NULL;
 }
 
 static int __init imans_cache_init(void)

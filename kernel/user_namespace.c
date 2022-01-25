@@ -21,7 +21,7 @@
 #include <linux/fs_struct.h>
 #include <linux/bsearch.h>
 #include <linux/sort.h>
-#include <linux/ima.h>
+#include <linux/integrity_namespace.h>
 
 static struct kmem_cache *user_ns_cachep __ro_after_init;
 static DEFINE_MUTEX(userns_state_mutex);
@@ -159,9 +159,23 @@ int create_user_ns(struct cred *new)
 	if (!setup_userns_sysctls(ns))
 		goto fail_keyring;
 
+#ifdef CONFIG_IMA_NS
+	ns->integrity_ns = create_integrity_ns();
+	if (IS_ERR(ns->integrity_ns)) {
+		ret = PTR_ERR(ns->integrity_ns);
+		goto fail_userns_sysctls;
+	}
+#endif
+
 	set_cred_user_ns(new, ns);
 	uuid_gen(&ns->uuid);
 	return 0;
+
+#ifdef CONFIG_IMA_NS
+fail_userns_sysctls:
+	retire_userns_sysctls(ns);
+#endif
+
 fail_keyring:
 #ifdef CONFIG_PERSISTENT_KEYRINGS
 	key_put(ns->persistent_keyring_register);
@@ -218,7 +232,7 @@ static void free_user_ns(struct work_struct *work)
 #if IS_ENABLED(CONFIG_BINFMT_MISC)
 		kfree(ns->binfmt_misc);
 #endif
-		free_ima_ns(ns);
+		free_integrity_ns(ns);
 		retire_userns_sysctls(ns);
 		key_free_user_ns(ns);
 		ns_free_inum(&ns->ns);
