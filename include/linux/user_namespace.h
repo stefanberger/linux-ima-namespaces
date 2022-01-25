@@ -37,7 +37,7 @@ struct uid_gid_map { /* 64 bytes -- 1 cache line */
 #define USERNS_INIT_FLAGS USERNS_SETGROUPS_ALLOWED
 
 struct ucounts;
-struct ima_namespace;
+struct integrity_namespace;
 
 enum ucount_type {
 	UCOUNT_USER_NAMESPACES,
@@ -104,13 +104,12 @@ struct user_namespace {
 	struct ucounts		*ucounts;
 	long ucount_max[UCOUNT_COUNTS];
 	long rlimit_max[UCOUNT_RLIMIT_COUNTS];
-#ifdef CONFIG_IMA_NS
-	/* Pointer to ima_ns which this user_ns created.  Can be null. IMA's
-	 * file access checks will walk the userns->parent chain and check
-	 * against all active ima_ns's. Note that when the user_ns is
-	 * freed, the ima_ns is guaranteed to be free-able.
+#ifdef CONFIG_INTEGRITY
+	/* Pointer to integrity_ns which this user_ns created. Cannot be NULL.
+	 * Note that when the user_ns is freed, the integrity_ns is guaranteed
+	 * to be free-able.
 	 */
-	struct ima_namespace	*ima_ns;
+	struct integrity_namespace *integrity_ns;
 #endif
 	uuid_t uuid;
 } __randomize_layout;
