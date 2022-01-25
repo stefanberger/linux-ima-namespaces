@@ -353,7 +353,8 @@ out:
 	return template_desc;
 }
 
-static int ima_restore_template_data(struct ima_template_desc *template_desc,
+static int ima_restore_template_data(struct ima_namespace *ns,
+				     struct ima_template_desc *template_desc,
 				     void *template_data,
 				     int template_data_size,
 				     struct ima_template_entry **entry)
@@ -367,7 +368,7 @@ static int ima_restore_template_data(struct ima_template_desc *template_desc,
 	if (!*entry)
 		return -ENOMEM;
 
-	digests = kcalloc(NR_BANKS(ima_tpm_chip) + ima_extra_slots,
+	digests = kcalloc(NR_BANKS(ns->ima_tpm_chip) + ns->ima_extra_slots,
 			  sizeof(*digests), GFP_NOFS);
 	if (!digests) {
 		kfree(*entry);
@@ -508,7 +509,7 @@ int ima_restore_measurement_list(struct ima_namespace *ns,
 			break;
 		}
 
-		ret = ima_restore_template_data(template_desc,
+		ret = ima_restore_template_data(ns, template_desc,
 						hdr[HDR_TEMPLATE_DATA].data,
 						hdr[HDR_TEMPLATE_DATA].len,
 						&entry);
@@ -517,6 +518,7 @@ int ima_restore_measurement_list(struct ima_namespace *ns,
 
 		if (memcmp(hdr[HDR_DIGEST].data, zero, sizeof(zero))) {
 			ret = ima_calc_field_array_hash(
+						ns,
 						&entry->template_data[0],
 						entry);
 			if (ret < 0) {

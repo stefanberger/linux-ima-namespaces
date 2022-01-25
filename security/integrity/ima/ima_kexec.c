@@ -40,7 +40,7 @@ static int ima_dump_measurement_list(struct ima_namespace *ns,
 	list_for_each_entry_rcu(qe, &ns->ima_measurements, later) {
 		if (file.count < file.size) {
 			khdr.count++;
-			ima_measurements_show(&file, qe);
+			ima_ns_measurements_show(ns, &file, qe);
 		} else {
 			ret = -EINVAL;
 			break;

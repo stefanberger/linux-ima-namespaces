@@ -12,6 +12,7 @@
 #include "ima_template_lib.h"
 #include <linux/xattr.h>
 #include <linux/evm.h>
+#include <linux/ima.h>
 
 static bool ima_template_hash_algo_allowed(u8 algo)
 {
@@ -335,7 +336,8 @@ static int ima_eventdigest_init_common(const u8 *digest, u32 digestsize,
 /*
  * This function writes the digest of an event (with size limit).
  */
-int ima_eventdigest_init(struct ima_event_data *event_data,
+int ima_eventdigest_init(struct ima_namespace *ns,
+			 struct ima_event_data *event_data,
 			 struct ima_field_data *field_data)
 {
 	struct ima_max_digest_data hash;
@@ -356,9 +358,9 @@ int ima_eventdigest_init(struct ima_event_data *event_data,
 	}
 
 	if ((const char *)event_data->filename == boot_aggregate_name) {
-		if (ima_tpm_chip) {
+		if (ns->ima_tpm_chip) {
 			hash.hdr.algo = HASH_ALGO_SHA1;
-			result = ima_calc_boot_aggregate(&hash.hdr);
+			result = ima_calc_boot_aggregate(ns, &hash.hdr);
 
 			/* algo can change depending on available PCR banks */
 			if (!result && hash.hdr.algo != HASH_ALGO_SHA1)
@@ -379,7 +381,7 @@ int ima_eventdigest_init(struct ima_event_data *event_data,
 	inode = file_inode(event_data->file);
 	hash.hdr.algo = ima_template_hash_algo_allowed(ima_hash_algo) ?
 	    ima_hash_algo : HASH_ALGO_SHA1;
-	result = ima_calc_file_hash(event_data->file, &hash.hdr);
+	result = ima_calc_file_hash(ns, event_data->file, &hash.hdr);
 	if (result) {
 		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
 				    event_data->filename, "collect_data",
@@ -397,7 +399,8 @@ out:
 /*
  * This function writes the digest of an event (without size limit).
  */
-int ima_eventdigest_ng_init(struct ima_event_data *event_data,
+int ima_eventdigest_ng_init(struct ima_namespace *ns,
+			    struct ima_event_data *event_data,
 			    struct ima_field_data *field_data)
 {
 	u8 *cur_digest = NULL, hash_algo = ima_hash_algo;
@@ -420,7 +423,8 @@ out:
  * This function writes the digest of an event (without size limit),
  * prefixed with both the digest type and hash algorithm.
  */
-int ima_eventdigest_ngv2_init(struct ima_event_data *event_data,
+int ima_eventdigest_ngv2_init(struct ima_namespace *ns,
+			      struct ima_event_data *event_data,
 			      struct ima_field_data *field_data)
 {
 	u8 *cur_digest = NULL, hash_algo = ima_hash_algo;
@@ -446,7 +450,8 @@ out:
  * This function writes the digest of the file which is expected to match the
  * digest contained in the file's appended signature.
  */
-int ima_eventdigest_modsig_init(struct ima_event_data *event_data,
+int ima_eventdigest_modsig_init(struct ima_namespace *ns,
+				struct ima_event_data *event_data,
 				struct ima_field_data *field_data)
 {
 	enum hash_algo hash_algo;
@@ -512,7 +517,8 @@ out:
 /*
  * This function writes the name of an event (with size limit).
  */
-int ima_eventname_init(struct ima_event_data *event_data,
+int ima_eventname_init(struct ima_namespace *ns,
+		       struct ima_event_data *event_data,
 		       struct ima_field_data *field_data)
 {
 	return ima_eventname_init_common(event_data, field_data, true);
@@ -521,7 +527,8 @@ int ima_eventname_init(struct ima_event_data *event_data,
 /*
  * This function writes the name of an event (without size limit).
  */
-int ima_eventname_ng_init(struct ima_event_data *event_data,
+int ima_eventname_ng_init(struct ima_namespace *ns,
+			  struct ima_event_data *event_data,
 			  struct ima_field_data *field_data)
 {
 	return ima_eventname_init_common(event_data, field_data, false);
@@ -530,7 +537,8 @@ int ima_eventname_ng_init(struct ima_event_data *event_data,
 /*
  *  ima_eventsig_init - include the file signature as part of the template data
  */
-int ima_eventsig_init(struct ima_event_data *event_data,
+int ima_eventsig_init(struct ima_namespace *ns,
+		      struct ima_event_data *event_data,
 		      struct ima_field_data *field_data)
 {
 	struct evm_ima_xattr_data *xattr_value = event_data->xattr_value;
@@ -538,7 +546,7 @@ int ima_eventsig_init(struct ima_event_data *event_data,
 	if (!xattr_value ||
 	    (xattr_value->type != EVM_IMA_XATTR_DIGSIG &&
 	     xattr_value->type != IMA_VERITY_DIGSIG))
-		return ima_eventevmsig_init(event_data, field_data);
+		return ima_eventevmsig_init(ns, event_data, field_data);
 
 	return ima_write_template_field_data(xattr_value, event_data->xattr_len,
 					     DATA_FMT_HEX, field_data);
@@ -548,7 +556,8 @@ int ima_eventsig_init(struct ima_event_data *event_data,
  *  ima_eventbuf_init - include the buffer(kexec-cmldine) as part of the
  *  template data.
  */
-int ima_eventbuf_init(struct ima_event_data *event_data,
+int ima_eventbuf_init(struct ima_namespace *ns,
+		      struct ima_event_data *event_data,
 		      struct ima_field_data *field_data)
 {
 	if ((!event_data->buf) || (event_data->buf_len == 0))
@@ -563,7 +572,8 @@ int ima_eventbuf_init(struct ima_event_data *event_data,
  *  ima_eventmodsig_init - include the appended file signature as part of the
  *  template data
  */
-int ima_eventmodsig_init(struct ima_event_data *event_data,
+int ima_eventmodsig_init(struct ima_namespace *ns,
+			 struct ima_event_data *event_data,
 			 struct ima_field_data *field_data)
 {
 	const void *data;
@@ -589,7 +599,8 @@ int ima_eventmodsig_init(struct ima_event_data *event_data,
  *  ima_eventevmsig_init - include the EVM portable signature as part of the
  *  template data
  */
-int ima_eventevmsig_init(struct ima_event_data *event_data,
+int ima_eventevmsig_init(struct ima_namespace *ns,
+			 struct ima_event_data *event_data,
 			 struct ima_field_data *field_data)
 {
 	struct evm_ima_xattr_data *xattr_data = NULL;
@@ -643,7 +654,8 @@ static int ima_eventinodedac_init_common(struct ima_event_data *event_data,
  *  ima_eventinodeuid_init - include the inode UID as part of the template
  *  data
  */
-int ima_eventinodeuid_init(struct ima_event_data *event_data,
+int ima_eventinodeuid_init(struct ima_namespace *ns,
+			   struct ima_event_data *event_data,
 			   struct ima_field_data *field_data)
 {
 	return ima_eventinodedac_init_common(event_data, field_data, true);
@@ -653,7 +665,8 @@ int ima_eventinodeuid_init(struct ima_event_data *event_data,
  *  ima_eventinodegid_init - include the inode GID as part of the template
  *  data
  */
-int ima_eventinodegid_init(struct ima_event_data *event_data,
+int ima_eventinodegid_init(struct ima_namespace *ns,
+			   struct ima_event_data *event_data,
 			   struct ima_field_data *field_data)
 {
 	return ima_eventinodedac_init_common(event_data, field_data, false);
@@ -663,7 +676,8 @@ int ima_eventinodegid_init(struct ima_event_data *event_data,
  *  ima_eventinodemode_init - include the inode mode as part of the template
  *  data
  */
-int ima_eventinodemode_init(struct ima_event_data *event_data,
+int ima_eventinodemode_init(struct ima_namespace *ns,
+			    struct ima_event_data *event_data,
 			    struct ima_field_data *field_data)
 {
 	struct inode *inode;
@@ -718,7 +732,8 @@ out:
  *  ima_eventinodexattrnames_init - include a list of xattr names as part of the
  *  template data
  */
-int ima_eventinodexattrnames_init(struct ima_event_data *event_data,
+int ima_eventinodexattrnames_init(struct ima_namespace *ns,
+				  struct ima_event_data *event_data,
 				  struct ima_field_data *field_data)
 {
 	return ima_eventinodexattrs_init_common(event_data, field_data, 'n');
@@ -728,7 +743,8 @@ int ima_eventinodexattrnames_init(struct ima_event_data *event_data,
  *  ima_eventinodexattrlengths_init - include a list of xattr lengths as part of
  *  the template data
  */
-int ima_eventinodexattrlengths_init(struct ima_event_data *event_data,
+int ima_eventinodexattrlengths_init(struct ima_namespace *ns,
+				    struct ima_event_data *event_data,
 				    struct ima_field_data *field_data)
 {
 	return ima_eventinodexattrs_init_common(event_data, field_data, 'l');
@@ -738,7 +754,8 @@ int ima_eventinodexattrlengths_init(struct ima_event_data *event_data,
  *  ima_eventinodexattrvalues_init - include a list of xattr values as part of
  *  the template data
  */
-int ima_eventinodexattrvalues_init(struct ima_event_data *event_data,
+int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
+				   struct ima_event_data *event_data,
 				   struct ima_field_data *field_data)
 {
 	return ima_eventinodexattrs_init_common(event_data, field_data, 'v');
