@@ -503,6 +503,55 @@ static const struct file_operations ima_measure_policy_ops = {
 	.llseek = generic_file_llseek,
 };
 
+static ssize_t ima_show_hash_algo(struct file *filp,
+				  char __user *buf,
+				  size_t count, loff_t *ppos)
+{
+	struct ima_namespace *ns = ima_ns_from_file(filp);
+	const char *hash = hash_algo_name[ns->config.ima_hash_algo];
+	ssize_t len = strlen(hash);
+
+	return simple_read_from_buffer(buf, count, ppos, hash, len);
+}
+
+static ssize_t ima_write_hash_algo(struct file *filp,
+				   const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	struct ima_namespace *ns = ima_ns_from_file(filp);
+	char tmpbuf[32];
+	ssize_t ret;
+	char *p;
+	int i;
+
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (ns_is_active(ns))
+		return -EBUSY;
+
+	ret = simple_write_to_buffer(tmpbuf, sizeof(tmpbuf) - 1, ppos,
+				     buf, count);
+	if (ret < 0)
+		return ret;
+	tmpbuf[ret] = 0;
+	p = strchr(tmpbuf, '\n');
+	if (p)
+		*p = '\0';
+
+	i = match_string(hash_algo_name, HASH_ALGO__LAST, tmpbuf);
+	if (i < 0)
+		return i;
+	ns->config.ima_hash_algo = i;
+
+	return count;
+}
+
+static const struct file_operations ima_hash_algo_ops = {
+	.read = ima_show_hash_algo,
+	.write = ima_write_hash_algo,
+};
+
 static ssize_t ima_show_active(struct file *filp,
 			       char __user *buf,
 			       size_t count, loff_t *ppos)
@@ -581,6 +630,7 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 	struct dentry *runtime_measurements_count = NULL;
 	struct dentry *violations = NULL;
 	struct dentry *active = NULL;
+	struct dentry *hash_algo = NULL;
 	int ret;
 
 	/*
@@ -668,6 +718,14 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 		}
 	}
 
+	hash_algo =
+	    securityfs_create_file("hash", S_IRUSR | S_IWUSR | S_IRGRP,
+				   ima_dir, NULL, &ima_hash_algo_ops);
+	if (IS_ERR(hash_algo)) {
+		ret = PTR_ERR(hash_algo);
+		goto out;
+	}
+
 	if (ns != &init_ima_ns) {
 		active =
 		    securityfs_create_file("active",
@@ -686,6 +744,7 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 out:
 	securityfs_remove(active);
 	securityfs_remove(ns->ima_policy);
+	securityfs_remove(hash_algo);
 	securityfs_remove(violations);
 	securityfs_remove(runtime_measurements_count);
 	securityfs_remove(ascii_runtime_measurements);
