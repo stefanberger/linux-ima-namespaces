@@ -139,7 +139,8 @@ void ima_putc(struct seq_file *m, void *data, int datalen)
  *       [eventdata length]
  *       eventdata[n]=template specific data
  */
-int ima_measurements_show(struct seq_file *m, void *v)
+int ima_ns_measurements_show(struct ima_namespace *ns,
+			     struct seq_file *m, void *v)
 {
 	/* the list never shrinks, so we don't need a lock here */
 	struct ima_queue_entry *qe = v;
@@ -166,7 +167,7 @@ int ima_measurements_show(struct seq_file *m, void *v)
 	ima_putc(m, &pcr, sizeof(e->pcr));
 
 	/* 2nd: template digest */
-	ima_putc(m, e->digests[ima_sha1_idx].digest, TPM_DIGEST_SIZE);
+	ima_putc(m, e->digests[ns->ima_sha1_idx].digest, TPM_DIGEST_SIZE);
 
 	/* 3rd: template name size */
 	namelen = !ima_canonical_fmt ? strlen(template_name) :
@@ -199,6 +200,11 @@ int ima_measurements_show(struct seq_file *m, void *v)
 		field->field_show(m, show, &e->template_data[i]);
 	}
 	return 0;
+}
+
+static int ima_measurements_show(struct seq_file *m, void *v)
+{
+	return ima_ns_measurements_show(ima_ns_from_file(m->file), m, v);
 }
 
 static const struct seq_operations ima_measurments_seqops = {
@@ -240,6 +246,7 @@ void ima_print_digest(struct seq_file *m, u8 *digest, u32 size)
 static int ima_ascii_measurements_show(struct seq_file *m, void *v)
 {
 	/* the list never shrinks, so we don't need a lock here */
+	struct ima_namespace *ns = ima_ns_from_file(m->file);
 	struct ima_queue_entry *qe = v;
 	struct ima_template_entry *e;
 	char *template_name;
@@ -257,7 +264,7 @@ static int ima_ascii_measurements_show(struct seq_file *m, void *v)
 	seq_printf(m, "%2d ", e->pcr);
 
 	/* 2nd: SHA1 template hash */
-	ima_print_digest(m, e->digests[ima_sha1_idx].digest, TPM_DIGEST_SIZE);
+	ima_print_digest(m, e->digests[ns->ima_sha1_idx].digest, TPM_DIGEST_SIZE);
 
 	/* 3th:  template name */
 	seq_printf(m, " %s", template_name);
