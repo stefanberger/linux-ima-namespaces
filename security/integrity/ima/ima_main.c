@@ -398,7 +398,7 @@ static int __process_measurement(struct ima_namespace *ns,
 		rc = ima_check_blacklist(ns, iint, modsig, pcr);
 		if (rc != -EPERM) {
 			inode_lock(inode);
-			rc = ima_appraise_measurement(func, iint, file,
+			rc = ima_appraise_measurement(ns, func, iint, file,
 						      pathname, xattr_value,
 						      xattr_len, modsig);
 			inode_unlock(inode);
@@ -1083,7 +1083,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	iint.ima_hash->algo = ima_hash_algo;
 	iint.ima_hash->length = hash_digest_size[ima_hash_algo];
 
-	ret = ima_calc_buffer_hash(buf, size, iint.ima_hash);
+	ret = ima_calc_buffer_hash(ns, buf, size, iint.ima_hash);
 	if (ret < 0) {
 		audit_cause = "hashing_error";
 		goto out;
@@ -1092,7 +1092,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	if (buf_hash) {
 		memcpy(digest_hash, hash.hdr.digest, digest_hash_len);
 
-		ret = ima_calc_buffer_hash(digest_hash, digest_hash_len,
+		ret = ima_calc_buffer_hash(ns, digest_hash, digest_hash_len,
 					   iint.ima_hash);
 		if (ret < 0) {
 			audit_cause = "hashing_error";
@@ -1109,7 +1109,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	if (!ns->ima_policy_flag || (func && !(action & IMA_MEASURE)))
 		return 1;
 
-	ret = ima_alloc_init_template(&event_data, &entry, template);
+	ret = ima_alloc_init_template(ns, &event_data, &entry, template);
 	if (ret < 0) {
 		audit_cause = "alloc_entry";
 		goto out;
