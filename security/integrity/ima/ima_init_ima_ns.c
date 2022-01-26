@@ -10,6 +10,7 @@
 
 int ima_init_namespace(struct ima_namespace *ns)
 {
+	const char *template_name = NULL;
 	int ret;
 
 	INIT_LIST_HEAD(&ns->ns_status_list);
@@ -61,7 +62,9 @@ int ima_init_namespace(struct ima_namespace *ns)
 	if (ret < 0)
 		goto err_deregister_notifier;
 
-	ret = ima_init_template(ns);
+	if (ns != &init_ima_ns)
+		template_name = ns->config.template_name;
+	ret = ima_init_template(ns, template_name);
 	if (ret != 0)
 		goto err_deinit_crypto;
 

@@ -298,11 +298,14 @@ struct ima_template_desc *ima_template_desc_buf(void)
 	return ima_buf_template;
 }
 
-int ima_init_template(struct ima_namespace *ns)
+int ima_init_template(struct ima_namespace *ns, const char *template_name)
 {
 	struct ima_template_desc *template =
-			ima_template_desc_current(ns, NULL);
+			ima_template_desc_current(ns, template_name);
 	int result;
+
+	if (!template)
+		return -EINVAL;
 
 	result = template_desc_init_fields(template->fmt,
 					   &(template->fields),
