@@ -276,12 +276,15 @@ void ima_init_template_list(void)
 	spin_unlock(&template_list);
 }
 
-struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns)
+struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
+						    const char *name)
 {
+	const char *tn = name ? name : CONFIG_IMA_DEFAULT_TEMPLATE;
+
 	if (!ns->ima_template) {
 		ima_init_template_list();
 		ns->ima_template =
-		    lookup_template_desc(CONFIG_IMA_DEFAULT_TEMPLATE);
+		    lookup_template_desc(tn);
 	}
 	return ns->ima_template;
 }
@@ -297,7 +300,8 @@ struct ima_template_desc *ima_template_desc_buf(void)
 
 int ima_init_template(struct ima_namespace *ns)
 {
-	struct ima_template_desc *template = ima_template_desc_current(ns);
+	struct ima_template_desc *template =
+			ima_template_desc_current(ns, NULL);
 	int result;
 
 	result = template_desc_init_fields(template->fmt,
