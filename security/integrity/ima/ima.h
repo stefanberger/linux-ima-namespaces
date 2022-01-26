@@ -263,7 +263,8 @@ void ima_print_digest(struct seq_file *m, u8 *digest, u32 size);
 int template_desc_init_fields(const char *template_fmt,
 			      const struct ima_template_field ***fields,
 			      int *num_fields);
-struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns);
+struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
+						    const char *name);
 struct ima_template_desc *ima_template_desc_buf(void);
 struct ima_template_desc *lookup_template_desc(const char *name);
 bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
