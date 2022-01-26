@@ -47,7 +47,7 @@ int ima_alloc_init_template(struct ima_namespace *ns,
 	if (desc)
 		template_desc = desc;
 	else
-		template_desc = ima_template_desc_current();
+		template_desc = ima_template_desc_current(ns);
 
 	*entry = kzalloc(struct_size(*entry, template_data,
 				     template_desc->num_fields),
