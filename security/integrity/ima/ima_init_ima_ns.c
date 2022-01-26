@@ -107,6 +107,7 @@ struct ima_namespace init_ima_ns = {
 	.ima_ns_flags = BIT(IMA_NS_ACTIVE),
 	.config = {
 		.ima_hash_algo = HASH_ALGO_SHA1,
+		.template_name = CONFIG_IMA_DEFAULT_TEMPLATE,
 	},
 };
 EXPORT_SYMBOL(init_ima_ns);
