@@ -61,11 +61,9 @@ int ima_init_namespace(struct ima_namespace *ns)
 	if (ret < 0)
 		goto err_deregister_notifier;
 
-	if (ns == &init_ima_ns) {
-		ret = ima_init_template();
-		if (ret != 0)
-			goto err_deinit_crypto;
-	}
+	ret = ima_init_template(ns);
+	if (ret != 0)
+		goto err_deinit_crypto;
 
 	ret = ima_init_digests(ns);
 	if (ret)
