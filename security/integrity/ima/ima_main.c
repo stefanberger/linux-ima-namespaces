@@ -36,7 +36,8 @@ int ima_appraise;
 
 static int __init hash_setup(struct ima_config *ic, char *str)
 {
-	struct ima_template_desc *template_desc = ima_template_desc_current();
+	struct ima_namespace *ns = &init_ima_ns;
+	struct ima_template_desc *template_desc = ima_template_desc_current(ns);
 	int i;
 
 	if (ic->hash_setup_done)
