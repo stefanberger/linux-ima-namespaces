@@ -552,6 +552,52 @@ static const struct file_operations ima_hash_algo_ops = {
 	.write = ima_write_hash_algo,
 };
 
+static ssize_t ima_show_template_name(struct file *filp,
+				      char __user *buf,
+				      size_t count, loff_t *ppos)
+{
+	struct ima_namespace *ns = ima_ns_from_file(filp);
+	struct ima_config ic = ns->config;
+	ssize_t len = strlen(ic.template_name);
+
+	return simple_read_from_buffer(buf, count, ppos,
+				       ic.template_name, len);
+}
+
+static ssize_t ima_write_template_name(struct file *filp,
+				       const char __user *buf,
+				       size_t count, loff_t *ppos)
+{
+	struct ima_namespace *ns = ima_ns_from_file(filp);
+	struct ima_config ic;
+	ssize_t ret;
+	char *p;
+
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (ns_is_active(ns))
+		return -EBUSY;
+
+	ret = simple_write_to_buffer(ic.template_name,
+				     sizeof(ic.template_name) - 1, ppos,
+				     buf, count);
+	if (ret < 0)
+		return ret;
+	ic.template_name[ret] = 0;
+	p = strchr(ic.template_name, '\n');
+	if (p)
+		*p = '\0';
+	strcpy(ns->config.template_name, ic.template_name);
+
+	return count;
+}
+
+static const struct file_operations ima_template_name_ops = {
+	.read = ima_show_template_name,
+	.write = ima_write_template_name,
+};
+
 static ssize_t ima_show_active(struct file *filp,
 			       char __user *buf,
 			       size_t count, loff_t *ppos)
@@ -631,6 +677,7 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 	struct dentry *violations = NULL;
 	struct dentry *active = NULL;
 	struct dentry *hash_algo = NULL;
+	struct dentry *template_name = NULL;
 	int ret;
 
 	/*
@@ -726,6 +773,15 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 		goto out;
 	}
 
+	template_name =
+	    securityfs_create_file("template_name",
+				   S_IRUSR | S_IWUSR | S_IRGRP,
+				   ima_dir, NULL, &ima_template_name_ops);
+	if (IS_ERR(template_name)) {
+		ret = PTR_ERR(template_name);
+		goto out;
+	}
+
 	if (ns != &init_ima_ns) {
 		active =
 		    securityfs_create_file("active",
@@ -744,6 +800,7 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 out:
 	securityfs_remove(active);
 	securityfs_remove(ns->ima_policy);
+	securityfs_remove(template_name);
 	securityfs_remove(hash_algo);
 	securityfs_remove(violations);
 	securityfs_remove(runtime_measurements_count);
