@@ -264,7 +264,7 @@ int template_desc_init_fields(const char *template_fmt,
 			      const struct ima_template_field ***fields,
 			      int *num_fields);
 struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
-						    const char *name);
+						    const char *template_name);
 struct ima_template_desc *ima_template_desc_buf(void);
 struct ima_template_desc *lookup_template_desc(const char *name);
 bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
@@ -276,7 +276,7 @@ void ima_free_measurements(struct ima_namespace *ns);
 int ima_ns_measurements_show(struct ima_namespace *ns,
 			     struct seq_file *m, void *v);
 unsigned long ima_get_binary_runtime_size(struct ima_namespace *ns);
-int ima_init_template(struct ima_namespace *ns);
+int ima_init_template(struct ima_namespace *ns, const char *name);
 void ima_init_template_list(void);
 int ima_init_digests(struct ima_namespace *ns);
 void ima_free_digests(struct ima_namespace *ns);
