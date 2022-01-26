@@ -762,7 +762,7 @@ int ima_match_policy(struct ima_namespace *ns,
 	struct list_head *ima_rules_tmp;
 
 	if (template_desc && !*template_desc)
-		*template_desc = ima_template_desc_current(ns);
+		*template_desc = ima_template_desc_current(ns, NULL);
 
 	ima_lazy_lsm_update_rules(ns);
 
@@ -1967,7 +1967,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
 
 	if (!result && entry->flags & IMA_MODSIG_ALLOWED) {
 		template_desc = entry->template ? entry->template :
-						  ima_template_desc_current(ns);
+					ima_template_desc_current(ns, NULL);
 		check_template_modsig(template_desc);
 	}
 
@@ -1975,7 +1975,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
 	if (!result && entry->action == MEASURE &&
 	    entry->flags & IMA_VERITY_REQUIRED) {
 		template_desc = entry->template ? entry->template :
-						  ima_template_desc_current(ns);
+						  ima_template_desc_current(ns, NULL);
 		check_template_field(template_desc, "d-ngv2",
 				     "verity rules should include d-ngv2");
 	}
