@@ -135,6 +135,10 @@ static int __init ima_template_setup(char *str)
 
 	ns->ima_template = template_desc;
 	ns->template_setup_done = 1;
+
+	strscpy(ns->config.template_name, str,
+		sizeof(ns->config.template_name));
+
 	return 1;
 }
 __setup("ima_template=", ima_template_setup);
