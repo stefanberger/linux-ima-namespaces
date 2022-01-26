@@ -127,6 +127,8 @@ struct ima_h_table {
 struct ima_config {
 	int ima_hash_algo;
 	int hash_setup_done;
+
+	char template_name[32];
 };
 
 struct ima_namespace {
