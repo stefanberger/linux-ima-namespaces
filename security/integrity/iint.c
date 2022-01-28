@@ -25,6 +25,8 @@ static struct kmem_cache *iint_cache __read_mostly;
 
 struct dentry *integrity_dir;
 
+typedef bool (*iint_removable_cb)(struct integrity_iint_cache *iint);
+
 /*
  * integrity_iint_find - return the iint associated with an inode
  */
@@ -84,22 +86,43 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
 /**
  * integrity_inode_free - called on security_inode_free
  * @inode: pointer to the inode
+ * @check: optional callback function to check whether the iint can be freed
  *
  * Free the integrity information(iint) associated with an inode.
  */
-static void integrity_inode_free(struct inode *inode)
+static void integrity_inode_free_test(struct inode *inode,
+				      iint_removable_cb check)
 {
 	struct integrity_iint_cache *iint;
+	bool freeit = true;
 
 	if (!IS_IMA(inode))
 		return;
 
 	iint = integrity_iint_find(inode);
-	integrity_inode_set_iint(inode, NULL);
+
+	if (check)
+		freeit = check(iint);
+	if (freeit)
+		integrity_inode_set_iint(inode, NULL);
+
+	if (!freeit)
+		return;
 
 	ima_free_ns_status_list(&iint->ns_list, &iint->ns_list_lock);
 
 	iint_free(iint);
+}
+
+/**
+ * integrity_inode_free - called on security_inode_free
+ * @inode: pointer to the inode
+ *
+ * Free the integrity information(iint) associated with an inode.
+ */
+static void integrity_inode_free(struct inode *inode)
+{
+	integrity_inode_free_test(inode, NULL);
 }
 
 static void init_once(void *foo)
