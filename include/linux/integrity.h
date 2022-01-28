@@ -21,6 +21,12 @@ enum integrity_status {
 
 /* List of EVM protected security xattrs */
 #ifdef CONFIG_INTEGRITY
+
+struct integrity_iint_cache;
+typedef bool (*iint_removable_cb)(struct integrity_iint_cache *iint);
+
+extern void integrity_inode_free_test(struct inode *inode,
+				      iint_removable_cb check);
 extern void __init integrity_load_keys(void);
 
 #else
