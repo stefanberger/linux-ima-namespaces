@@ -28,8 +28,6 @@ static struct kmem_cache *iint_cache __read_mostly;
 
 struct dentry *integrity_dir;
 
-typedef bool (*iint_removable_cb)(struct integrity_iint_cache *iint);
-
 /*
  * __integrity_iint_find - return the iint associated with an inode
  */
@@ -144,8 +142,8 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
  *
  * Free the integrity information(iint) associated with an inode.
  */
-static void integrity_inode_free_test(struct inode *inode,
-				      iint_removable_cb check)
+void integrity_inode_free_test(struct inode *inode,
+			       iint_removable_cb check)
 {
 	struct integrity_iint_cache *iint;
 	bool freeit = true;
@@ -156,6 +154,10 @@ static void integrity_inode_free_test(struct inode *inode,
 	write_lock(&integrity_iint_lock);
 
 	iint = __integrity_iint_find(inode);
+	if (!iint) {
+		write_unlock(&integrity_iint_lock);
+		return;
+	}
 
 	if (check)
 		freeit = check(iint);
