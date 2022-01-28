@@ -167,6 +167,18 @@ void ima_ns_free_ns_status_list(struct ima_namespace *ns)
 
 			write_unlock(&ns_status->iint->ns_list_lock);
 
+			/*
+			 * Due to ns_status_list_lock held ima_get_ns_status()
+			 * cannot add to the iint's ns_status list.
+			 * Due to GRP_NS_STATUS_LIST lock held
+			 * ima_free_ns_status_list() cannot remove from the
+			 * iint's ns_status list.
+			 * ==> iint->ns_list cannot change
+			 * Free the iint if it has no more ns_status.
+			 */
+			if (list_empty(&ns_status->iint->ns_list))
+				integrity_inode_free_list(ns_status->iint->inode,
+							  false);
 			ns_status_free(ns, ns_status);
 			ctr++;
 
