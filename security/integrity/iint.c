@@ -82,12 +82,14 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
 }
 
 /**
- * integrity_inode_free - called on security_inode_free
+ * integrity_inode_free_list : free an iint and possibly the ns_status list
  * @inode: pointer to the inode
+ * @free_ns_status_list: whether to free the ns_status list
  *
  * Free the integrity information(iint) associated with an inode.
  */
-static void integrity_inode_free(struct inode *inode)
+void integrity_inode_free_list(struct inode *inode,
+			       bool free_ns_status_list)
 {
 	struct integrity_iint_cache *iint;
 
@@ -95,11 +97,26 @@ static void integrity_inode_free(struct inode *inode)
 		return;
 
 	iint = integrity_iint_find(inode);
+	if (!iint)
+		return;
+
 	integrity_inode_set_iint(inode, NULL);
 
-	ima_free_ns_status_list(iint);
+	if (free_ns_status_list)
+		ima_free_ns_status_list(iint);
 
 	iint_free(iint);
+}
+
+/**
+ * integrity_inode_free - called on security_inode_free
+ * @inode: pointer to the inode
+ *
+ * Free the integrity information(iint) associated with an inode.
+ */
+static void integrity_inode_free(struct inode *inode)
+{
+	integrity_inode_free_list(inode, true);
 }
 
 static void init_once(void *foo)
