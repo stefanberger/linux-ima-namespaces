@@ -312,6 +312,7 @@ static const struct file_operations ima_ascii_measurements_ops = {
 
 static ssize_t ima_read_policy(struct user_namespace *user_ns, char *path)
 {
+	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
 	void *data = NULL;
 	char *datap;
 	size_t size;
@@ -326,7 +327,8 @@ static ssize_t ima_read_policy(struct user_namespace *user_ns, char *path)
 	rc = kernel_read_file_from_path(path, 0, &data, INT_MAX, NULL,
 					READING_POLICY);
 	if (rc < 0) {
-		pr_err("Unable to open file: %s (%d)", path, rc);
+		if (ns == &init_ima_ns)
+			pr_err("Unable to open file: %s (%d)", path, rc);
 		return rc;
 	}
 	size = rc;
@@ -385,7 +387,8 @@ static ssize_t ima_write_policy(struct file *file, const char __user *buf,
 	if (data[0] == '/') {
 		result = ima_read_policy(user_ns, data);
 	} else if (ns->ima_appraise & IMA_APPRAISE_POLICY) {
-		pr_err("signed policy file (specified as an absolute pathname) required\n");
+		if (ns == &init_ima_ns)
+			pr_err("signed policy file (specified as an absolute pathname) required\n");
 		integrity_audit_msg(AUDIT_INTEGRITY_STATUS, NULL, NULL,
 				    "policy_update", "signed policy required",
 				    1, 0);
