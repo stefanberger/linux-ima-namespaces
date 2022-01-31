@@ -1415,7 +1415,8 @@ static bool ima_validate_rule(struct ima_rule_entry *entry)
 	return true;
 }
 
-static unsigned int ima_parse_appraise_algos(char *arg)
+static unsigned int ima_parse_appraise_algos(struct ima_namespace *ns,
+					     char *arg)
 {
 	unsigned int res = 0;
 	int idx;
@@ -1425,14 +1426,16 @@ static unsigned int ima_parse_appraise_algos(char *arg)
 		idx = match_string(hash_algo_name, HASH_ALGO__LAST, token);
 
 		if (idx < 0) {
-			pr_err("unknown hash algorithm \"%s\"",
-			       token);
+			if (ns == &init_ima_ns)
+				pr_err("unknown hash algorithm \"%s\"",
+				       token);
 			return 0;
 		}
 
 		if (!crypto_has_alg(hash_algo_name[idx], 0, 0)) {
-			pr_err("unavailable hash algorithm \"%s\", check your kernel configuration",
-			       token);
+			if (ns == &init_ima_ns)
+				pr_err("unavailable hash algorithm \"%s\", check your kernel configuration",
+				       token);
 			return 0;
 		}
 
@@ -1890,7 +1893,7 @@ static int ima_parse_rule(struct user_namespace *user_ns,
 			}
 
 			entry->allowed_algos =
-				ima_parse_appraise_algos(args[0].from);
+				ima_parse_appraise_algos(ns, args[0].from);
 			/* invalid or empty list of algorithms */
 			if (!entry->allowed_algos) {
 				result = -EINVAL;
