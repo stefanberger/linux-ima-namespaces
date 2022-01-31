@@ -49,7 +49,9 @@ static struct key *integrity_keyring_from_id(struct integrity_namespace *ns,
 			request_key(&key_type_keyring, keyring_name[id], NULL);
 		if (IS_ERR(ns->keyring[id])) {
 			int err = PTR_ERR(ns->keyring[id]);
-			pr_err("no %s keyring: %d\n", keyring_name[id], err);
+			if (ns == &init_integrity_ns)
+				pr_err("no %s keyring: %d\n", keyring_name[id],
+				       err);
 			ns->keyring[id] = NULL;
 			return ERR_PTR(err);
 		}

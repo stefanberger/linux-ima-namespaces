@@ -9,6 +9,7 @@
 #include <linux/err.h>
 #include <linux/ratelimit.h>
 #include <linux/key-type.h>
+#include <linux/integrity_namespace.h>
 #include <crypto/public_key.h>
 #include <crypto/hash_info.h>
 #include <keys/asymmetric-type.h>
@@ -21,6 +22,7 @@
  */
 static struct key *request_asymmetric_key(struct key *keyring, uint32_t keyid)
 {
+	struct integrity_namespace *ns = current_integrity_ns();
 	struct key *key;
 	char name[12];
 
@@ -35,7 +37,9 @@ static struct key *request_asymmetric_key(struct key *keyring, uint32_t keyid)
 		kref = keyring_search(make_key_ref(key, 1),
 				      &key_type_asymmetric, name, true);
 		if (!IS_ERR(kref)) {
-			pr_err("Key '%s' is in ima_blacklist_keyring\n", name);
+			if (ns == &init_integrity_ns)
+				pr_err("Key '%s' is in ima_blacklist_keyring\n",
+				       name);
 			return ERR_PTR(-EKEYREJECTED);
 		}
 	}
@@ -54,7 +58,7 @@ static struct key *request_asymmetric_key(struct key *keyring, uint32_t keyid)
 		key = request_key(&key_type_asymmetric, name, NULL);
 	}
 
-	if (IS_ERR(key)) {
+	if (IS_ERR(key) && ns == &init_integrity_ns) {
 		if (keyring)
 			pr_err_ratelimited("Request for unknown key '%s' in '%s' keyring. err %ld\n",
 					   name, keyring->description,
@@ -62,7 +66,9 @@ static struct key *request_asymmetric_key(struct key *keyring, uint32_t keyid)
 		else
 			pr_err_ratelimited("Request for unknown key '%s' err %ld\n",
 					   name, PTR_ERR(key));
+	}
 
+	if (IS_ERR(key)) {
 		switch (PTR_ERR(key)) {
 			/* Hide some search errors */
 		case -EACCES:
