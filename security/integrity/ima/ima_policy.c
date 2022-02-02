@@ -780,7 +780,7 @@ int ima_match_policy(struct ima_namespace *ns,
 		if (entry->action & IMA_APPRAISE) {
 			action |= get_subaction(entry, func);
 			action &= ~IMA_HASH;
-			if (ima_fail_unverifiable_sigs)
+			if (ns == &init_ima_ns && ima_fail_unverifiable_sigs)
 				action |= IMA_FAIL_UNVERIFIABLE_SIGS;
 
 			if (allowed_algos &&
