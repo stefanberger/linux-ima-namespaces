@@ -45,8 +45,6 @@ enum tpm_pcrs { TPM_PCR0 = 0, TPM_PCR8 = 8, TPM_PCR10 = 10 };
 
 #define NR_BANKS(chip) ((chip != NULL) ? chip->nr_allocated_banks : 0)
 
-/* bitset of digests algorithms allowed in the setxattr hook */
-extern atomic_t ima_setxattr_allowed_hash_algorithms;
 
 extern const char boot_aggregate_name[];
 
@@ -226,6 +224,9 @@ struct ima_namespace {
 	int ima_appraise;
 
 	int temp_ima_appraise;
+
+	/* bitset of digests algorithms allowed in the setxattr hook */
+	atomic_t ima_setxattr_allowed_hash_algorithms;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 

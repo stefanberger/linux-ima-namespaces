@@ -806,7 +806,7 @@ static int validate_hash_algo(struct ima_namespace *ns,
 
 	xattr_hash_algo = ima_get_hash_algo(ns, xattr_value, xattr_value_len);
 
-	allowed_hashes = atomic_read(&ima_setxattr_allowed_hash_algorithms);
+	allowed_hashes = atomic_read(&ns->ima_setxattr_allowed_hash_algorithms);
 
 	if (allowed_hashes) {
 		/* success if the algorithm is allowed in the ima policy */
