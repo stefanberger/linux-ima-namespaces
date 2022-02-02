@@ -78,8 +78,6 @@ static const struct ima_template_field supported_fields[] = {
 #define MAX_TEMPLATE_NAME_LEN \
 	sizeof("d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode")
 
-static struct ima_template_desc *ima_buf_template;
-
 /**
  * ima_template_has_modsig - Check whether template has modsig-related fields.
  * @ima_template: IMA template to check.
@@ -289,13 +287,13 @@ struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
 	return ns->ima_template;
 }
 
-struct ima_template_desc *ima_template_desc_buf(void)
+struct ima_template_desc *ima_template_desc_buf(struct ima_namespace *ns)
 {
-	if (!ima_buf_template) {
+	if (!ns->ima_buf_template) {
 		ima_init_template_list();
-		ima_buf_template = lookup_template_desc("ima-buf");
+		ns->ima_buf_template = lookup_template_desc("ima-buf");
 	}
-	return ima_buf_template;
+	return ns->ima_buf_template;
 }
 
 int ima_init_template(struct ima_namespace *ns, const char *template_name)
@@ -317,7 +315,7 @@ int ima_init_template(struct ima_namespace *ns, const char *template_name)
 		return result;
 	}
 
-	template = ima_template_desc_buf();
+	template = ima_template_desc_buf(ns);
 	if (!template) {
 		pr_err("Failed to get ima-buf template\n");
 		return -EINVAL;

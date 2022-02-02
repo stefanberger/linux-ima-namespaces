@@ -1070,7 +1070,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	if (!ns->ima_policy_flag && !digest)
 		return -ENOENT;
 
-	template = ima_template_desc_buf();
+	template = ima_template_desc_buf(ns);
 	if (!template) {
 		ret = -EINVAL;
 		audit_cause = "ima_template_desc_buf";
