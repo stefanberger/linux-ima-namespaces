@@ -199,6 +199,7 @@ struct ima_namespace {
 
 	struct ima_template_desc *ima_template;
 	int template_setup_done;
+	struct ima_template_desc *ima_buf_template;
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
@@ -265,7 +266,7 @@ int template_desc_init_fields(const char *template_fmt,
 			      int *num_fields);
 struct ima_template_desc *ima_template_desc_current(struct ima_namespace *ns,
 						    const char *template_name);
-struct ima_template_desc *ima_template_desc_buf(void);
+struct ima_template_desc *ima_template_desc_buf(struct ima_namespace *ns);
 struct ima_template_desc *lookup_template_desc(const char *name);
 bool ima_template_has_modsig(const struct ima_template_desc *ima_template);
 int ima_restore_measurement_entry(struct ima_namespace *ns,
