@@ -53,8 +53,6 @@
 
 static int build_ima_appraise __ro_after_init;
 
-atomic_t ima_setxattr_allowed_hash_algorithms;
-
 #define MAX_LSM_RULES 6
 enum lsm_rule_types { LSM_OBJ_USER, LSM_OBJ_ROLE, LSM_OBJ_TYPE,
 	LSM_SUBJ_USER, LSM_SUBJ_ROLE, LSM_SUBJ_TYPE
@@ -846,8 +844,9 @@ void ima_update_policy_flags(struct ima_namespace *ns)
 		 *   the setxattr hash policy
 		 */
 		if (entry->func == SETXATTR_CHECK) {
-			atomic_cmpxchg(&ima_setxattr_allowed_hash_algorithms,
-				       0, entry->allowed_algos);
+			atomic_cmpxchg
+				(&ns->ima_setxattr_allowed_hash_algorithms,
+				 0, entry->allowed_algos);
 			/* SETXATTR_CHECK doesn't impact ima_policy_flag */
 			continue;
 		}
@@ -1035,7 +1034,7 @@ void __init ima_init_policy(struct user_namespace *user_ns)
 			  ARRAY_SIZE(critical_data_rules),
 			  IMA_DEFAULT_POLICY);
 
-	atomic_set(&ima_setxattr_allowed_hash_algorithms, 0);
+	atomic_set(&ns->ima_setxattr_allowed_hash_algorithms, 0);
 
 	ima_update_policy_flags(ns);
 }
