@@ -426,10 +426,12 @@ static int ima_release_policy(struct inode *inode, struct file *file)
 		}
 	}
 
-	pr_info("policy update %s\n", cause);
-	integrity_audit_message(AUDIT_INTEGRITY_STATUS, NULL, NULL,
-				"policy_update", cause, !ns->valid_policy, 0,
-				-err);
+	if (ns == &init_ima_ns) {
+		pr_info("policy update %s\n", cause);
+		integrity_audit_message(AUDIT_INTEGRITY_STATUS, NULL, NULL,
+					"policy_update", cause, !ns->valid_policy, 0,
+					-err);
+	}
 
 	if (!ns->valid_policy) {
 		ima_delete_rules(ns);
