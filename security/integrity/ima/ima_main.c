@@ -211,18 +211,26 @@ static void ima_check_last_writer(struct ima_namespace *ns,
  */
 void ima_file_free(struct file *file)
 {
-	struct ima_namespace *ns = &init_ima_ns;
+	struct user_namespace *user_ns = current_user_ns();
 	struct inode *inode = file_inode(file);
 	struct integrity_iint_cache *iint;
+	struct ima_namespace *ns;
 
-	if (!ns->ima_policy_flag || !S_ISREG(inode->i_mode))
+	if (!S_ISREG(inode->i_mode))
 		return;
 
 	iint = integrity_iint_find(inode);
 	if (!iint)
 		return;
 
-	ima_check_last_writer(ns, iint, inode, file);
+	while (user_ns) {
+		ns = ima_ns_from_user_ns(user_ns);
+		if (ns_is_active(ns)) {
+			ima_check_last_writer(ns, iint, inode, file);
+			break;
+		}
+		user_ns = user_ns->parent;
+	}
 }
 
 static int __process_measurement(struct ima_namespace *ns,
