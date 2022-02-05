@@ -142,12 +142,16 @@ void ima_add_violation(struct ima_namespace *ns,
 {
 	struct ima_template_entry *entry;
 	struct inode *inode = file_inode(file);
-	struct ima_event_data event_data = { .iint = iint,
+	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
 					     .file = file,
 					     .filename = filename,
 					     .violation = cause };
 	int violation = 1;
 	int result;
+
+	mutex_lock(&iint->mutex);
+	event_data.iint_flags = iint_flags(iint, NULL);
+	mutex_unlock(&iint->mutex);
 
 	/* can overflow, only indicator */
 	atomic_long_inc(&ns->ima_htable.violations);
@@ -356,7 +360,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 	int result = -ENOMEM;
 	struct inode *inode = file_inode(file);
 	struct ima_template_entry *entry;
-	struct ima_event_data event_data = { .iint = iint,
+	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
+					     .iint_flags = iint_flags(iint, NULL),
 					     .file = file,
 					     .filename = filename,
 					     .xattr_value = xattr_value,
