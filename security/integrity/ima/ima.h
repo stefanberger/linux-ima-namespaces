@@ -54,7 +54,8 @@ extern const char boot_aggregate_name[];
 
 /* IMA event related data */
 struct ima_event_data {
-	struct integrity_iint_cache *iint;
+	struct ima_digest_data *ima_hash;
+	unsigned long iint_flags; /* iint/nsstatus flags */
 	struct file *file;
 	const unsigned char *filename;
 	struct evm_ima_xattr_data *xattr_value;
