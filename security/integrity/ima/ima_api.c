@@ -142,12 +142,14 @@ void ima_add_violation(struct ima_namespace *ns,
 {
 	struct ima_template_entry *entry;
 	struct inode *inode = file_inode(file);
-	struct ima_event_data event_data = { .iint = iint,
+	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
 					     .file = file,
 					     .filename = filename,
 					     .violation = cause };
 	int violation = 1;
 	int result;
+
+	event_data.iint_flags = iint->flags & IMA_VERITY_REQUIRED;
 
 	/* can overflow, only indicator */
 	atomic_long_inc(&ns->ima_htable.violations);
@@ -361,7 +363,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 	int result = -ENOMEM;
 	struct inode *inode = file_inode(file);
 	struct ima_template_entry *entry;
-	struct ima_event_data event_data = { .iint = iint,
+	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
 					     .file = file,
 					     .filename = filename,
 					     .xattr_value = xattr_value,
@@ -369,6 +371,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 					     .modsig = modsig };
 	int violation = 0;
 	unsigned long flags = iint_flags(iint, ns_status);
+
+	event_data.iint_flags = flags & IMA_VERITY_REQUIRED;
 
 	/*
 	 * We still need to store the measurement in the case of MODSIG because
