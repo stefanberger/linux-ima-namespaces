@@ -43,18 +43,16 @@ int ima_add_boot_aggregate(struct ima_namespace *ns)
 	static const char op[] = "add_boot_aggregate";
 	const char *audit_cause = "ENOMEM";
 	struct ima_template_entry *entry;
-	struct integrity_iint_cache tmp_iint, *iint = &tmp_iint;
-	struct ima_event_data event_data = { .iint = iint,
-					     .filename = boot_aggregate_name };
 	struct ima_max_digest_data hash;
+	struct ima_event_data event_data = { .ima_hash = &hash.hdr,
+					     .filename = boot_aggregate_name };
 	int result = -ENOMEM;
 	int violation = 0;
 
-	memset(iint, 0, sizeof(*iint));
 	memset(&hash, 0, sizeof(hash));
-	iint->ima_hash = &hash.hdr;
-	iint->ima_hash->algo = ima_hash_algo;
-	iint->ima_hash->length = hash_digest_size[ima_hash_algo];
+	event_data.ima_hash = &hash.hdr;
+	event_data.ima_hash->algo = ima_hash_algo;
+	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
 
 	/*
 	 * With TPM 2.0 hash agility, TPM chips could support multiple TPM
