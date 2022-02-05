@@ -1034,13 +1034,12 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	int ret = 0;
 	const char *audit_cause = "ENOMEM";
 	struct ima_template_entry *entry = NULL;
-	struct integrity_iint_cache iint = {};
-	struct ima_event_data event_data = {.iint = &iint,
+	struct ima_max_digest_data hash;
+	struct ima_event_data event_data = {.ima_hash = &hash.hdr,
 					    .filename = eventname,
 					    .buf = buf,
 					    .buf_len = size};
 	struct ima_template_desc *template;
-	struct ima_max_digest_data hash;
 	char digest_hash[IMA_MAX_DIGEST_SIZE];
 	int digest_hash_len = hash_digest_size[ima_hash_algo];
 	int violation = 0;
@@ -1079,11 +1078,11 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	if (!pcr)
 		pcr = CONFIG_IMA_MEASURE_PCR_IDX;
 
-	iint.ima_hash = &hash.hdr;
-	iint.ima_hash->algo = ima_hash_algo;
-	iint.ima_hash->length = hash_digest_size[ima_hash_algo];
+	event_data.ima_hash = &hash.hdr;
+	event_data.ima_hash->algo = ima_hash_algo;
+	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
 
-	ret = ima_calc_buffer_hash(ns, buf, size, iint.ima_hash);
+	ret = ima_calc_buffer_hash(ns, buf, size, event_data.ima_hash);
 	if (ret < 0) {
 		audit_cause = "hashing_error";
 		goto out;
@@ -1093,7 +1092,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 		memcpy(digest_hash, hash.hdr.digest, digest_hash_len);
 
 		ret = ima_calc_buffer_hash(ns, digest_hash, digest_hash_len,
-					   iint.ima_hash);
+					   event_data.ima_hash);
 		if (ret < 0) {
 			audit_cause = "hashing_error";
 			goto out;
@@ -1104,7 +1103,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	}
 
 	if (digest)
-		memcpy(digest, iint.ima_hash->digest, digest_hash_len);
+		memcpy(digest, event_data.ima_hash->digest, digest_hash_len);
 
 	if (!ns->ima_policy_flag || (func && !(action & IMA_MEASURE)))
 		return 1;
