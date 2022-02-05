@@ -351,9 +351,9 @@ int ima_eventdigest_init(struct ima_namespace *ns,
 	if (event_data->violation)	/* recording a violation. */
 		goto out;
 
-	if (ima_template_hash_algo_allowed(event_data->iint->ima_hash->algo)) {
-		cur_digest = event_data->iint->ima_hash->digest;
-		cur_digestsize = event_data->iint->ima_hash->length;
+	if (ima_template_hash_algo_allowed(event_data->ima_hash->algo)) {
+		cur_digest = event_data->ima_hash->digest;
+		cur_digestsize = event_data->ima_hash->length;
 		goto out;
 	}
 
@@ -409,10 +409,10 @@ int ima_eventdigest_ng_init(struct ima_namespace *ns,
 	if (event_data->violation)	/* recording a violation. */
 		goto out;
 
-	cur_digest = event_data->iint->ima_hash->digest;
-	cur_digestsize = event_data->iint->ima_hash->length;
+	cur_digest = event_data->ima_hash->digest;
+	cur_digestsize = event_data->ima_hash->length;
 
-	hash_algo = event_data->iint->ima_hash->algo;
+	hash_algo = event_data->ima_hash->algo;
 out:
 	return ima_eventdigest_init_common(cur_digest, cur_digestsize,
 					   DIGEST_TYPE__LAST, hash_algo,
@@ -434,11 +434,11 @@ int ima_eventdigest_ngv2_init(struct ima_namespace *ns,
 	if (event_data->violation)	/* recording a violation. */
 		goto out;
 
-	cur_digest = event_data->iint->ima_hash->digest;
-	cur_digestsize = event_data->iint->ima_hash->length;
+	cur_digest = event_data->ima_hash->digest;
+	cur_digestsize = event_data->ima_hash->length;
 
-	hash_algo = event_data->iint->ima_hash->algo;
-	if (event_data->iint->flags & IMA_VERITY_REQUIRED)
+	hash_algo = event_data->ima_hash->algo;
+	if (event_data->iint_flags & IMA_VERITY_REQUIRED)
 		digest_type = DIGEST_TYPE_VERITY;
 out:
 	return ima_eventdigest_init_common(cur_digest, cur_digestsize,
