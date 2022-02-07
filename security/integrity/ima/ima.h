@@ -238,6 +238,7 @@ int ima_calc_boot_aggregate(struct ima_namespace *ns,
 void ima_add_violation(struct ima_namespace *ns,
 		       struct file *file, const unsigned char *filename,
 		       struct integrity_iint_cache *iint,
+		       struct ns_status *ns_status,
 		       const char *op, const char *cause);
 int ima_init_crypto(struct ima_namespace *ns);
 void ima_deinit_crypto(struct ima_namespace *ns);
@@ -359,6 +360,7 @@ int ima_get_action(struct ima_namespace *ns,
 int ima_must_measure(struct inode *inode, int mask, enum ima_hooks func);
 int ima_collect_measurement(struct ima_namespace *ns,
 			    struct integrity_iint_cache *iint,
+			    struct ns_status *ns_status,
 			    struct file *file, void *buf, loff_t size,
 			    enum hash_algo algo, struct modsig *modsig);
 void ima_store_measurement(struct ima_namespace *ns,
@@ -424,6 +426,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
 int ima_appraise_measurement(struct ima_namespace *ns,
 			     enum ima_hooks func,
 			     struct integrity_iint_cache *iint,
+			     struct ns_status *ns_status,
 			     struct file *file, const unsigned char *filename,
 			     struct evm_ima_xattr_data *xattr_value,
 			     int xattr_len, const struct modsig *modsig);
@@ -451,6 +454,7 @@ static inline int ima_check_blacklist(struct ima_namespace *ns,
 
 static inline int ima_appraise_measurement(enum ima_hooks func,
 					   struct integrity_iint_cache *iint,
+					   struct ns_status *ns_status,
 					   struct file *file,
 					   const unsigned char *filename,
 					   struct evm_ima_xattr_data *xattr_value,
@@ -573,7 +577,7 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
 
 #define IMA_NS_STATUS_ACTIONS   (IMA_AUDIT | IMA_MEASURE)
 #define IMA_NS_STATUS_FLAGS     (IMA_AUDIT | IMA_AUDITED | \
-				 IMA_MEASURE | IMA_MEASURED)
+				 IMA_MEASURE | IMA_MEASURED | IMA_COLLECTED)
 
 #define IMA_IINT_FLAGS		(IMA_APPRAISE | IMA_HASH)
 
