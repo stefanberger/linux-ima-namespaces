@@ -138,11 +138,12 @@ int ima_store_template(struct ima_namespace *ns,
 void ima_add_violation(struct ima_namespace *ns,
 		       struct file *file, const unsigned char *filename,
 		       struct integrity_iint_cache *iint,
+		       struct ns_status *ns_status,
 		       const char *op, const char *cause)
 {
 	struct ima_template_entry *entry;
 	struct inode *inode = file_inode(file);
-	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
+	struct ima_event_data event_data = { .ima_hash = ns_status->ima_hash,
 					     .file = file,
 					     .filename = filename,
 					     .violation = cause };
@@ -250,6 +251,7 @@ static bool ima_get_verity_digest(struct integrity_iint_cache *iint,
  */
 int ima_collect_measurement(struct ima_namespace *ns,
 			    struct integrity_iint_cache *iint,
+			    struct ns_status *ns_status,
 			    struct file *file, void *buf, loff_t size,
 			    enum hash_algo algo, struct modsig *modsig)
 {
@@ -257,6 +259,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
 	struct inode *inode = file_inode(file);
 	const char *filename = file->f_path.dentry->d_name.name;
 	struct ima_max_digest_data hash;
+	unsigned long flags;
 	struct kstat stat;
 	int result = 0;
 	int length;
@@ -271,7 +274,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
 	if (modsig)
 		ima_collect_modsig(modsig, buf, size);
 
-	if (iint->flags & IMA_COLLECTED)
+	if (iint_flags(iint, ns_status) & IMA_COLLECTED)
 		goto out;
 
 	/*
@@ -305,19 +308,22 @@ int ima_collect_measurement(struct ima_namespace *ns,
 		goto out;
 
 	length = sizeof(hash.hdr) + hash.hdr.length;
-	tmpbuf = krealloc(iint->ima_hash, length, GFP_NOFS);
+	tmpbuf = krealloc(ns_status->ima_hash, length, GFP_NOFS);
 	if (!tmpbuf) {
 		result = -ENOMEM;
 		goto out;
 	}
 
-	iint->ima_hash = tmpbuf;
-	memcpy(iint->ima_hash, &hash, length);
+	ns_status->ima_hash = tmpbuf;
+	memcpy(ns_status->ima_hash, &hash, length);
 	iint->version = i_version;
 
 	/* Possibly temporary failure due to type of read (eg. O_DIRECT) */
-	if (!result)
-		iint->flags |= IMA_COLLECTED;
+	if (!result) {
+		flags = iint_flags(iint, ns_status);
+		flags |= IMA_COLLECTED;
+		set_iint_flags(iint, ns_status, flags);
+	}
 out:
 	if (result && ns == &init_ima_ns) {
 		if (file->f_flags & O_DIRECT)
@@ -358,7 +364,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 	int result = -ENOMEM;
 	struct inode *inode = file_inode(file);
 	struct ima_template_entry *entry;
-	struct ima_event_data event_data = { .ima_hash = iint->ima_hash,
+	struct ima_event_data event_data = { .ima_hash = ns_status->ima_hash,
 					     .file = file,
 					     .filename = filename,
 					     .xattr_value = xattr_value,
@@ -400,19 +406,19 @@ void ima_audit_measurement(struct integrity_iint_cache *iint,
 {
 	struct audit_buffer *ab;
 	char *hash;
-	const char *algo_name = hash_algo_name[iint->ima_hash->algo];
+	const char *algo_name = hash_algo_name[ns_status->ima_hash->algo];
 	int i;
 	unsigned long flags = iint_flags(iint, ns_status);
 
 	if (flags & IMA_AUDITED)
 		return;
 
-	hash = kzalloc((iint->ima_hash->length * 2) + 1, GFP_KERNEL);
+	hash = kzalloc((ns_status->ima_hash->length * 2) + 1, GFP_KERNEL);
 	if (!hash)
 		return;
 
-	for (i = 0; i < iint->ima_hash->length; i++)
-		hex_byte_pack(hash + (i * 2), iint->ima_hash->digest[i]);
+	for (i = 0; i < ns_status->ima_hash->length; i++)
+		hex_byte_pack(hash + (i * 2), ns_status->ima_hash->digest[i]);
 	hash[i * 2] = '\0';
 
 	ab = audit_log_start(audit_context(), GFP_KERNEL,
