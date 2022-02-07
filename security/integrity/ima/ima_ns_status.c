@@ -130,6 +130,8 @@ static void ns_status_free(struct ima_namespace *ns,
 			   struct ns_status *ns_status)
 {
 	pr_debug("FREE ns_status: %p\n", ns_status);
+	kfree(ns_status->ima_hash);
+	ns_status->ima_hash = NULL;
 
 	kmem_cache_free(ns->ns_status_cache, ns_status);
 }
@@ -296,6 +298,7 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
 	ns_status->ns = ns;
 	ns_status->i_ino = inode->i_ino;
 	ns_status->i_generation = inode->i_generation;
+	ns_status->ima_hash = NULL;
 
 	/* make visible on list */
 	write_lock(&iint->ns_list_lock);

@@ -89,23 +89,23 @@ int ima_must_appraise(struct ima_namespace *ns,
 }
 
 static int ima_fix_xattr(struct dentry *dentry,
-			 struct integrity_iint_cache *iint)
+			 struct ns_status *ns_status)
 {
 	int rc, offset;
-	u8 algo = iint->ima_hash->algo;
+	u8 algo = ns_status->ima_hash->algo;
 
 	if (algo <= HASH_ALGO_SHA1) {
 		offset = 1;
-		iint->ima_hash->xattr.sha1.type = IMA_XATTR_DIGEST;
+		ns_status->ima_hash->xattr.sha1.type = IMA_XATTR_DIGEST;
 	} else {
 		offset = 0;
-		iint->ima_hash->xattr.ng.type = IMA_XATTR_DIGEST_NG;
-		iint->ima_hash->xattr.ng.algo = algo;
+		ns_status->ima_hash->xattr.ng.type = IMA_XATTR_DIGEST_NG;
+		ns_status->ima_hash->xattr.ng.algo = algo;
 	}
 	rc = __vfs_setxattr_noperm(&nop_mnt_idmap, dentry, XATTR_NAME_IMA,
-				   &iint->ima_hash->xattr.data[offset],
-				   (sizeof(iint->ima_hash->xattr) - offset) +
-				   iint->ima_hash->length, 0);
+				   &ns_status->ima_hash->xattr.data[offset],
+				   (sizeof(ns_status->ima_hash->xattr) - offset)
+				   + ns_status->ima_hash->length, 0);
 	return rc;
 }
 
@@ -284,6 +284,7 @@ static int calc_file_id_hash(struct ima_namespace *ns,
  */
 static int xattr_verify(struct ima_namespace *ns,
 			enum ima_hooks func, struct integrity_iint_cache *iint,
+			struct ns_status *ns_status,
 			struct evm_ima_xattr_data *xattr_value, int xattr_len,
 			enum integrity_status *status, const char **cause)
 {
@@ -291,6 +292,7 @@ static int xattr_verify(struct ima_namespace *ns,
 	struct signature_v2_hdr *sig;
 	int rc = -EINVAL, hash_start = 0;
 	int mask;
+	struct ima_digest_data *ima_hash = ns_status->ima_hash;
 
 	switch (xattr_value->type) {
 	case IMA_XATTR_DIGEST_NG:
@@ -312,14 +314,14 @@ static int xattr_verify(struct ima_namespace *ns,
 			set_bit(IMA_DIGSIG, &iint->atomic_flags);
 		}
 		if (xattr_len - sizeof(xattr_value->type) - hash_start >=
-				iint->ima_hash->length)
+				ima_hash->length)
 			/*
 			 * xattr length may be longer. md5 hash in previous
 			 * version occupied 20 bytes in xattr, instead of 16
 			 */
 			rc = memcmp(&xattr_value->data[hash_start],
-				    iint->ima_hash->digest,
-				    iint->ima_hash->length);
+				    ima_hash->digest,
+				    ima_hash->length);
 		else
 			rc = -EINVAL;
 		if (rc) {
@@ -348,8 +350,8 @@ static int xattr_verify(struct ima_namespace *ns,
 		rc = integrity_digsig_verify(INTEGRITY_KEYRING_IMA,
 					     (const char *)xattr_value,
 					     xattr_len,
-					     iint->ima_hash->digest,
-					     iint->ima_hash->length);
+					     ima_hash->digest,
+					     ima_hash->length);
 		if (rc == -EOPNOTSUPP) {
 			*status = INTEGRITY_UNKNOWN;
 			break;
@@ -359,8 +361,8 @@ static int xattr_verify(struct ima_namespace *ns,
 			rc = integrity_digsig_verify(INTEGRITY_KEYRING_PLATFORM,
 						     (const char *)xattr_value,
 						     xattr_len,
-						     iint->ima_hash->digest,
-						     iint->ima_hash->length);
+						     ima_hash->digest,
+						     ima_hash->length);
 		if (rc) {
 			*cause = "invalid-signature";
 			*status = INTEGRITY_FAIL;
@@ -387,8 +389,8 @@ static int xattr_verify(struct ima_namespace *ns,
 		}
 
 		rc = calc_file_id_hash(ns, IMA_VERITY_DIGSIG,
-				       iint->ima_hash->algo,
-				       iint->ima_hash->digest, &hash.hdr);
+				       ima_hash->algo,
+				       ima_hash->digest, &hash.hdr);
 		if (rc) {
 			*cause = "sigv3-hashing-error";
 			*status = INTEGRITY_FAIL;
@@ -469,8 +471,8 @@ int ima_check_blacklist(struct ima_namespace *ns,
 		ima_get_modsig_digest(modsig, &hash_algo, &digest, &digestsize);
 
 		rc = is_binary_blacklisted(digest, digestsize);
-	} else if (iint->flags & IMA_DIGSIG_REQUIRED && iint->ima_hash)
-		rc = is_binary_blacklisted(iint->ima_hash->digest, iint->ima_hash->length);
+	} else if (iint->flags & IMA_DIGSIG_REQUIRED && ns_status->ima_hash)
+		rc = is_binary_blacklisted(ns_status->ima_hash->digest, ns_status->ima_hash->length);
 
 	if ((rc == -EPERM) && (flags & IMA_MEASURE))
 		process_buffer_measurement(ns, &nop_mnt_idmap, NULL, digest, digestsize,
@@ -490,6 +492,7 @@ int ima_check_blacklist(struct ima_namespace *ns,
  */
 int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 			     struct integrity_iint_cache *iint,
+			     struct ns_status *ns_status,
 			     struct file *file, const unsigned char *filename,
 			     struct evm_ima_xattr_data *xattr_value,
 			     int xattr_len, const struct modsig *modsig)
@@ -557,7 +560,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 	}
 
 	if (xattr_value)
-		rc = xattr_verify(ns, func, iint, xattr_value, xattr_len,
+		rc = xattr_verify(ns, func, iint, ns_status, xattr_value, xattr_len,
 				  &status, &cause);
 
 	/*
@@ -588,7 +591,7 @@ out:
 		if ((ima_appraise & IMA_APPRAISE_FIX) && !try_modsig &&
 		    (!xattr_value ||
 		     xattr_value->type != EVM_IMA_XATTR_DIGSIG)) {
-			if (!ima_fix_xattr(dentry, iint))
+			if (!ima_fix_xattr(dentry, ns_status))
 				status = INTEGRITY_PASS;
 		}
 
@@ -620,6 +623,7 @@ void ima_update_xattr(struct ima_namespace *ns,
 		      struct integrity_iint_cache *iint, struct file *file)
 {
 	struct dentry *dentry = file_dentry(file);
+	struct ns_status *ns_status;
 	int rc = 0;
 
 	if (!ns_is_active(ns) || !(ns->ima_policy_flag & IMA_HASH))
@@ -633,13 +637,15 @@ void ima_update_xattr(struct ima_namespace *ns,
 	    !(iint->flags & IMA_HASH))
 		return;
 
-	rc = ima_collect_measurement(ns, iint, file, NULL, 0, ima_hash_algo,
-				     NULL);
+	ns_status =  ima_get_ns_status(ns, file_inode(file), iint);
+
+	rc = ima_collect_measurement(ns, iint, ns_status, file, NULL, 0,
+				     ima_hash_algo, NULL);
 	if (rc < 0)
 		return;
 
 	inode_lock(file_inode(file));
-	ima_fix_xattr(dentry, iint);
+	ima_fix_xattr(dentry, ns_status);
 	inode_unlock(file_inode(file));
 }
 

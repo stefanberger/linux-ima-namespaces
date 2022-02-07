@@ -112,6 +112,7 @@ static int mmap_violation_check(enum ima_hooks func, struct file *file,
 static void ima_rdwr_violation_check(struct ima_namespace *ns,
 				     struct file *file,
 				     struct integrity_iint_cache *iint,
+				     struct ns_status *ns_status,
 				     int must_measure,
 				     char **pathbuf,
 				     const char **pathname,
@@ -142,11 +143,17 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
 
 	*pathname = ima_d_path(&file->f_path, pathbuf, filename);
 
+	if (!ns_status) {
+		ns_status = ima_get_ns_status(ns, inode, iint);
+		if (IS_ERR(ns_status))
+			return;
+	}
+
 	if (send_tomtou)
-		ima_add_violation(ns, file, *pathname, iint,
+		ima_add_violation(ns, file, *pathname, iint, ns_status,
 				  "invalid_pcr", "ToMToU");
 	if (send_writers)
-		ima_add_violation(ns, file, *pathname, iint,
+		ima_add_violation(ns, file, *pathname, iint, ns_status,
 				  "invalid_pcr", "open_writers");
 }
 
@@ -291,7 +298,8 @@ static int __process_measurement(struct ima_namespace *ns,
 	}
 
 	if (!rc && violation_check)
-		ima_rdwr_violation_check(ns, file, iint, action & IMA_MEASURE,
+		ima_rdwr_violation_check(ns, file, iint, ns_status,
+					 action & IMA_MEASURE,
 					 &pathbuf, &pathname, filename);
 
 	inode_unlock(inode);
@@ -395,8 +403,8 @@ static int __process_measurement(struct ima_namespace *ns,
 
 	hash_algo = ima_get_hash_algo(xattr_value, xattr_len);
 
-	rc = ima_collect_measurement(ns, iint, file, buf, size, hash_algo,
-				     modsig);
+	rc = ima_collect_measurement(ns, iint, ns_status, file, buf, size,
+				     hash_algo, modsig);
 	if (rc != 0 && rc != -EBADF && rc != -EINVAL)
 		goto out_locked;
 
@@ -411,7 +419,8 @@ static int __process_measurement(struct ima_namespace *ns,
 		rc = ima_check_blacklist(ns, iint, ns_status, modsig, pcr);
 		if (rc != -EPERM) {
 			inode_lock(inode);
-			rc = ima_appraise_measurement(ns, func, iint, file,
+			rc = ima_appraise_measurement(ns, func, iint, ns_status,
+						      file,
 						      pathname, xattr_value,
 						      xattr_len, modsig);
 			inode_unlock(inode);
@@ -647,15 +656,19 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
 			    struct file *file, char *buf, size_t buf_size)
 {
 	struct integrity_iint_cache *iint = NULL, tmp_iint;
+	struct ns_status *ns_status = NULL, tmp_ns_status;
 	int rc, hash_algo;
 
 	if (ns->ima_policy_flag) {
 		iint = integrity_iint_find(inode);
-		if (iint)
+		if (iint) {
+			ns_status = ima_find_ns_status(iint, ns);
 			mutex_lock(&iint->mutex);
+		}
 	}
 
-	if ((!iint || !(iint->flags & IMA_COLLECTED)) && file) {
+	if ((!iint || !ns_status ||
+	     !(iint_flags(iint, ns_status) & IMA_COLLECTED)) && file) {
 		if (iint)
 			mutex_unlock(&iint->mutex);
 
@@ -663,28 +676,28 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
 		tmp_iint.inode = inode;
 		mutex_init(&tmp_iint.mutex);
 
-		rc = ima_collect_measurement(ns, &tmp_iint, file, NULL, 0,
-					     ima_hash_algo, NULL);
-		if (rc < 0) {
-			/* ima_hash could be allocated in case of failure. */
-			if (rc != -ENOMEM)
-				kfree(tmp_iint.ima_hash);
+		memset(&tmp_ns_status, 0, sizeof(tmp_ns_status));
 
+		rc = ima_collect_measurement(ns, &tmp_iint, &tmp_ns_status,
+					     file, NULL, 0, ima_hash_algo,
+					     NULL);
+		if (rc < 0)
 			return -EOPNOTSUPP;
-		}
 
 		iint = &tmp_iint;
+		ns_status = &tmp_ns_status;
 		mutex_lock(&iint->mutex);
 	}
 
-	if (!iint)
+	if (!iint || !ns_status)
 		return -EOPNOTSUPP;
 
 	/*
 	 * ima_file_hash can be called when ima_collect_measurement has still
 	 * not been called, we might not always have a hash.
 	 */
-	if (!iint->ima_hash || !(iint->flags & IMA_COLLECTED)) {
+	if (!ns_status->ima_hash ||
+	    !(iint_flags(iint, ns_status) & IMA_COLLECTED)) {
 		mutex_unlock(&iint->mutex);
 		return -EOPNOTSUPP;
 	}
@@ -692,14 +705,15 @@ static int __ima_inode_hash(struct ima_namespace *ns, struct inode *inode,
 	if (buf) {
 		size_t copied_size;
 
-		copied_size = min_t(size_t, iint->ima_hash->length, buf_size);
-		memcpy(buf, iint->ima_hash->digest, copied_size);
+		copied_size = min_t(size_t, ns_status->ima_hash->length,
+				    buf_size);
+		memcpy(buf, ns_status->ima_hash->digest, copied_size);
 	}
-	hash_algo = iint->ima_hash->algo;
+	hash_algo = ns_status->ima_hash->algo;
 	mutex_unlock(&iint->mutex);
 
-	if (iint == &tmp_iint)
-		kfree(iint->ima_hash);
+	if (ns_status == &tmp_ns_status)
+		kfree(ns_status->ima_hash);
 
 	return hash_algo;
 }

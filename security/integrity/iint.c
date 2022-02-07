@@ -62,7 +62,6 @@ static inline void iint_lockdep_annotate(struct integrity_iint_cache *iint,
 static void iint_init_always(struct integrity_iint_cache *iint,
 			     struct inode *inode)
 {
-	iint->ima_hash = NULL;
 	iint->version = 0;
 	iint->flags = 0UL;
 	iint->atomic_flags = 0UL;
@@ -80,7 +79,6 @@ static void iint_init_always(struct integrity_iint_cache *iint,
 
 static void iint_free(struct integrity_iint_cache *iint)
 {
-	kfree(iint->ima_hash);
 	mutex_destroy(&iint->mutex);
 	kmem_cache_free(iint_cache, iint);
 }
