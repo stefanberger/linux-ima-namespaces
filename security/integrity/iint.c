@@ -38,8 +38,6 @@ struct integrity_iint_cache *integrity_iint_find(struct inode *inode)
 
 static void iint_free(struct integrity_iint_cache *iint)
 {
-	kfree(iint->ima_hash);
-	iint->ima_hash = NULL;
 	iint->version = 0;
 	iint->flags = 0UL;
 	iint->atomic_flags = 0UL;

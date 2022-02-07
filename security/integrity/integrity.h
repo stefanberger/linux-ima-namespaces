@@ -169,6 +169,7 @@ struct ns_status {
 	ino_t i_ino;
 	u32 i_generation;
 #endif
+	struct ima_digest_data *ima_hash;
 };
 
 static inline void ns_status_reset(struct ns_status *ns_status)
@@ -196,7 +197,6 @@ struct integrity_iint_cache {
 	enum integrity_status ima_read_status:4;
 	enum integrity_status ima_creds_status:4;
 	enum integrity_status evm_status:4;
-	struct ima_digest_data *ima_hash;
 
 	/*
 	 * Lock and list of ns_status for files shared by different
