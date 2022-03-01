@@ -252,6 +252,14 @@ static struct ima_rule_entry critical_data_rules[] __ro_after_init = {
 	{.action = MEASURE, .func = CRITICAL_DATA, .flags = IMA_FUNC},
 };
 
+static void ima_lsm_update_rules(struct ima_namespace *ns);
+
+static inline void ima_lazy_lsm_update_rules(struct ima_namespace *ns)
+{
+	if (test_and_clear_bit(IMA_NS_LSM_UPDATE_RULES, &ns->ima_ns_flags))
+		ima_lsm_update_rules(ns);
+}
+
 static int ima_policy __initdata;
 
 static int __init default_measure_policy_setup(char *str)
@@ -498,7 +506,8 @@ int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 		return NOTIFY_DONE;
 
 	ns = container_of(nb, struct ima_namespace, ima_lsm_policy_notifier);
-	ima_lsm_update_rules(ns);
+
+	set_bit(IMA_NS_LSM_UPDATE_RULES, &ns->ima_ns_flags);
 
 	return NOTIFY_OK;
 }
@@ -753,6 +762,8 @@ int ima_match_policy(struct ima_namespace *ns,
 
 	if (template_desc && !*template_desc)
 		*template_desc = ima_template_desc_current();
+
+	ima_lazy_lsm_update_rules(ns);
 
 	rcu_read_lock();
 	ima_rules_tmp = rcu_dereference(ns->ima_rules);
@@ -2016,6 +2027,8 @@ void *ima_policy_start(struct seq_file *m, loff_t *pos)
 	loff_t l = *pos;
 	struct ima_rule_entry *entry;
 	struct list_head *ima_rules_tmp;
+
+	ima_lazy_lsm_update_rules(ns);
 
 	rcu_read_lock();
 	ima_rules_tmp = rcu_dereference(ns->ima_rules);
