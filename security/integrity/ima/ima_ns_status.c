@@ -300,6 +300,21 @@ static struct ns_status *iint_find_ns_status(struct integrity_iint_cache *iint,
 	return ns_status;
 }
 
+struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
+				     struct inode *inode,
+				     struct integrity_iint_cache *iint)
+{
+	struct ns_status *ns_status;
+
+	lock_group(GRP_IINT_STATUS_LIST);
+
+	ns_status = iint_find_ns_status(iint, ns);
+
+	unlock_group(GRP_IINT_STATUS_LIST);
+
+	return ns_status;
+}
+
 struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
 				    struct inode *inode,
 				    struct integrity_iint_cache *iint)
