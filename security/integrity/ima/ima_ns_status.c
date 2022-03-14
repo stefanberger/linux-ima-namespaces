@@ -225,8 +225,8 @@ void ima_free_ns_status_list(struct integrity_iint_cache *iint)
 }
 
 /* Find an ns_status by walking the iint's linked list of ns_status'es */
-static struct ns_status *ima_find_ns_status(struct integrity_iint_cache *iint,
-					    struct ima_namespace *ns)
+struct ns_status *ima_find_ns_status(struct integrity_iint_cache *iint,
+				     struct ima_namespace *ns)
 {
 	struct ns_status *ns_status = NULL;
 	bool found;
