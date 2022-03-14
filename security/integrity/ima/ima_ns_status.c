@@ -318,6 +318,23 @@ static void ns_status_unlink(struct ima_namespace *ns,
 	RB_CLEAR_NODE(&ns_status->rb_node);
 }
 
+struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
+				     struct inode *inode,
+				     struct integrity_iint_cache *iint)
+{
+	struct ns_status *ns_status;
+
+	lock_group(GRP_NS_STATUS_TREE);
+	read_lock(&ns->ns_tree_lock);
+
+	ns_status = ns_status_find(ns, inode);
+
+	read_unlock(&ns->ns_tree_lock);
+	unlock_group(GRP_NS_STATUS_TREE);
+
+	return ns_status;
+}
+
 struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
 				    struct inode *inode,
 				    struct integrity_iint_cache *iint)
