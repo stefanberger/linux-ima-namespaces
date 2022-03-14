@@ -380,6 +380,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 
 	event_data.iint_flags = flags & IMA_VERITY_REQUIRED;
 
+	BUG_ON(ns_status->ima_hash == NULL);
+
 	/*
 	 * We still need to store the measurement in the case of MODSIG because
 	 * we only have its contents to put in the list at the time of
