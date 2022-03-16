@@ -598,8 +598,9 @@ out:
 	     (iint->flags & IMA_FAIL_UNVERIFIABLE_SIGS))) {
 		status = INTEGRITY_FAIL;
 		cause = "unverifiable-signature";
-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
-				    op, cause, rc, 0);
+		if (ns == &init_ima_ns)
+			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
+					    filename, op, cause, rc, 0);
 	} else if (status != INTEGRITY_PASS) {
 		/* Fix mode, but don't replace file signatures. */
 		if ((ns->ima_appraise & IMA_APPRAISE_FIX) && !try_modsig &&
@@ -618,8 +619,9 @@ out:
 			status = INTEGRITY_PASS;
 		}
 
-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
-				    op, cause, rc, 0);
+		if (ns == &init_ima_ns)
+			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
+					    filename, op, cause, rc, 0);
 	} else {
 		ima_cache_flags(iint, ns_status, func);
 	}
@@ -828,16 +830,18 @@ static int validate_hash_algo(struct ima_namespace *ns,
 			return 0;
 	}
 
-	pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
-	if (!pathbuf)
-		return -EACCES;
+	if (ns == &init_ima_ns) {
+		pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);
+		if (!pathbuf)
+			return -EACCES;
 
-	path = dentry_path(dentry, pathbuf, PATH_MAX);
+		path = dentry_path(dentry, pathbuf, PATH_MAX);
 
-	integrity_audit_msg(AUDIT_INTEGRITY_DATA, d_inode(dentry), path,
-			    "set_data", errmsg, -EACCES, 0);
+		integrity_audit_msg(AUDIT_INTEGRITY_DATA, d_inode(dentry), path,
+				    "set_data", errmsg, -EACCES, 0);
 
-	kfree(pathbuf);
+		kfree(pathbuf);
+	}
 
 	return -EACCES;
 }

@@ -76,7 +76,8 @@ enum hash_algo ima_get_current_hash_algo(struct ima_namespace *ns)
 }
 
 /* Prevent mmap'ing a file execute that is already mmap'ed write */
-static int mmap_violation_check(enum ima_hooks func, struct file *file,
+static int mmap_violation_check(struct ima_namespace *ns,
+				enum ima_hooks func, struct file *file,
 				char **pathbuf, const char **pathname,
 				char *filename)
 {
@@ -91,8 +92,10 @@ static int mmap_violation_check(enum ima_hooks func, struct file *file,
 		if (!*pathbuf)	/* ima_rdwr_violation possibly pre-fetched */
 			*pathname = ima_d_path(&file->f_path, pathbuf,
 					       filename);
-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, *pathname,
-				    "mmap_file", "mmapped_writers", rc, 0);
+		if (ns == &init_ima_ns)
+			integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
+					    *pathname, "mmap_file",
+					    "mmapped_writers", rc, 0);
 	}
 	return rc;
 }
@@ -403,7 +406,7 @@ static int __process_measurement(struct user_namespace *user_ns,
 	/* Nothing to do, just return existing appraised status */
 	if (!action) {
 		if (must_appraise) {
-			rc = mmap_violation_check(func, file, &pathbuf,
+			rc = mmap_violation_check(ns, func, file, &pathbuf,
 						  &pathname, filename);
 			if (!rc)
 				rc = ima_get_cache_status(ns_status, func);
@@ -456,7 +459,7 @@ static int __process_measurement(struct user_namespace *user_ns,
 			inode_unlock(inode);
 		}
 		if (!rc)
-			rc = mmap_violation_check(func, file, &pathbuf,
+			rc = mmap_violation_check(ns, func, file, &pathbuf,
 						  &pathname, filename);
 	}
 	if (action & IMA_AUDIT)
@@ -471,9 +474,11 @@ static int __process_measurement(struct user_namespace *user_ns,
 	    (allowed_algos & (1U << hash_algo)) == 0) {
 		rc = -EACCES;
 
-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, file_inode(file),
-				    pathname, "collect_data",
-				    "denied-hash-algorithm", rc, 0);
+		if (ns == &init_ima_ns)
+			integrity_audit_msg(AUDIT_INTEGRITY_DATA,
+					    file_inode(file),
+					    pathname, "collect_data",
+					    "denied-hash-algorithm", rc, 0);
 	}
 out_locked:
 	if ((mask & MAY_WRITE) && test_bit(IMA_DIGSIG, &iint->atomic_flags) &&
@@ -625,8 +630,10 @@ static int ima_file_mprotect(struct vm_area_struct *vma, unsigned long reqprot,
 
 	file = vma->vm_file;
 	pathname = ima_d_path(&file->f_path, &pathbuf, filename);
-	integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, pathname,
-			    "collect_data", "failed-mprotect", result, 0);
+	if (ns == &init_ima_ns)
+		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, pathname,
+				    "collect_data", "failed-mprotect", result,
+				    0);
 	if (pathbuf)
 		__putname(pathbuf);
 
