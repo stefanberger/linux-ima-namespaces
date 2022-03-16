@@ -1161,7 +1161,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	}
 
 out:
-	if (ret < 0)
+	if (ret < 0 && ns == &init_ima_ns)
 		integrity_audit_message(AUDIT_INTEGRITY_PCR, NULL, eventname,
 					func_measure_str(func),
 					audit_cause, ret, 0, ret);

@@ -117,9 +117,10 @@ int ima_store_template(struct ima_namespace *ns,
 						   &entry->template_data[0],
 						   entry);
 		if (result < 0) {
-			integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
-					    template_name, op,
-					    audit_cause, result, 0);
+			if (ns == &init_ima_ns)
+				integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
+						    template_name, op,
+						    audit_cause, result, 0);
 			return result;
 		}
 	}
@@ -431,8 +432,10 @@ void ima_store_measurement(struct user_namespace *user_ns,
 
 	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);
 	if (result < 0) {
-		integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
-				    op, audit_cause, result, 0);
+		if (ns == &init_ima_ns)
+			integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
+					    filename, op, audit_cause, result,
+					    0);
 		return;
 	}
 
