@@ -64,6 +64,7 @@ struct ima_event_data {
 	const char *violation;
 	const void *buf;
 	int buf_len;
+	const uuid_t *src_userns;
 };
 
 /* IMA template field data definition */
@@ -237,7 +238,7 @@ extern bool ima_canonical_fmt;
 int ima_init(void);
 int ima_fs_init(void);
 int ima_ns_init(void);
-int ima_init_namespace(struct ima_namespace *ns);
+int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns);
 int ima_add_template_entry(struct ima_namespace *ns,
 			   struct ima_template_entry *entry, int violation,
 			   const char *op, struct inode *inode,
@@ -256,7 +257,8 @@ void ima_add_violation(struct ima_namespace *ns,
 		       struct file *file, const unsigned char *filename,
 		       struct integrity_iint_cache *iint,
 		       struct ns_status *ns_status,
-		       const char *op, const char *cause);
+		       const char *op, const char *cause,
+		       const uuid_t *src_userns);
 int ima_init_crypto(struct ima_namespace *ns);
 void ima_deinit_crypto(struct ima_namespace *ns);
 void ima_putc(struct seq_file *m, void *data, int datalen);
@@ -283,7 +285,7 @@ int ima_init_digests(struct ima_namespace *ns);
 void ima_free_digests(struct ima_namespace *ns);
 int ima_lsm_policy_change(struct notifier_block *nb, unsigned long event,
 			  void *lsm_data);
-int ima_add_boot_aggregate(struct ima_namespace *ns);
+int ima_add_boot_aggregate(struct ima_namespace *ns, uuid_t *src_userns);
 
 /*
  * used to protect h_table and sha_table
@@ -387,13 +389,15 @@ void ima_store_measurement(struct ima_namespace *ns,
 			   struct evm_ima_xattr_data *xattr_value,
 			   int xattr_len, const struct modsig *modsig, int pcr,
 			   struct ima_template_desc *template_desc,
-			   struct ns_status *ns_status);
+			   struct ns_status *ns_status,
+			   const uuid_t *src_userns);
 int process_buffer_measurement(struct ima_namespace *ns,
 			       struct mnt_idmap *idmap,
 			       struct inode *inode, const void *buf, int size,
 			       const char *eventname, enum ima_hooks func,
 			       int pcr, const char *func_data,
-			       bool buf_hash, u8 *digest, size_t digest_len);
+			       bool buf_hash, u8 *digest, size_t digest_len,
+			       uuid_t *src_userns);
 void ima_audit_measurement(struct integrity_iint_cache *iint,
 			   const unsigned char *filename,
 			   struct ns_status *ns_status);
