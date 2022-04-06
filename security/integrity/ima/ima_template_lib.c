@@ -28,7 +28,8 @@ enum data_formats {
 	DATA_FMT_DIGEST_WITH_TYPE_AND_ALGO,
 	DATA_FMT_STRING,
 	DATA_FMT_HEX,
-	DATA_FMT_UINT
+	DATA_FMT_UINT,
+	DATA_FMT_UUID
 };
 
 enum digest_type {
@@ -135,6 +136,9 @@ static void ima_show_template_data_ascii(struct seq_file *m,
 			break;
 		}
 		break;
+	case DATA_FMT_UUID:
+		seq_printf(m, "%pU", buf_ptr);
+		break;
 	default:
 		break;
 	}
@@ -217,6 +221,12 @@ void ima_show_template_buf(struct seq_file *m, enum ima_show_type show,
 			   struct ima_field_data *field_data)
 {
 	ima_show_template_field_data(m, show, DATA_FMT_HEX, field_data);
+}
+
+void ima_show_template_uuid(struct seq_file *m, enum ima_show_type show,
+			    struct ima_field_data *field_data)
+{
+	ima_show_template_field_data(m, show, DATA_FMT_UUID, field_data);
 }
 
 void ima_show_template_uint(struct seq_file *m, enum ima_show_type show,
@@ -760,4 +770,19 @@ int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
 				   struct ima_field_data *field_data)
 {
 	return ima_eventinodexattrs_init_common(event_data, field_data, 'v');
+}
+
+/*
+ *  ima_eventuserns_init - incluee the user namespace's uuid
+ */
+int ima_eventuserns_init(struct ima_namespace *ns,
+			 struct ima_event_data *event_data,
+			 struct ima_field_data *field_data)
+{
+	if (!event_data->src_userns)
+		return 0;
+
+	return ima_write_template_field_data(event_data->src_userns,
+					     sizeof(*event_data->src_userns),
+					     DATA_FMT_UUID, field_data);
 }

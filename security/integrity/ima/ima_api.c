@@ -140,14 +140,16 @@ void ima_add_violation(struct ima_namespace *ns,
 		       struct file *file, const unsigned char *filename,
 		       struct integrity_iint_cache *iint,
 		       struct ns_status *ns_status,
-		       const char *op, const char *cause)
+		       const char *op, const char *cause,
+		       const uuid_t *src_userns)
 {
 	struct ima_template_entry *entry;
 	struct inode *inode = file_inode(file);
 	struct ima_event_data event_data = { .ima_hash = ns_status->ima_hash,
 					     .file = file,
 					     .filename = filename,
-					     .violation = cause };
+					     .violation = cause,
+					     .src_userns = src_userns };
 	int violation = 1;
 	int result;
 
@@ -358,7 +360,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 			   struct evm_ima_xattr_data *xattr_value,
 			   int xattr_len, const struct modsig *modsig, int pcr,
 			   struct ima_template_desc *template_desc,
-			   struct ns_status *ns_status)
+			   struct ns_status *ns_status,
+			   const uuid_t *src_userns)
 {
 	static const char op[] = "add_template_measure";
 	static const char audit_cause[] = "ENOMEM";
@@ -370,7 +373,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 					     .filename = filename,
 					     .xattr_value = xattr_value,
 					     .xattr_len = xattr_len,
-					     .modsig = modsig };
+					     .modsig = modsig,
+					     .src_userns = src_userns };
 	int violation = 0;
 	unsigned long flags = iint_flags(iint, ns_status);
 
