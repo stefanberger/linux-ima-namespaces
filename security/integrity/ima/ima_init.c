@@ -38,7 +38,7 @@ const char boot_aggregate_name[] = "boot_aggregate";
  * a different value.) Violations add a zero entry to the measurement
  * list and extend the aggregate PCR value with ff...ff's.
  */
-int ima_add_boot_aggregate(struct ima_namespace *ns)
+int ima_add_boot_aggregate(struct ima_namespace *ns, uuid_t *src_userns)
 {
 	static const char op[] = "add_boot_aggregate";
 	const char *audit_cause = "ENOMEM";
@@ -54,6 +54,7 @@ int ima_add_boot_aggregate(struct ima_namespace *ns)
 	event_data.ima_hash = &hash.hdr;
 	event_data.ima_hash->algo = ima_hash_algo;
 	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
+	event_data.src_userns = src_userns;
 
 	/*
 	 * With TPM 2.0 hash agility, TPM chips could support multiple TPM
@@ -128,7 +129,7 @@ int __init ima_init(void)
 	ima_load_kexec_buffer();
 
 	/* boot aggregate must be first entry */
-	rc = ima_add_boot_aggregate(&init_ima_ns);
+	rc = ima_add_boot_aggregate(&init_ima_ns, &init_user_ns.uuid);
 	if (rc != 0)
 		return rc;
 
