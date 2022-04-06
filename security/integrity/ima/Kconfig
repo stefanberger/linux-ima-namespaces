@@ -71,17 +71,23 @@ choice
 	  template permits both larger hash digests and longer
 	  pathnames. The configured default template can be replaced
 	  by specifying "ima_template=" on the boot command line.
+	  The 'ima-ns' template logs the UUID of the user namespace
+	  from where a measurement originated.
 
 	config IMA_NG_TEMPLATE
 		bool "ima-ng (default)"
 	config IMA_SIG_TEMPLATE
 		bool "ima-sig"
+	config IMA_NS_TEMPLATE
+		bool "ima-ns"
+		depends on IMA_NS
 endchoice
 
 config IMA_DEFAULT_TEMPLATE
 	string
 	default "ima-ng" if IMA_NG_TEMPLATE
 	default "ima-sig" if IMA_SIG_TEMPLATE
+	default "ima-ns" if IMA_NS_TEMPLATE
 
 choice
 	prompt "Default integrity hash algorithm"
