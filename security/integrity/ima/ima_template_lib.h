@@ -29,6 +29,8 @@ void ima_show_template_sig(struct seq_file *m, enum ima_show_type show,
 			   struct ima_field_data *field_data);
 void ima_show_template_buf(struct seq_file *m, enum ima_show_type show,
 			   struct ima_field_data *field_data);
+void ima_show_template_uuid(struct seq_file *m, enum ima_show_type show,
+			    struct ima_field_data *field_data);
 void ima_show_template_uint(struct seq_file *m, enum ima_show_type show,
 			    struct ima_field_data *field_data);
 int ima_parse_buf(void *bufstartp, void *bufendp, void **bufcurp,
@@ -82,4 +84,7 @@ int ima_eventinodexattrlengths_init(struct ima_namespace *ns,
 int ima_eventinodexattrvalues_init(struct ima_namespace *ns,
 				   struct ima_event_data *event_data,
 				   struct ima_field_data *field_data);
+int ima_eventuserns_init(struct ima_namespace *ns,
+			 struct ima_event_data *event_data,
+			 struct ima_field_data *field_data);
 #endif /* __LINUX_IMA_TEMPLATE_LIB_H */

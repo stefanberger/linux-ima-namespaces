@@ -473,13 +473,14 @@ int ima_check_blacklist(struct ima_namespace *ns,
 		ima_get_modsig_digest(modsig, &hash_algo, &digest, &digestsize);
 
 		rc = is_binary_blacklisted(digest, digestsize);
-	} else if (iint->flags & IMA_DIGSIG_REQUIRED && iint->ima_hash)
-		rc = is_binary_blacklisted(iint->ima_hash->digest, iint->ima_hash->length);
+	} else if (iint->flags & IMA_DIGSIG_REQUIRED && ns_status->ima_hash)
+		rc = is_binary_blacklisted(ns_status->ima_hash->digest, ns_status->ima_hash->length);
 
 	if ((rc == -EPERM) && (flags & IMA_MEASURE))
 		process_buffer_measurement(ns, &nop_mnt_idmap, NULL, digest, digestsize,
 					   "blacklisted-hash", NONE,
-					   pcr, NULL, false, NULL, 0);
+					   pcr, NULL, false, NULL, 0,
+					   &init_user_ns.uuid);
 
 	return rc;
 }

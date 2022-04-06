@@ -119,7 +119,8 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
 				     int must_measure,
 				     char **pathbuf,
 				     const char **pathname,
-				     char *filename)
+				     char *filename,
+				     const uuid_t *src_userns)
 {
 	struct inode *inode = file_inode(file);
 	fmode_t mode = file->f_mode;
@@ -154,10 +155,10 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
 
 	if (send_tomtou)
 		ima_add_violation(ns, file, *pathname, iint, ns_status,
-				  "invalid_pcr", "ToMToU");
+				  "invalid_pcr", "ToMToU", src_userns);
 	if (send_writers)
 		ima_add_violation(ns, file, *pathname, iint, ns_status,
-				  "invalid_pcr", "open_writers");
+				  "invalid_pcr", "open_writers", src_userns);
 }
 
 static void mask_iint_ns_status_flags(struct integrity_iint_cache *iint,
@@ -243,7 +244,7 @@ static void ima_file_free(struct file *file)
 static int __process_measurement(struct ima_namespace *ns,
 				 struct file *file, const struct cred *cred,
 				 u32 secid, char *buf, loff_t size, int mask,
-				 enum ima_hooks func)
+				 enum ima_hooks func, const uuid_t *src_userns)
 {
 	struct inode *inode = file_inode(file);
 	struct integrity_iint_cache *iint = NULL;
@@ -303,7 +304,8 @@ static int __process_measurement(struct ima_namespace *ns,
 	if (!rc && violation_check)
 		ima_rdwr_violation_check(ns, file, iint, ns_status,
 					 action & IMA_MEASURE,
-					 &pathbuf, &pathname, filename);
+					 &pathbuf, &pathname, filename,
+					 src_userns);
 
 	inode_unlock(inode);
 
@@ -404,7 +406,7 @@ static int __process_measurement(struct ima_namespace *ns,
 	if (action & IMA_MEASURE)
 		ima_store_measurement(ns, iint, file, pathname,
 				      xattr_value, xattr_len, modsig, pcr,
-				      template_desc, ns_status);
+				      template_desc, ns_status, src_userns);
 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
 		rc = ima_check_blacklist(ns, iint, ns_status, modsig, pcr);
 		if (rc != -EPERM) {
@@ -458,6 +460,7 @@ static int process_measurement(struct user_namespace *user_ns,
 			       u32 secid, char *buf, loff_t size, int mask,
 			       enum ima_hooks func)
 {
+	const uuid_t *src_userns = &user_ns->uuid;
 	struct ima_namespace *ns;
 	int ret = 0;
 
@@ -467,7 +470,8 @@ static int process_measurement(struct user_namespace *user_ns,
 			int rc;
 
 			rc = __process_measurement(ns, file, cred, secid, buf,
-						   size, mask, func);
+						   size, mask, func,
+						   src_userns);
 			switch (rc) {
 			case 0:
 				break;
@@ -1046,7 +1050,8 @@ int process_buffer_measurement(struct ima_namespace *ns,
 			       struct inode *inode, const void *buf, int size,
 			       const char *eventname, enum ima_hooks func,
 			       int pcr, const char *func_data,
-			       bool buf_hash, u8 *digest, size_t digest_len)
+			       bool buf_hash, u8 *digest, size_t digest_len,
+			       uuid_t *src_userns)
 {
 	int ret = 0;
 	const char *audit_cause = "ENOMEM";
@@ -1099,6 +1104,7 @@ int process_buffer_measurement(struct ima_namespace *ns,
 	event_data.ima_hash = &hash.hdr;
 	event_data.ima_hash->algo = ima_hash_algo;
 	event_data.ima_hash->length = hash_digest_size[ima_hash_algo];
+	event_data.src_userns = src_userns;
 
 	ret = ima_calc_buffer_hash(ns, buf, size, event_data.ima_hash);
 	if (ret < 0) {
@@ -1158,7 +1164,8 @@ out:
  */
 void ima_kexec_cmdline(int kernel_fd, const void *buf, int size)
 {
-	struct ima_namespace *ns = get_current_ns();
+	struct user_namespace *user_ns = current_user_ns();
+	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
 	struct fd f;
 
 	if (!ns_is_active(ns) || !buf || !size)
@@ -1171,7 +1178,7 @@ void ima_kexec_cmdline(int kernel_fd, const void *buf, int size)
 	process_buffer_measurement(ns,
 				   file_mnt_idmap(f.file), file_inode(f.file),
 				   buf, size, "kexec-cmdline", KEXEC_CMDLINE, 0,
-				   NULL, false, NULL, 0);
+				   NULL, false, NULL, 0, &user_ns->uuid);
 	fdput(f);
 }
 
@@ -1210,7 +1217,7 @@ int ima_measure_critical_data(const char *event_label,
 	return process_buffer_measurement(ns, &nop_mnt_idmap, NULL, buf, buf_len,
 					  event_name, CRITICAL_DATA, 0,
 					  event_label, hash, digest,
-					  digest_len);
+					  digest_len, &init_user_ns.uuid);
 }
 EXPORT_SYMBOL_GPL(ima_measure_critical_data);
 
