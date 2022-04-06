@@ -164,7 +164,8 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 						   entry->keyring_name,
 						   KEY_CHECK, 0,
 						   entry->keyring_name,
-						   false, NULL, 0);
+						   false, NULL, 0,
+						   &init_user_ns.uuid);
 		list_del(&entry->list);
 		ima_free_key_entry(entry);
 	}

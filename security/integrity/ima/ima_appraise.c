@@ -479,7 +479,8 @@ int ima_check_blacklist(struct ima_namespace *ns,
 	if ((rc == -EPERM) && (flags & IMA_MEASURE))
 		process_buffer_measurement(ns, &nop_mnt_idmap, NULL, digest, digestsize,
 					   "blacklisted-hash", NONE,
-					   pcr, NULL, false, NULL, 0);
+					   pcr, NULL, false, NULL, 0,
+					   &init_user_ns.uuid);
 
 	return rc;
 }

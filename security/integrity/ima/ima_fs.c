@@ -620,7 +620,8 @@ static ssize_t ima_write_active(struct file *filp,
 				const char __user *buf,
 				size_t count, loff_t *ppos)
 {
-	struct ima_namespace *ns = ima_ns_from_file(filp);
+	struct user_namespace *user_ns = ima_user_ns_from_file(filp);
+	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
 	unsigned int active;
 	char *kbuf;
 	int err;
@@ -646,7 +647,7 @@ static ssize_t ima_write_active(struct file *filp,
 
 	switch (active) {
 	case 1:
-		err = ima_init_namespace(ns);
+		err = ima_init_namespace(ns, &user_ns->uuid);
 		if (err)
 			return -EINVAL;
 		break;

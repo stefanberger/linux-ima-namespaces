@@ -68,6 +68,9 @@ static const struct ima_template_field supported_fields[] = {
 	{.field_id = "xattrvalues",
 	 .field_init = ima_eventinodexattrvalues_init,
 	 .field_show = ima_show_template_sig},
+	{.field_id = "userns",
+	 .field_init = ima_eventuserns_init,
+	 .field_show = ima_show_template_uuid},
 };
 
 /*
@@ -76,7 +79,8 @@ static const struct ima_template_field supported_fields[] = {
  * description as 'd-ng' and 'n-ng' respectively.
  */
 #define MAX_TEMPLATE_NAME_LEN \
-	sizeof("d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|igid|imode")
+	sizeof("d-ng|n-ng|evmsig|xattrnames|xattrlengths|xattrvalues|iuid|" \
+	       "igid|imode|userns")
 
 /**
  * ima_template_has_modsig - Check whether template has modsig-related fields.
