@@ -8,7 +8,7 @@
 
 #include "ima.h"
 
-int ima_init_namespace(struct ima_namespace *ns)
+int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
 {
 	const char *template_name = NULL;
 	int ret;
@@ -74,7 +74,7 @@ int ima_init_namespace(struct ima_namespace *ns)
 
 	if (ns != &init_ima_ns) {
 		/* boot aggregate must be first entry */
-		ret = ima_add_boot_aggregate(ns);
+		ret = ima_add_boot_aggregate(ns, src_userns);
 		if (ret != 0)
 			goto err_free_digests;
 	}
@@ -100,7 +100,7 @@ err_destroy_cache:
 
 int __init ima_ns_init(void)
 {
-	return ima_init_namespace(&init_ima_ns);
+	return ima_init_namespace(&init_ima_ns, &init_user_ns.uuid);
 }
 
 struct ima_namespace init_ima_ns = {
