@@ -26,6 +26,7 @@
 #define VTPM_PROXY_REQ_COMPLETE_FLAG  BIT(0)
 
 struct proxy_dev {
+	struct kref kref;
 	struct tpm_chip *chip;
 
 	u32 flags;                   /* public API flags */
@@ -494,6 +495,7 @@ static struct proxy_dev *vtpm_proxy_create_proxy_dev(void)
 	if (proxy_dev == NULL)
 		return ERR_PTR(-ENOMEM);
 
+	kref_init(&proxy_dev->kref);
 	init_waitqueue_head(&proxy_dev->wq);
 	mutex_init(&proxy_dev->buf_lock);
 	INIT_WORK(&proxy_dev->work, vtpm_proxy_work);
@@ -518,10 +520,22 @@ err_proxy_dev_free:
 /*
  * Undo what has been done in vtpm_create_proxy_dev
  */
-static inline void vtpm_proxy_delete_proxy_dev(struct proxy_dev *proxy_dev)
+static inline void vtpm_proxy_delete_proxy_dev(struct kref *kref)
 {
+	struct proxy_dev *proxy_dev;
+
+	proxy_dev = container_of(kref, struct proxy_dev, kref);
+
 	put_device(&proxy_dev->chip->dev); /* frees chip */
 	kfree(proxy_dev);
+}
+
+/*
+ * Release a reference to proxy_dev
+ */
+static inline void vtpm_proxy_put_proxy_dev(struct proxy_dev *proxy_dev)
+{
+	kref_put(&proxy_dev->kref, vtpm_proxy_delete_proxy_dev);
 }
 
 /*
@@ -580,7 +594,7 @@ err_put_unused_fd:
 	put_unused_fd(fd);
 
 err_delete_proxy_dev:
-	vtpm_proxy_delete_proxy_dev(proxy_dev);
+	vtpm_proxy_put_proxy_dev(proxy_dev);
 
 	return ERR_PTR(rc);
 }
@@ -602,7 +616,7 @@ static void vtpm_proxy_delete_device(struct proxy_dev *proxy_dev)
 	if (proxy_dev->state & STATE_REGISTERED_FLAG)
 		tpm_chip_unregister(proxy_dev->chip);
 
-	vtpm_proxy_delete_proxy_dev(proxy_dev);
+	vtpm_proxy_put_proxy_dev(proxy_dev);
 }
 
 /*
