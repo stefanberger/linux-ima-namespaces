@@ -64,7 +64,7 @@ int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
 	if (keylen > MAX_KEY_SIZE)
 		goto inval;
 	memcpy(evmkey, key, keylen);
-	evm_initialized |= EVM_INIT_HMAC;
+	ns->evm_initialized |= EVM_INIT_HMAC;
 	pr_info("key initialized\n");
 	return 0;
 inval:
@@ -75,7 +75,8 @@ busy:
 }
 EXPORT_SYMBOL_GPL(evm_set_key);
 
-static struct shash_desc *init_desc(char type, uint8_t hash_algo)
+static struct shash_desc *init_desc(struct evm_namespace *ns,
+				    char type, uint8_t hash_algo)
 {
 	long rc;
 	const char *algo;
@@ -83,7 +84,7 @@ static struct shash_desc *init_desc(char type, uint8_t hash_algo)
 	struct shash_desc *desc;
 
 	if (type == EVM_XATTR_HMAC) {
-		if (!(evm_initialized & EVM_INIT_HMAC)) {
+		if (!(ns->evm_initialized & EVM_INIT_HMAC)) {
 			pr_err_once("HMAC key is not set\n");
 			return ERR_PTR(-ENOKEY);
 		}
@@ -221,7 +222,8 @@ static void dump_security_xattr(const char *name, const char *value,
  * the hmac using the requested xattr value. Don't alloc/free memory for
  * each xattr, but attempt to re-use the previously allocated memory.
  */
-static int evm_calc_hmac_or_hash(struct dentry *dentry,
+static int evm_calc_hmac_or_hash(struct evm_namespace *ns,
+				 struct dentry *dentry,
 				 const char *req_xattr_name,
 				 const char *req_xattr_value,
 				 size_t req_xattr_value_len,
@@ -240,7 +242,7 @@ static int evm_calc_hmac_or_hash(struct dentry *dentry,
 	    inode->i_sb->s_user_ns != &init_user_ns)
 		return -EOPNOTSUPP;
 
-	desc = init_desc(type, data->hdr.algo);
+	desc = init_desc(ns, type, data->hdr.algo);
 	if (IS_ERR(desc))
 		return PTR_ERR(desc);
 
@@ -307,20 +309,24 @@ out:
 	return error;
 }
 
-int evm_calc_hmac(struct dentry *dentry, const char *req_xattr_name,
+int evm_calc_hmac(struct evm_namespace *ns, struct dentry *dentry,
+		  const char *req_xattr_name,
 		  const char *req_xattr_value, size_t req_xattr_value_len,
 		  struct evm_digest *data)
 {
-	return evm_calc_hmac_or_hash(dentry, req_xattr_name, req_xattr_value,
-				    req_xattr_value_len, EVM_XATTR_HMAC, data);
+	return evm_calc_hmac_or_hash(ns, dentry, req_xattr_name,
+				     req_xattr_value, req_xattr_value_len,
+				     EVM_XATTR_HMAC, data);
 }
 
-int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
+int evm_calc_hash(struct evm_namespace *ns, struct dentry *dentry,
+		  const char *req_xattr_name,
 		  const char *req_xattr_value, size_t req_xattr_value_len,
 		  char type, struct evm_digest *data)
 {
-	return evm_calc_hmac_or_hash(dentry, req_xattr_name, req_xattr_value,
-				     req_xattr_value_len, type, data);
+	return evm_calc_hmac_or_hash(ns, dentry, req_xattr_name,
+				     req_xattr_value, req_xattr_value_len,
+				     type, data);
 }
 
 static int evm_is_immutable(struct dentry *dentry, struct inode *inode)
@@ -357,7 +363,8 @@ out:
  *
  * Expects to be called with i_mutex locked.
  */
-int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
+int evm_update_evmxattr(struct evm_namespace *ns, struct dentry *dentry,
+			const char *xattr_name,
 			const char *xattr_value, size_t xattr_value_len)
 {
 	struct inode *inode = d_backing_inode(dentry);
@@ -375,7 +382,7 @@ int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
 		return -EPERM;
 
 	data.hdr.algo = HASH_ALGO_SHA1;
-	rc = evm_calc_hmac(dentry, xattr_name, xattr_value,
+	rc = evm_calc_hmac(ns, dentry, xattr_name, xattr_value,
 			   xattr_value_len, &data);
 	if (rc == 0) {
 		data.hdr.xattr.sha1.type = EVM_XATTR_HMAC;
@@ -389,13 +396,13 @@ int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
 	return rc;
 }
 
-int evm_init_hmac(struct inode *inode, const struct xattr *xattrs,
-		  char *hmac_val)
+int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
+		  const struct xattr *xattrs, char *hmac_val)
 {
 	struct shash_desc *desc;
 	const struct xattr *xattr;
 
-	desc = init_desc(EVM_XATTR_HMAC, HASH_ALGO_SHA1);
+	desc = init_desc(ns, EVM_XATTR_HMAC, HASH_ALGO_SHA1);
 	if (IS_ERR(desc)) {
 		pr_info("init_desc failed\n");
 		return PTR_ERR(desc);

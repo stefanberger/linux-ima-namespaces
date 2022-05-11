@@ -18,6 +18,7 @@ struct integrity_namespace;
 
 struct evm_namespace {
 	struct integrity_namespace *integrity_ns;
+	int evm_initialized;
 };
 
 extern struct evm_namespace init_evm_ns;
@@ -29,8 +30,7 @@ extern void free_evm_ns(struct integrity_namespace *evm_ns);
 #endif
 
 #ifdef CONFIG_EVM
-extern int evm_set_key(struct evm_namespace *ns,
-		       void *key, size_t keylen);
+extern int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen);
 extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 					     struct dentry *dentry,
 					     const char *xattr_name,
@@ -40,7 +40,8 @@ extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 int evm_inode_init_security(struct inode *inode, struct inode *dir,
 			    const struct qstr *qstr, struct xattr *xattrs,
 			    int *xattr_count);
-extern bool evm_revalidate_status(const char *xattr_name);
+extern bool evm_revalidate_status(struct evm_namespace *ns,
+				  const char *xattr_name);
 extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
 extern int evm_read_protected_xattrs(struct evm_namespace *ns,
 				     struct dentry *dentry, u8 *buffer,
@@ -83,7 +84,8 @@ static inline int evm_inode_init_security(struct inode *inode, struct inode *dir
 	return 0;
 }
 
-static inline bool evm_revalidate_status(const char *xattr_name)
+static inline bool evm_revalidate_status(struct evm_namespace *ns,
+					 const char *xattr_name)
 {
 	return false;
 }

@@ -32,8 +32,6 @@ struct xattr_list {
 	bool enabled;
 };
 
-extern int evm_initialized;
-
 #define EVM_ATTR_FSUUID		0x0001
 
 extern int evm_hmac_attrs;
@@ -54,19 +52,20 @@ static inline struct evm_namespace *current_evm_ns(void)
 int evm_protected_xattr(const char *req_xattr_name);
 
 int evm_init_key(struct evm_namespace *ns);
-int evm_update_evmxattr(struct dentry *dentry,
+int evm_update_evmxattr(struct evm_namespace *ns,
+			struct dentry *dentry,
 			const char *req_xattr_name,
 			const char *req_xattr_value,
 			size_t req_xattr_value_len);
-int evm_calc_hmac(struct dentry *dentry, const char *req_xattr_name,
-		  const char *req_xattr_value,
+int evm_calc_hmac(struct evm_namespace *ns, struct dentry *dentry,
+		  const char *req_xattr_name, const char *req_xattr_value,
 		  size_t req_xattr_value_len, struct evm_digest *data);
-int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
-		  const char *req_xattr_value,
+int evm_calc_hash(struct evm_namespace *ns, struct dentry *dentry,
+		  const char *req_xattr_name, const char *req_xattr_value,
 		  size_t req_xattr_value_len, char type,
 		  struct evm_digest *data);
-int evm_init_hmac(struct inode *inode, const struct xattr *xattrs,
-		  char *hmac_val);
+int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
+		  const struct xattr *xattrs, char *hmac_val);
 int evm_init_secfs(struct evm_namespace *ns);
 int __init evm_init_ns(void);
 int evm_init_namespace(struct evm_namespace *ns,

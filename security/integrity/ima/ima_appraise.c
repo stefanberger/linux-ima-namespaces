@@ -802,6 +802,7 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			      size_t xattr_value_len, int flags)
 {
 	const struct evm_ima_xattr_data *xvalue = xattr_value;
+	struct evm_namespace *evm_ns = &init_evm_ns;
 	struct ima_namespace *ns = &init_ima_ns;
 	int digsig = 0;
 	int result;
@@ -821,7 +822,7 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	} else if (!strcmp(xattr_name, XATTR_NAME_EVM) && xattr_value_len > 0) {
 		digsig = (xvalue->type == EVM_XATTR_PORTABLE_DIGSIG);
 	}
-	if (result == 1 || evm_revalidate_status(xattr_name)) {
+	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
 		ima_reset_appraise_flags(ns, d_backing_inode(dentry), digsig);
 		if (result == 1)
 			result = 0;
@@ -832,9 +833,10 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			     const char *acl_name, struct posix_acl *kacl)
 {
+	struct evm_namespace *evm_ns = &init_evm_ns;
 	struct ima_namespace *ns = &init_ima_ns;
 
-	if (evm_revalidate_status(acl_name))
+	if (evm_revalidate_status(evm_ns, acl_name))
 		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
 
 	return 0;
@@ -843,11 +845,12 @@ static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 static int ima_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				 const char *xattr_name)
 {
+	struct evm_namespace *evm_ns = &init_evm_ns;
 	struct ima_namespace *ns = &init_ima_ns;
 	int result;
 
 	result = ima_protect_xattr(dentry, xattr_name, NULL, 0);
-	if (result == 1 || evm_revalidate_status(xattr_name)) {
+	if (result == 1 || evm_revalidate_status(evm_ns, xattr_name)) {
 		ima_reset_appraise_flags(ns, d_backing_inode(dentry), 0);
 		if (result == 1)
 			result = 0;
