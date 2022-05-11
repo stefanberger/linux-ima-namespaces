@@ -27,8 +27,6 @@
 #include <crypto/utils.h>
 #include "evm.h"
 
-int evm_initialized;
-
 static const char * const integrity_status_msg[] = {
 	"pass", "pass_immutable", "fail", "fail_immutable", "no_label",
 	"no_xattrs", "unknown"
@@ -105,9 +103,9 @@ static void __init evm_init_config(void)
 	pr_info("HMAC attrs: 0x%x\n", evm_hmac_attrs);
 }
 
-static bool evm_key_loaded(void)
+static bool evm_key_loaded(struct evm_namespace *ns)
 {
-	return (bool)(evm_initialized & EVM_KEY_MASK);
+	return (bool)(ns->evm_initialized & EVM_KEY_MASK);
 }
 
 /*
@@ -117,12 +115,12 @@ static bool evm_key_loaded(void)
  * EVM_SETUP_COMPLETE initialization flag, allowing an operation despite the
  * attrs/xattrs being found invalid will not make them valid.
  */
-static bool evm_hmac_disabled(void)
+static bool evm_hmac_disabled(struct evm_namespace *ns)
 {
-	if (evm_initialized & EVM_INIT_HMAC)
+	if (ns->evm_initialized & EVM_INIT_HMAC)
 		return false;
 
-	if (!(evm_initialized & EVM_SETUP_COMPLETE))
+	if (!(ns->evm_initialized & EVM_SETUP_COMPLETE))
 		return false;
 
 	return true;
@@ -212,7 +210,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
 		}
 
 		digest.hdr.algo = HASH_ALGO_SHA1;
-		rc = evm_calc_hmac(dentry, xattr_name, xattr_value,
+		rc = evm_calc_hmac(ns, dentry, xattr_name, xattr_value,
 				   xattr_value_len, &digest);
 		if (rc)
 			break;
@@ -233,7 +231,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
 
 		hdr = (struct signature_v2_hdr *)xattr_data;
 		digest.hdr.algo = hdr->hash_algo;
-		rc = evm_calc_hash(dentry, xattr_name, xattr_value,
+		rc = evm_calc_hash(ns, dentry, xattr_name, xattr_value,
 				   xattr_value_len, xattr_data->type, &digest);
 		if (rc)
 			break;
@@ -252,7 +250,7 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
 			} else if (!IS_RDONLY(inode) &&
 				   !(inode->i_sb->s_readonly_remount) &&
 				   !IS_IMMUTABLE(inode)) {
-				evm_update_evmxattr(dentry, xattr_name,
+				evm_update_evmxattr(ns, dentry, xattr_name,
 						    xattr_value,
 						    xattr_value_len);
 			}
@@ -415,10 +413,7 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 				      void *xattr_value, size_t xattr_value_len,
 				      struct integrity_iint_cache *iint)
 {
-	if (ns != &init_evm_ns)
-		return INTEGRITY_UNKNOWN;
-
-	if (!evm_key_loaded() || !evm_protected_xattr(xattr_name))
+	if (!evm_key_loaded(ns) || !evm_protected_xattr(xattr_name))
 		return INTEGRITY_UNKNOWN;
 
 	if (!iint) {
@@ -443,7 +438,7 @@ static enum integrity_status evm_verify_current_integrity
 {
 	struct inode *inode = d_backing_inode(dentry);
 
-	if (!evm_key_loaded() || !S_ISREG(inode->i_mode) || evm_fixmode)
+	if (!evm_key_loaded(ns) || !S_ISREG(inode->i_mode) || evm_fixmode)
 		return INTEGRITY_PASS;
 	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL);
 }
@@ -521,7 +516,7 @@ static int evm_protect_xattr(struct evm_namespace *ns,
 		struct integrity_iint_cache *iint;
 
 		/* Exception if the HMAC is not going to be calculated. */
-		if (evm_hmac_disabled())
+		if (evm_hmac_disabled(ns))
 			return 0;
 
 		iint = integrity_iint_find(d_backing_inode(dentry));
@@ -541,7 +536,7 @@ static int evm_protect_xattr(struct evm_namespace *ns,
 	}
 out:
 	/* Exception if the HMAC is not going to be calculated. */
-	if (evm_hmac_disabled() && (evm_status == INTEGRITY_NOLABEL ||
+	if (evm_hmac_disabled(ns) && (evm_status == INTEGRITY_NOLABEL ||
 	    evm_status == INTEGRITY_UNKNOWN))
 		return 0;
 
@@ -592,7 +587,7 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	 * there's no HMAC key loaded
 	 */
 	if (ns == &init_evm_ns &&
-	    (evm_initialized & EVM_ALLOW_METADATA_WRITES))
+	    (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES))
 		return 0;
 
 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
@@ -626,7 +621,7 @@ static int evm_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	 * there's no HMAC key loaded
 	 */
 	if (ns == &init_evm_ns &&
-	    evm_initialized & EVM_ALLOW_METADATA_WRITES)
+	    ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
 		return 0;
 
 	return evm_protect_xattr(ns, idmap, dentry, xattr_name, NULL, 0);
@@ -683,7 +678,7 @@ static int evm_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 	/* Policy permits modification of the protected xattrs even though
 	 * there's no HMAC key loaded
 	 */
-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
+	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
 		return 0;
 
 	evm_status = evm_verify_current_integrity(ns, dentry);
@@ -692,7 +687,7 @@ static int evm_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 		return 0;
 
 	/* Exception if the HMAC is not going to be calculated. */
-	if (evm_hmac_disabled() && (evm_status == INTEGRITY_NOLABEL ||
+	if (evm_hmac_disabled(ns) && (evm_status == INTEGRITY_NOLABEL ||
 	    evm_status == INTEGRITY_UNKNOWN))
 		return 0;
 
@@ -744,6 +739,7 @@ static void evm_reset_status(struct inode *inode)
 
 /**
  * evm_revalidate_status - report whether EVM status re-validation is necessary
+ * @ns: EVM namespace
  * @xattr_name: pointer to the affected extended attribute name
  *
  * Report whether callers of evm_verifyxattr() should re-validate the
@@ -751,14 +747,9 @@ static void evm_reset_status(struct inode *inode)
  *
  * Return true if re-validation is necessary, false otherwise.
  */
-bool evm_revalidate_status(const char *xattr_name)
+bool evm_revalidate_status(struct evm_namespace *ns, const char *xattr_name)
 {
-	struct evm_namespace *ns = current_evm_ns();
-
-	if (ns != &init_evm_ns)
-		return false;
-
-	if (!evm_key_loaded())
+	if (!evm_key_loaded(ns))
 		return false;
 
 	/* evm_inode_post_setattr() passes NULL */
@@ -792,7 +783,9 @@ static void evm_inode_post_setxattr(struct dentry *dentry,
 				    size_t xattr_value_len,
 				    int flags)
 {
-	if (!evm_revalidate_status(xattr_name))
+	struct evm_namespace *ns = current_evm_ns();
+
+	if (!evm_revalidate_status(ns, xattr_name))
 		return;
 
 	evm_reset_status(dentry->d_inode);
@@ -800,10 +793,11 @@ static void evm_inode_post_setxattr(struct dentry *dentry,
 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
 		return;
 
-	if (!(evm_initialized & EVM_INIT_HMAC))
+	if (!(ns->evm_initialized & EVM_INIT_HMAC))
 		return;
 
-	evm_update_evmxattr(dentry, xattr_name, xattr_value, xattr_value_len);
+	evm_update_evmxattr(ns, dentry, xattr_name,
+			    xattr_value, xattr_value_len);
 }
 
 /**
@@ -834,7 +828,9 @@ static void evm_inode_post_set_acl(struct dentry *dentry, const char *acl_name,
 static void evm_inode_post_removexattr(struct dentry *dentry,
 				       const char *xattr_name)
 {
-	if (!evm_revalidate_status(xattr_name))
+	struct evm_namespace *ns = current_evm_ns();
+
+	if (!evm_revalidate_status(ns, xattr_name))
 		return;
 
 	evm_reset_status(dentry->d_inode);
@@ -842,10 +838,10 @@ static void evm_inode_post_removexattr(struct dentry *dentry,
 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
 		return;
 
-	if (!(evm_initialized & EVM_INIT_HMAC))
+	if (!(ns->evm_initialized & EVM_INIT_HMAC))
 		return;
 
-	evm_update_evmxattr(dentry, xattr_name, NULL, 0);
+	evm_update_evmxattr(ns, dentry, xattr_name, NULL, 0);
 }
 
 /**
@@ -890,9 +886,9 @@ static int evm_attr_change(struct mnt_idmap *idmap,
 static int evm_inode_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			     struct iattr *attr)
 {
+	struct evm_namespace *ns = current_evm_ns();
 	unsigned int ia_valid = attr->ia_valid;
 	enum integrity_status evm_status;
-	struct evm_namespace *ns = current_evm_ns();
 
 	if (ns != &init_evm_ns)
 		return 0;
@@ -900,7 +896,7 @@ static int evm_inode_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	/* Policy permits modification of the protected attrs even though
 	 * there's no HMAC key loaded
 	 */
-	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
+	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
 		return 0;
 
 	if (!(ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID)))
@@ -913,7 +909,7 @@ static int evm_inode_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 	if ((evm_status == INTEGRITY_PASS) ||
 	    (evm_status == INTEGRITY_NOXATTRS) ||
 	    (evm_status == INTEGRITY_FAIL_IMMUTABLE) ||
-	    (evm_hmac_disabled() && (evm_status == INTEGRITY_NOLABEL ||
+	    (evm_hmac_disabled(ns) && (evm_status == INTEGRITY_NOLABEL ||
 	     evm_status == INTEGRITY_UNKNOWN)))
 		return 0;
 
@@ -942,16 +938,18 @@ static int evm_inode_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 static void evm_inode_post_setattr(struct mnt_idmap *idmap,
 				   struct dentry *dentry, int ia_valid)
 {
-	if (!evm_revalidate_status(NULL))
+	struct evm_namespace *ns = current_evm_ns();
+
+	if (!evm_revalidate_status(ns, NULL))
 		return;
 
 	evm_reset_status(dentry->d_inode);
 
-	if (!(evm_initialized & EVM_INIT_HMAC))
+	if (!(ns->evm_initialized & EVM_INIT_HMAC))
 		return;
 
 	if (ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID))
-		evm_update_evmxattr(dentry, NULL, NULL, 0);
+		evm_update_evmxattr(ns, dentry, NULL, NULL, 0);
 }
 
 /*
@@ -970,7 +968,7 @@ int evm_inode_init_security(struct inode *inode, struct inode *dir,
 	if (ns != &init_evm_ns)
 		return 0;
 
-	if (!(evm_initialized & EVM_INIT_HMAC) || !xattrs)
+	if (!(ns->evm_initialized & EVM_INIT_HMAC) || !xattrs)
 		return 0;
 
 	/*
@@ -1001,7 +999,7 @@ int evm_inode_init_security(struct inode *inode, struct inode *dir,
 		return -ENOMEM;
 
 	xattr_data->data.type = EVM_XATTR_HMAC;
-	rc = evm_init_hmac(inode, xattrs, xattr_data->digest);
+	rc = evm_init_hmac(ns, inode, xattrs, xattr_data->digest);
 	if (rc < 0)
 		goto out;
 
@@ -1023,7 +1021,7 @@ void __init evm_load_x509(struct integrity_namespace *ns)
 	rc = integrity_load_x509(ns, INTEGRITY_KEYRING_EVM,
 				 CONFIG_EVM_X509_PATH);
 	if (!rc)
-		evm_initialized |= EVM_INIT_X509;
+		ns->evm_ns->evm_initialized |= EVM_INIT_X509;
 }
 #endif
 

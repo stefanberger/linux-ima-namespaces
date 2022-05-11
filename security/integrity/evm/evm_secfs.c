@@ -40,13 +40,14 @@ static int evm_xattrs_locked;
 static ssize_t evm_read_key(struct file *filp, char __user *buf,
 			    size_t count, loff_t *ppos)
 {
+	struct evm_namespace *ns = evm_ns_from_file(filp);
 	char temp[80];
 	ssize_t rc;
 
 	if (*ppos != 0)
 		return 0;
 
-	sprintf(temp, "%d", (evm_initialized & ~EVM_SETUP_COMPLETE));
+	sprintf(temp, "%d", (ns->evm_initialized & ~EVM_SETUP_COMPLETE));
 	rc = simple_read_from_buffer(buf, count, ppos, temp, strlen(temp));
 
 	return rc;
@@ -67,11 +68,12 @@ static ssize_t evm_read_key(struct file *filp, char __user *buf,
 static ssize_t evm_write_key(struct file *file, const char __user *buf,
 			     size_t count, loff_t *ppos)
 {
-	struct evm_namespace *ns = current_evm_ns();
+	struct evm_namespace *ns = evm_ns_from_file(file);
 	unsigned int i;
 	int ret;
 
-	if (!capable(CAP_SYS_ADMIN) || (evm_initialized & EVM_SETUP_COMPLETE))
+	if (!capable(CAP_SYS_ADMIN) ||
+	    (ns->evm_initialized & EVM_SETUP_COMPLETE))
 		return -EPERM;
 
 	ret = kstrtouint_from_user(buf, count, 0, &i);
@@ -88,7 +90,7 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
 	 * an HMAC key is loaded.
 	 */
 	if ((i & EVM_ALLOW_METADATA_WRITES) &&
-	    (evm_initialized & EVM_INIT_HMAC) != 0)
+	    (ns->evm_initialized & EVM_INIT_HMAC) != 0)
 		return -EPERM;
 
 	if (i & EVM_INIT_HMAC) {
@@ -99,13 +101,13 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
 		i |= EVM_SETUP_COMPLETE;
 	}
 
-	evm_initialized |= i;
+	ns->evm_initialized |= i;
 
 	/* Don't allow protected metadata modification if a symmetric key
 	 * is loaded
 	 */
-	if (evm_initialized & EVM_INIT_HMAC)
-		evm_initialized &= ~(EVM_ALLOW_METADATA_WRITES);
+	if (ns->evm_initialized & EVM_INIT_HMAC)
+		ns->evm_initialized &= ~(EVM_ALLOW_METADATA_WRITES);
 
 	return count;
 }
