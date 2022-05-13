@@ -87,4 +87,8 @@ static inline bool ns_is_disabled(struct evm_namespace *ns)
 	return (ns && test_bit(EVM_NS_DISABLED, &ns->evm_ns_flags));
 }
 
+#ifdef CONFIG_IMA_NS
+void evm_ns_free_crypto(struct evm_namespace *ns);
+#endif
+
 #endif
