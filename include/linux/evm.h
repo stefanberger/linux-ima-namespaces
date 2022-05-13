@@ -33,6 +33,8 @@ struct evm_namespace {
 #define EVM_SET_KEY_BUSY 0
 
 	int evm_hmac_attrs;
+
+	struct mutex mutex;
 };
 
 extern struct evm_namespace init_evm_ns;

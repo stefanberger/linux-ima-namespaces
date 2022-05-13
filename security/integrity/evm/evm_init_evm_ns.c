@@ -10,6 +10,8 @@ int evm_init_namespace(struct evm_namespace *ns,
 	ns->integrity_ns = integrity_ns;
 	ns->evmkey_len = MAX_KEY_SIZE;
 
+	mutex_init(&ns->mutex);
+
 	return 0;
 }
 
