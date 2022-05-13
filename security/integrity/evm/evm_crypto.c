@@ -17,16 +17,26 @@
 #include <linux/xattr.h>
 #include <linux/evm.h>
 #include <keys/encrypted-type.h>
-#include <crypto/hash.h>
-#include <crypto/hash_info.h>
 #include "evm.h"
 
 #define EVMKEY "evm-key"
 
-static struct crypto_shash *hmac_tfm;
-static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
-
 static const char evm_hmac[] = "hmac(sha1)";
+
+#ifdef CONFIG_IMA_NS
+void evm_ns_free_crypto(struct evm_namespace *ns)
+{
+	size_t i;
+
+	if (ns->hmac_tfm)
+		crypto_free_shash(ns->hmac_tfm);
+
+	for (i = 0; i < ARRAY_SIZE(ns->evm_tfm); i++) {
+		if (ns->evm_tfm[i])
+			crypto_free_shash(ns->evm_tfm[i]);
+	}
+}
+#endif
 
 /**
  * evm_set_key() - set EVM HMAC key from the kernel
@@ -76,13 +86,13 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
 			pr_err_once("HMAC key is not set\n");
 			return ERR_PTR(-ENOKEY);
 		}
-		tfm = &hmac_tfm;
+		tfm = &ns->hmac_tfm;
 		algo = evm_hmac;
 	} else {
 		if (hash_algo >= HASH_ALGO__LAST)
 			return ERR_PTR(-EINVAL);
 
-		tfm = &evm_tfm[hash_algo];
+		tfm = &ns->evm_tfm[hash_algo];
 		algo = hash_algo_name[hash_algo];
 	}
 
@@ -102,7 +112,6 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
 	if (type == EVM_XATTR_HMAC) {
 		rc = crypto_shash_setkey(tmp_tfm, ns->evmkey, ns->evmkey_len);
 		if (rc) {
-			crypto_free_shash(tmp_tfm);
 			mutex_unlock(&ns->mutex);
 			return ERR_PTR(rc);
 		}
