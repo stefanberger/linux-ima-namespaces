@@ -8,6 +8,7 @@ int evm_init_namespace(struct evm_namespace *ns,
 		       struct integrity_namespace *integrity_ns)
 {
 	ns->integrity_ns = integrity_ns;
+	ns->evmkey_len = MAX_KEY_SIZE;
 
 	return 0;
 }
