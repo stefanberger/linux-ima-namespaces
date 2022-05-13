@@ -26,8 +26,6 @@
 static struct crypto_shash *hmac_tfm;
 static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
 
-static DEFINE_MUTEX(mutex);
-
 static const char evm_hmac[] = "hmac(sha1)";
 
 /**
@@ -90,7 +88,7 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
 
 	if (*tfm)
 		goto alloc;
-	mutex_lock(&mutex);
+	mutex_lock(&ns->mutex);
 	if (*tfm)
 		goto unlock;
 
@@ -98,20 +96,20 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
 	if (IS_ERR(tmp_tfm)) {
 		pr_err("Can not allocate %s (reason: %ld)\n", algo,
 		       PTR_ERR(tmp_tfm));
-		mutex_unlock(&mutex);
+		mutex_unlock(&ns->mutex);
 		return ERR_CAST(tmp_tfm);
 	}
 	if (type == EVM_XATTR_HMAC) {
 		rc = crypto_shash_setkey(tmp_tfm, ns->evmkey, ns->evmkey_len);
 		if (rc) {
 			crypto_free_shash(tmp_tfm);
-			mutex_unlock(&mutex);
+			mutex_unlock(&ns->mutex);
 			return ERR_PTR(rc);
 		}
 	}
 	*tfm = tmp_tfm;
 unlock:
-	mutex_unlock(&mutex);
+	mutex_unlock(&ns->mutex);
 alloc:
 	desc = kmalloc(sizeof(*desc) + crypto_shash_descsize(*tfm),
 			GFP_KERNEL);
