@@ -24,6 +24,13 @@ struct evm_namespace {
 
 	struct integrity_namespace *integrity_ns;
 	int evm_initialized;
+
+#define MAX_KEY_SIZE 128
+	unsigned char evmkey[MAX_KEY_SIZE];
+	int evmkey_len; /* always equals MAX_KEY_SIZE */;
+
+	unsigned long evm_set_key_flags;
+#define EVM_SET_KEY_BUSY 0
 };
 
 extern struct evm_namespace init_evm_ns;
