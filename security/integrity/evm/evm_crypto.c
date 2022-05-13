@@ -22,18 +22,11 @@
 #include "evm.h"
 
 #define EVMKEY "evm-key"
-#define MAX_KEY_SIZE 128
-static unsigned char evmkey[MAX_KEY_SIZE];
-static const int evmkey_len = MAX_KEY_SIZE;
 
 static struct crypto_shash *hmac_tfm;
 static struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
 
 static DEFINE_MUTEX(mutex);
-
-#define EVM_SET_KEY_BUSY 0
-
-static unsigned long evm_set_key_flags;
 
 static const char evm_hmac[] = "hmac(sha1)";
 
@@ -54,21 +47,18 @@ int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
 {
 	int rc;
 
-	if (ns != &init_evm_ns)
-		return -EINVAL;
-
 	rc = -EBUSY;
-	if (test_and_set_bit(EVM_SET_KEY_BUSY, &evm_set_key_flags))
+	if (test_and_set_bit(EVM_SET_KEY_BUSY, &ns->evm_set_key_flags))
 		goto busy;
 	rc = -EINVAL;
 	if (keylen > MAX_KEY_SIZE)
 		goto inval;
-	memcpy(evmkey, key, keylen);
+	memcpy(ns->evmkey, key, keylen);
 	ns->evm_initialized |= EVM_INIT_HMAC;
 	pr_info("key initialized\n");
 	return 0;
 inval:
-	clear_bit(EVM_SET_KEY_BUSY, &evm_set_key_flags);
+	clear_bit(EVM_SET_KEY_BUSY, &ns->evm_set_key_flags);
 busy:
 	pr_err("key initialization failed\n");
 	return rc;
@@ -112,7 +102,7 @@ static struct shash_desc *init_desc(struct evm_namespace *ns,
 		return ERR_CAST(tmp_tfm);
 	}
 	if (type == EVM_XATTR_HMAC) {
-		rc = crypto_shash_setkey(tmp_tfm, evmkey, evmkey_len);
+		rc = crypto_shash_setkey(tmp_tfm, ns->evmkey, ns->evmkey_len);
 		if (rc) {
 			crypto_free_shash(tmp_tfm);
 			mutex_unlock(&mutex);
