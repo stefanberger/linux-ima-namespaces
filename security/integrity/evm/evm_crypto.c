@@ -134,7 +134,8 @@ alloc:
  * (Additional directory/file metadata needs to be added for more complete
  * protection.)
  */
-static void hmac_add_misc(struct shash_desc *desc, struct inode *inode,
+static void hmac_add_misc(struct evm_namespace *ns,
+			  struct shash_desc *desc, struct inode *inode,
 			  char type, char *digest)
 {
 	struct h_misc {
@@ -165,7 +166,7 @@ static void hmac_add_misc(struct shash_desc *desc, struct inode *inode,
 	hmac_misc.gid = from_kgid(&init_user_ns, inode->i_gid);
 	hmac_misc.mode = inode->i_mode;
 	crypto_shash_update(desc, (const u8 *)&hmac_misc, sizeof(hmac_misc));
-	if ((evm_hmac_attrs & EVM_ATTR_FSUUID) &&
+	if ((ns->evm_hmac_attrs & EVM_ATTR_FSUUID) &&
 	    type != EVM_XATTR_PORTABLE_DIGSIG)
 		crypto_shash_update(desc, (u8 *)&inode->i_sb->s_uuid, UUID_SIZE);
 	crypto_shash_final(desc, digest);
@@ -288,7 +289,7 @@ static int evm_calc_hmac_or_hash(struct evm_namespace *ns,
 
 		dump_security_xattr(xattr->name, xattr_value, xattr_size);
 	}
-	hmac_add_misc(desc, inode, type, data->digest);
+	hmac_add_misc(ns, desc, inode, type, data->digest);
 
 	/* Portable EVM signatures must include an IMA hash */
 	if (type == EVM_XATTR_PORTABLE_DIGSIG && !ima_present)
@@ -405,7 +406,7 @@ int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
 		crypto_shash_update(desc, xattr->value, xattr->value_len);
 	}
 
-	hmac_add_misc(desc, inode, EVM_XATTR_HMAC, hmac_val);
+	hmac_add_misc(ns, desc, inode, EVM_XATTR_HMAC, hmac_val);
 	kfree(desc);
 	return 0;
 }

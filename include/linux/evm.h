@@ -31,6 +31,8 @@ struct evm_namespace {
 
 	unsigned long evm_set_key_flags;
 #define EVM_SET_KEY_BUSY 0
+
+	int evm_hmac_attrs;
 };
 
 extern struct evm_namespace init_evm_ns;
