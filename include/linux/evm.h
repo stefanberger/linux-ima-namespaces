@@ -12,6 +12,8 @@
 #include <linux/integrity.h>
 #include <linux/integrity_namespace.h>
 #include <linux/xattr.h>
+#include <crypto/hash.h>
+#include <crypto/hash_info.h>
 
 struct integrity_iint_cache;
 struct integrity_namespace;
@@ -35,6 +37,8 @@ struct evm_namespace {
 	int evm_hmac_attrs;
 
 	struct mutex mutex;
+	struct crypto_shash *hmac_tfm;
+	struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
 };
 
 extern struct evm_namespace init_evm_ns;
