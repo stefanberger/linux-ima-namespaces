@@ -32,7 +32,6 @@ static const char * const integrity_status_msg[] = {
 	"pass", "pass_immutable", "fail", "fail_immutable", "no_label",
 	"no_xattrs", "unknown"
 };
-int evm_hmac_attrs;
 
 static struct xattr_list evm_config_default_xattrnames[] = {
 	{
@@ -83,7 +82,7 @@ static int __init evm_set_fixmode(char *str)
 }
 __setup("evm=", evm_set_fixmode);
 
-static void __init evm_init_config(void)
+static void __init evm_init_config(struct evm_namespace *ns)
 {
 	int i, xattrs;
 
@@ -99,9 +98,9 @@ static void __init evm_init_config(void)
 	}
 
 #ifdef CONFIG_EVM_ATTR_FSUUID
-	evm_hmac_attrs |= EVM_ATTR_FSUUID;
+	ns->evm_hmac_attrs |= EVM_ATTR_FSUUID;
 #endif
-	pr_info("HMAC attrs: 0x%x\n", evm_hmac_attrs);
+	pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
 }
 
 static bool evm_key_loaded(struct evm_namespace *ns)
@@ -1036,7 +1035,7 @@ static int __init init_evm(void)
 	if (error)
 		goto error;
 
-	evm_init_config();
+	evm_init_config(ns);
 
 	error = integrity_init_keyring(ns->integrity_ns, INTEGRITY_KEYRING_EVM);
 	if (error)
