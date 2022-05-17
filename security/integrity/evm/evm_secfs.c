@@ -217,6 +217,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
 		xattr->name = NULL;
 		goto out;
 	}
+	xattr->name_allocated = true;
 
 	/* Remove any trailing newline */
 	len = strlen(xattr->name);
