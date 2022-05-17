@@ -29,6 +29,7 @@
 struct xattr_list {
 	struct list_head list;
 	char *name;
+	bool name_allocated;	/* name was kmalloc'ed and must be kfree'd */
 	bool enabled;
 };
 
@@ -70,6 +71,7 @@ int evm_init_secfs(struct evm_namespace *ns);
 int __init evm_init_ns(void);
 int evm_init_namespace(struct evm_namespace *ns,
 		       struct integrity_namespace *integrity_ns);
+void evm_xattr_list_free_list(struct list_head *head);
 
 static inline
 struct evm_namespace *evm_ns_from_file(const struct file *filp)

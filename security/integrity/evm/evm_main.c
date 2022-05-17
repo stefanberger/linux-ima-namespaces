@@ -33,7 +33,7 @@ static const char * const integrity_status_msg[] = {
 	"no_xattrs", "unknown"
 };
 
-static struct xattr_list evm_config_default_xattrnames[] = {
+static const struct xattr_list evm_config_default_xattrnames[] = {
 	{
 	 .name = XATTR_NAME_SELINUX,
 	 .enabled = IS_ENABLED(CONFIG_SECURITY_SELINUX)
@@ -70,6 +70,47 @@ static struct xattr_list evm_config_default_xattrnames[] = {
 
 LIST_HEAD(evm_config_xattrnames);
 
+static struct xattr_list *xattr_list_dup(const struct xattr_list *s)
+{
+	struct xattr_list *d = kzalloc(sizeof(*s), GFP_KERNEL);
+
+	if (s->name_allocated) {
+		d->name = kstrdup(s->name, GFP_KERNEL);
+		if (!d->name) {
+			kfree(d);
+			return NULL;
+		}
+	} else {
+		d->name = s->name;
+	}
+	d->name_allocated = s->name_allocated;
+	d->enabled = s->enabled;
+
+	return d;
+}
+
+static void xattr_list_free(struct xattr_list *s)
+{
+	if (!s)
+		return;
+
+	if (s->name_allocated)
+		kfree(s->name);
+	kfree(s);
+}
+
+void evm_xattr_list_free_list(struct list_head *head)
+{
+	struct list_head *pos, *q;
+	struct xattr_list *xattr_list;
+
+	list_for_each_safe(pos, q, head) {
+		list_del(pos);
+		xattr_list = list_entry(pos, struct xattr_list, list);
+		xattr_list_free(xattr_list);
+	}
+}
+
 static int evm_fixmode __ro_after_init;
 static int __init evm_set_fixmode(char *str)
 {
@@ -82,8 +123,9 @@ static int __init evm_set_fixmode(char *str)
 }
 __setup("evm=", evm_set_fixmode);
 
-static void __init evm_init_config(struct evm_namespace *ns)
+static int __init evm_init_config(struct evm_namespace *ns)
 {
+	struct xattr_list *xattr_list;
 	int i, xattrs;
 
 	xattrs = ARRAY_SIZE(evm_config_default_xattrnames);
@@ -93,14 +135,19 @@ static void __init evm_init_config(struct evm_namespace *ns)
 		pr_info("%s%s\n", evm_config_default_xattrnames[i].name,
 			!evm_config_default_xattrnames[i].enabled ?
 			" (disabled)" : "");
-		list_add_tail(&evm_config_default_xattrnames[i].list,
-			      &evm_config_xattrnames);
+		xattr_list = xattr_list_dup(&evm_config_default_xattrnames[i]);
+		if (!xattr_list)
+			return -ENOMEM;
+
+		list_add_tail(&xattr_list->list, &evm_config_xattrnames);
 	}
 
 #ifdef CONFIG_EVM_ATTR_FSUUID
 	ns->evm_hmac_attrs |= EVM_ATTR_FSUUID;
 #endif
 	pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
+
+	return 0;
 }
 
 static bool evm_key_loaded(struct evm_namespace *ns)
@@ -1028,14 +1075,15 @@ void __init evm_load_x509(struct integrity_namespace *ns)
 static int __init init_evm(void)
 {
 	int error;
-	struct list_head *pos, *q;
 	struct evm_namespace *ns = &init_evm_ns;
 
 	error = evm_init_ns();
 	if (error)
 		goto error;
 
-	evm_init_config(ns);
+	error = evm_init_config(ns);
+	if (error)
+		goto error;
 
 	error = integrity_init_keyring(ns->integrity_ns, INTEGRITY_KEYRING_EVM);
 	if (error)
@@ -1049,10 +1097,8 @@ static int __init init_evm(void)
 
 error:
 	if (error != 0) {
-		if (!list_empty(&evm_config_xattrnames)) {
-			list_for_each_safe(pos, q, &evm_config_xattrnames)
-				list_del(pos);
-		}
+		if (!list_empty(&evm_config_xattrnames))
+			evm_xattr_list_free_list(&evm_config_xattrnames);
 	}
 
 	return error;
