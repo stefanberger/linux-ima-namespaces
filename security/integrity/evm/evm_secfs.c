@@ -131,6 +131,7 @@ static const struct file_operations evm_key_ops = {
 static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
 			       size_t count, loff_t *ppos)
 {
+	struct evm_namespace *ns = evm_ns_from_file(filp);
 	char *temp;
 	int offset = 0;
 	ssize_t rc, size = 0;
@@ -143,7 +144,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
 	if (rc)
 		return -ERESTARTSYS;
 
-	list_for_each_entry(xattr, &evm_config_xattrnames, list) {
+	list_for_each_entry(xattr, &ns->evm_config_xattrnames, list) {
 		if (!xattr->enabled)
 			continue;
 
@@ -156,7 +157,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
 		return -ENOMEM;
 	}
 
-	list_for_each_entry(xattr, &evm_config_xattrnames, list) {
+	list_for_each_entry(xattr, &ns->evm_config_xattrnames, list) {
 		if (!xattr->enabled)
 			continue;
 
@@ -184,6 +185,7 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
 static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
+	struct evm_namespace *ns = evm_ns_from_file(file);
 	int len, err;
 	struct xattr_list *xattr, *tmp;
 	struct audit_buffer *ab;
@@ -255,7 +257,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
 	 * and evm_protected_xattr().
 	 */
 	mutex_lock(&xattr_list_mutex);
-	list_for_each_entry(tmp, &evm_config_xattrnames, list) {
+	list_for_each_entry(tmp, &ns->evm_config_xattrnames, list) {
 		if (strcmp(xattr->name, tmp->name) == 0) {
 			err = -EEXIST;
 			if (!tmp->enabled) {
@@ -266,7 +268,7 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
 			goto out;
 		}
 	}
-	list_add_tail_rcu(&xattr->list, &evm_config_xattrnames);
+	list_add_tail_rcu(&xattr->list, &ns->evm_config_xattrnames);
 	mutex_unlock(&xattr_list_mutex);
 
 	audit_log_format(ab, " res=0");

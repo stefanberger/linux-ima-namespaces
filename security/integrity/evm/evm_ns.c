@@ -36,6 +36,7 @@ void free_evm_ns(struct integrity_namespace *integrity_ns)
 	struct evm_namespace *ns = integrity_ns->evm_ns;
 
 	evm_ns_free_crypto(ns);
+	evm_xattr_list_free_list(&ns->evm_config_xattrnames);
 	kmem_cache_free(evmns_cachep, ns);
 }
 

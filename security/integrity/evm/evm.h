@@ -37,9 +37,6 @@ struct xattr_list {
 
 extern int evm_hmac_attrs;
 
-/* List of EVM protected security xattrs */
-extern struct list_head evm_config_xattrnames;
-
 struct evm_digest {
 	struct ima_digest_data hdr;
 	char digest[IMA_MAX_DIGEST_SIZE];
@@ -50,7 +47,7 @@ static inline struct evm_namespace *current_evm_ns(void)
 	return current_integrity_ns()->evm_ns;
 }
 
-int evm_protected_xattr(const char *req_xattr_name);
+int evm_protected_xattr(struct evm_namespace *ns, const char *req_xattr_name);
 
 int evm_init_key(struct evm_namespace *ns);
 int evm_update_evmxattr(struct evm_namespace *ns,

@@ -39,6 +39,9 @@ struct evm_namespace {
 	struct mutex mutex;
 	struct crypto_shash *hmac_tfm;
 	struct crypto_shash *evm_tfm[HASH_ALGO__LAST];
+
+	/* List of EVM protected security xattrs */
+	struct list_head evm_config_xattrnames;
 };
 
 extern struct evm_namespace init_evm_ns;
@@ -62,7 +65,8 @@ int evm_inode_init_security(struct inode *inode, struct inode *dir,
 			    int *xattr_count);
 extern bool evm_revalidate_status(struct evm_namespace *ns,
 				  const char *xattr_name);
-extern int evm_protected_xattr_if_enabled(const char *req_xattr_name);
+extern int evm_protected_xattr_if_enabled(struct evm_namespace *ns,
+					  const char *req_xattr_name);
 extern int evm_read_protected_xattrs(struct evm_namespace *ns,
 				     struct dentry *dentry, u8 *buffer,
 				     int buffer_size, char type,
@@ -110,7 +114,8 @@ static inline bool evm_revalidate_status(struct evm_namespace *ns,
 	return false;
 }
 
-static inline int evm_protected_xattr_if_enabled(const char *req_xattr_name)
+static inline int evm_protected_xattr_if_enabled(struct evm_namespace *ns,
+						 const char *req_xattr_name)
 {
 	return false;
 }
