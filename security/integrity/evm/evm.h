@@ -37,9 +37,6 @@ struct xattr_list {
 
 extern int evm_hmac_attrs;
 
-/* List of EVM protected security xattrs */
-extern struct list_head evm_config_xattrnames;
-
 struct evm_digest {
 	struct ima_digest_data hdr;
 	char digest[IMA_MAX_DIGEST_SIZE];
