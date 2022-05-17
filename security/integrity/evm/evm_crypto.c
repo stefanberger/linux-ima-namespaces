@@ -247,7 +247,7 @@ static int evm_calc_hmac_or_hash(struct evm_namespace *ns,
 	data->hdr.length = crypto_shash_digestsize(desc->tfm);
 
 	error = -ENODATA;
-	list_for_each_entry_lockless(xattr, &evm_config_xattrnames, list) {
+	list_for_each_entry_lockless(xattr, &ns->evm_config_xattrnames, list) {
 		bool is_ima = false;
 
 		if (strcmp(xattr->name, XATTR_NAME_IMA) == 0)
@@ -407,7 +407,7 @@ int evm_init_hmac(struct evm_namespace *ns, struct inode *inode,
 	}
 
 	for (xattr = xattrs; xattr->name; xattr++) {
-		if (!evm_protected_xattr(xattr->name))
+		if (!evm_protected_xattr(ns, xattr->name))
 			continue;
 
 		crypto_shash_update(desc, xattr->value, xattr->value_len);

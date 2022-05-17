@@ -12,6 +12,8 @@ int evm_init_namespace(struct evm_namespace *ns,
 
 	mutex_init(&ns->mutex);
 
+	INIT_LIST_HEAD(&ns->evm_config_xattrnames);
+
 	return 0;
 }
 
