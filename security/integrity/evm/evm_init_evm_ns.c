@@ -7,12 +7,18 @@
 int evm_init_namespace(struct evm_namespace *ns,
 		       struct integrity_namespace *integrity_ns)
 {
+	int error;
+
 	ns->integrity_ns = integrity_ns;
 	ns->evmkey_len = MAX_KEY_SIZE;
 
 	mutex_init(&ns->mutex);
 
 	INIT_LIST_HEAD(&ns->evm_config_xattrnames);
+
+	error = evm_init_config(ns);
+	if (error)
+		return error;
 
 	return 0;
 }

@@ -68,6 +68,7 @@ int evm_init_secfs(struct evm_namespace *ns);
 int __init evm_init_ns(void);
 int evm_init_namespace(struct evm_namespace *ns,
 		       struct integrity_namespace *integrity_ns);
+int evm_init_config(struct evm_namespace *ns);
 void evm_xattr_list_free_list(struct list_head *head);
 
 static inline
