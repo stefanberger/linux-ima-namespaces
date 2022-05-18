@@ -23,6 +23,7 @@
 #include <linux/vmalloc.h>
 #include <linux/ima.h>
 #include <linux/integrity_namespace.h>
+#include <linux/evm.h>
 
 #include "ima.h"
 
@@ -705,6 +706,9 @@ int ima_fs_ns_init(struct user_namespace *user_ns, struct dentry *root)
 			ret = PTR_ERR(int_dir);
 			goto free_ns;
 		}
+		ret = evm_init_secfs(user_ns->integrity_ns, root, int_dir);
+		if (ret)
+			goto free_ns;
 	} else {
 		int_dir = ns->integrity_ns->integrity_dir;
 	}
