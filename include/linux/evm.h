@@ -42,6 +42,13 @@ struct evm_namespace {
 
 	/* List of EVM protected security xattrs */
 	struct list_head evm_config_xattrnames;
+
+	/* EVM securityfs */
+#ifdef CONFIG_EVM_ADD_XATTRS
+	struct dentry *evm_xattrs;
+	struct mutex xattr_list_mutex;
+	int evm_xattrs_locked;
+#endif
 };
 
 extern struct evm_namespace init_evm_ns;
