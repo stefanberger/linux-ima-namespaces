@@ -120,18 +120,22 @@ static int __init evm_set_fixmode(char *str)
 }
 __setup("evm=", evm_set_fixmode);
 
-static int __init evm_init_config(struct evm_namespace *ns)
+int evm_init_config(struct evm_namespace *ns)
 {
 	struct xattr_list *xattr_list;
 	int i, xattrs;
 
 	xattrs = ARRAY_SIZE(evm_config_default_xattrnames);
 
-	pr_info("Initialising EVM extended attributes:\n");
+	if (ns == &init_evm_ns)
+		pr_info("Initialising EVM extended attributes:\n");
+
 	for (i = 0; i < xattrs; i++) {
-		pr_info("%s%s\n", evm_config_default_xattrnames[i].name,
-			!evm_config_default_xattrnames[i].enabled ?
-			" (disabled)" : "");
+		if (ns == &init_evm_ns)
+			pr_info("%s%s\n",
+				evm_config_default_xattrnames[i].name,
+				!evm_config_default_xattrnames[i].enabled ?
+				" (disabled)" : "");
 		xattr_list = xattr_list_dup(&evm_config_default_xattrnames[i]);
 		if (!xattr_list)
 			return -ENOMEM;
@@ -142,7 +146,8 @@ static int __init evm_init_config(struct evm_namespace *ns)
 #ifdef CONFIG_EVM_ATTR_FSUUID
 	ns->evm_hmac_attrs |= EVM_ATTR_FSUUID;
 #endif
-	pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
+	if (ns == &init_evm_ns)
+		pr_info("HMAC attrs: 0x%x\n", ns->evm_hmac_attrs);
 
 	return 0;
 }
@@ -1079,10 +1084,6 @@ static int __init init_evm(void)
 	struct evm_namespace *ns = &init_evm_ns;
 
 	error = evm_init_ns();
-	if (error)
-		goto error;
-
-	error = evm_init_config(ns);
 	if (error)
 		goto error;
 
