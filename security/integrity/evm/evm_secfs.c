@@ -386,16 +386,18 @@ static const struct file_operations evm_active_ops = {
 	.write = evm_write_active,
 };
 
-int __init evm_init_secfs(struct evm_namespace *ns)
+int evm_init_secfs(struct integrity_namespace *integrity_ns,
+		   struct dentry *root,
+		   struct dentry *integrity_dir)
 {
+	struct evm_namespace *ns = integrity_ns->evm_ns;
 	struct dentry *evm_dir;
 	struct dentry *evm_init_tpm = NULL;
 	struct dentry *evm_symlink = NULL;
 	struct dentry *evm_active = NULL;
 	int error = 0;
 
-	evm_dir = securityfs_create_dir("evm",
-					ns->integrity_ns->integrity_dir);
+	evm_dir = securityfs_create_dir("evm", integrity_dir);
 	if (!evm_dir || IS_ERR(evm_dir))
 		return -EFAULT;
 
@@ -407,7 +409,7 @@ int __init evm_init_secfs(struct evm_namespace *ns)
 		goto out;
 	}
 
-	evm_symlink = securityfs_create_symlink("evm", NULL,
+	evm_symlink = securityfs_create_symlink("evm", root,
 						"integrity/evm/evm", NULL);
 	if (!evm_symlink || IS_ERR(evm_symlink)) {
 		error = -EFAULT;

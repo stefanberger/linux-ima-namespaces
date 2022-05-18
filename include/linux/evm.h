@@ -54,10 +54,23 @@ struct evm_namespace {
 
 extern struct evm_namespace init_evm_ns;
 
-#if defined(CONFIG_IMA_NS) && defined(CONFIG_EVM)
+#if defined(CONFIG_IMA_NS) || defined(CONFIG_EVM)
 extern struct evm_namespace *create_evm_ns
 				(struct integrity_namespace *integrity_ns);
 extern void free_evm_ns(struct integrity_namespace *evm_ns);
+#endif
+
+#ifdef CONFIG_EVM
+int evm_init_secfs(struct integrity_namespace *ns,
+		   struct dentry *secfs_root,
+		   struct dentry *integrity_dir);
+#else
+static inline int evm_init_secfs(struct integrity_namespace *ns,
+				 struct dentry *secfs_root,
+				 struct dentry *integrity_dir)
+{
+	return 0;
+}
 #endif
 
 #ifdef CONFIG_EVM
