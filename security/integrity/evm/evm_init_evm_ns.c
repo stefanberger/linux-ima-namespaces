@@ -16,6 +16,10 @@ int evm_init_namespace(struct evm_namespace *ns,
 
 	INIT_LIST_HEAD(&ns->evm_config_xattrnames);
 
+#ifdef CONFIG_EVM_ADD_XATTRS
+	mutex_init(&ns->xattr_list_mutex);
+#endif
+
 	error = evm_init_config(ns);
 	if (error)
 		return error;
