@@ -74,7 +74,8 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
 	if (!ns_is_active(ns))
 		return -EPERM;
 
-	if (!capable(CAP_SYS_ADMIN) ||
+	if ((!mac_admin_ns_capable(current_user_ns()) &&
+	     !capable(CAP_SYS_ADMIN)) ||
 	    (ns->evm_initialized & EVM_SETUP_COMPLETE))
 		return -EPERM;
 
@@ -206,7 +207,9 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
 	if (!ns_is_active(ns))
 		return -EPERM;
 
-	if (!capable(CAP_SYS_ADMIN) || ns->evm_xattrs_locked)
+	/* Allow namespace admin to write to this file */
+	if ((!mac_admin_ns_capable(current_user_ns()) &&
+	     !capable(CAP_SYS_ADMIN)) || ns->evm_xattrs_locked)
 		return -EPERM;
 
 	if (*ppos != 0)
