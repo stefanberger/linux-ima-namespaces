@@ -18,4 +18,5 @@ int __init evm_init_ns(void)
 }
 
 struct evm_namespace init_evm_ns = {
+	.evm_ns_flags = BIT(EVM_NS_ACTIVE),
 };
