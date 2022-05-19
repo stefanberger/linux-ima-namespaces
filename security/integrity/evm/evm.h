@@ -72,4 +72,11 @@ int __init evm_init_ns(void);
 int evm_init_namespace(struct evm_namespace *ns,
 		       struct integrity_namespace *integrity_ns);
 
+static inline
+struct evm_namespace *evm_ns_from_file(const struct file *filp)
+{
+	return file_sb_user_ns(filp)->integrity_ns->evm_ns;
+}
+
+
 #endif
