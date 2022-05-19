@@ -77,5 +77,14 @@ struct evm_namespace *evm_ns_from_file(const struct file *filp)
 	return file_sb_user_ns(filp)->integrity_ns->evm_ns;
 }
 
+static inline bool ns_is_active(struct evm_namespace *ns)
+{
+	return (ns && test_bit(EVM_NS_ACTIVE, &ns->evm_ns_flags));
+}
+
+static inline bool ns_is_disabled(struct evm_namespace *ns)
+{
+	return (ns && test_bit(EVM_NS_DISABLED, &ns->evm_ns_flags));
+}
 
 #endif
