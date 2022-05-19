@@ -34,6 +34,12 @@ static ssize_t evm_read_key(struct file *filp, char __user *buf,
 	char temp[80];
 	ssize_t rc;
 
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (!ns_is_active(ns))
+		return -EPERM;
+
 	if (*ppos != 0)
 		return 0;
 
@@ -61,6 +67,12 @@ static ssize_t evm_write_key(struct file *file, const char __user *buf,
 	struct evm_namespace *ns = evm_ns_from_file(file);
 	unsigned int i;
 	int ret;
+
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (!ns_is_active(ns))
+		return -EPERM;
 
 	if (!capable(CAP_SYS_ADMIN) ||
 	    (ns->evm_initialized & EVM_SETUP_COMPLETE))
@@ -127,6 +139,12 @@ static ssize_t evm_read_xattrs(struct file *filp, char __user *buf,
 	ssize_t rc, size = 0;
 	struct xattr_list *xattr;
 
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (!ns_is_active(ns))
+		return -EPERM;
+
 	if (*ppos != 0)
 		return 0;
 
@@ -181,6 +199,12 @@ static ssize_t evm_write_xattrs(struct file *file, const char __user *buf,
 	struct audit_buffer *ab;
 	struct iattr newattrs;
 	struct inode *inode;
+
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (!ns_is_active(ns))
+		return -EPERM;
 
 	if (!capable(CAP_SYS_ADMIN) || ns->evm_xattrs_locked)
 		return -EPERM;
@@ -297,11 +321,77 @@ static int evm_init_xattrs(struct evm_namespace *ns,
 }
 #endif
 
+static ssize_t evm_show_active(struct file *filp,
+			       char __user *buf,
+			       size_t count, loff_t *ppos)
+{
+	struct evm_namespace *ns = evm_ns_from_file(filp);
+	char tmpbuf[2];
+	ssize_t len;
+	int v = 0;
+
+	if (test_bit(EVM_NS_DISABLED, &ns->evm_ns_flags))
+	    v = 2;
+	else if (test_bit(EVM_NS_ACTIVE, &ns->evm_ns_flags))
+	    v = 1;
+
+	len = scnprintf(tmpbuf, sizeof(tmpbuf), "%d\n", v);
+	return simple_read_from_buffer(buf, count, ppos, tmpbuf, len);
+}
+
+static ssize_t evm_write_active(struct file *filp,
+				const char __user *buf,
+				size_t count, loff_t *ppos)
+{
+	struct evm_namespace *ns = evm_ns_from_file(filp);
+	unsigned int active;
+	char *kbuf;
+	int err;
+
+	if (ns_is_disabled(ns))
+		return -EACCES;
+
+	if (ns_is_active(ns))
+		return -EBUSY;
+
+	/* accepting '1\n' and '1\0' and no partial writes */
+	if (count >= 3 || *ppos != 0)
+		return -EINVAL;
+
+	kbuf = memdup_user_nul(buf, count);
+	if (IS_ERR(kbuf))
+		return PTR_ERR(kbuf);
+
+	err = kstrtouint(kbuf, 10, &active);
+	kfree(kbuf);
+	if (err)
+		return err;
+
+	switch (active) {
+	case 1:
+		set_bit(EVM_NS_ACTIVE, &ns->evm_ns_flags);
+		break;
+	case 2:
+		set_bit(EVM_NS_DISABLED, &ns->evm_ns_flags);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return count;
+}
+
+static const struct file_operations evm_active_ops = {
+	.read = evm_show_active,
+	.write = evm_write_active,
+};
+
 int __init evm_init_secfs(struct evm_namespace *ns)
 {
 	struct dentry *evm_dir;
 	struct dentry *evm_init_tpm = NULL;
 	struct dentry *evm_symlink = NULL;
+	struct dentry *evm_active = NULL;
 	int error = 0;
 
 	evm_dir = securityfs_create_dir("evm",
@@ -324,6 +414,17 @@ int __init evm_init_secfs(struct evm_namespace *ns)
 		goto out;
 	}
 
+	if (ns != &init_evm_ns) {
+		evm_active =
+		    securityfs_create_file("active",
+					   S_IRUSR | S_IWUSR | S_IRGRP, evm_dir,
+					   NULL, &evm_active_ops);
+		if (IS_ERR(evm_active)) {
+			error = PTR_ERR(evm_active);
+			goto out;
+		}
+	}
+
 	if (evm_init_xattrs(ns, evm_dir) != 0) {
 		error = -EFAULT;
 		goto out;
@@ -331,6 +432,7 @@ int __init evm_init_secfs(struct evm_namespace *ns)
 
 	return 0;
 out:
+	securityfs_remove(evm_active);
 	securityfs_remove(evm_symlink);
 	securityfs_remove(evm_init_tpm);
 	securityfs_remove(evm_dir);
