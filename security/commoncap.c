@@ -1009,6 +1009,9 @@ int cap_inode_setxattr(struct mnt_idmap *idmap,
 	 * If IMA namespacing is enabled then setting security.ima is allowed
 	 * for users as well and the check for XATTR_NAME_IMA will be done in
 	 * ima_inode_setxattr() once CONIG_IMA_APPRAISE is set.
+	 * Further, setting security.evm is allowed for users and the check
+	 * for XATTR_NAME_EVM will be done in evm_inode_setxattr() if
+	 * CONFIG_EVM is set.
 	 * Also, all 'security.' xattrs in a use namespace will be handled
 	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
 	 */
@@ -1018,6 +1021,9 @@ int cap_inode_setxattr(struct mnt_idmap *idmap,
 			return 0;
 
 		if (IS_ENABLED(CONFIG_EVM)) {
+			if (strcmp(name, XATTR_NAME_EVM) == 0)
+				return 0;
+
 			if (current_user_ns() != &init_user_ns &&
 			    mac_admin_ns_capable(current_user_ns()) &&
 			    privileged_wrt_inode_uidgid(current_user_ns(),
@@ -1076,6 +1082,9 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
 	 * If IMA namespacing is enabled then removing security.ima is allowed
 	 * for users as well and the check for XATTR_NAME_IMA will be done in
 	 * ima_inode_removexattr() once CONIG_IMA_APPRAISE is set.
+	 * Further, setting security.evm is allowed for users and the check
+	 * for XATTR_NAME_EVM will be done in evm_inode_setxattr() if
+	 * CONFIG_EVM is set.
 	 * Also, all 'security.' xattrs in a use namespace will be handled
 	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
 	 */
@@ -1085,6 +1094,8 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
 			return 0;
 
 		if (IS_ENABLED(CONFIG_EVM)) {
+			if (strcmp(name, XATTR_NAME_EVM) == 0)
+				return 0;
 			if (current_user_ns() != &init_user_ns &&
 			    mac_admin_ns_capable(current_user_ns()) &&
 			    privileged_wrt_inode_uidgid(current_user_ns(),

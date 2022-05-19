@@ -553,10 +553,18 @@ static int evm_protect_xattr(struct evm_namespace *ns,
 			     struct dentry *dentry, const char *xattr_name,
 			     const void *xattr_value, size_t xattr_value_len)
 {
+	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
+	struct inode *inode = d_backing_inode(dentry);
 	enum integrity_status evm_status;
 
 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
-		if (!capable(CAP_SYS_ADMIN))
+		if (!ns_capable(user_ns, CAP_SYS_ADMIN) &&
+		    !capable(CAP_SYS_ADMIN))
+			return -EPERM;
+		/* Allow users to set security.evm in user namespace */
+		if (!mac_admin_ns_capable(current_user_ns()) ||
+		    !privileged_wrt_inode_uidgid(current_user_ns(),
+						 idmap, inode))
 			return -EPERM;
 	} else if (!evm_protected_xattr(ns, xattr_name)) {
 		if (!posix_xattr_acl(xattr_name))
@@ -638,13 +646,14 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			      size_t xattr_value_len, int flags)
 {
 	const struct evm_ima_xattr_data *xattr_data = xattr_value;
+	struct inode *inode = d_backing_inode(dentry);
 	struct evm_namespace *ns = current_evm_ns();
 
 	/* Policy permits modification of the protected xattrs even though
 	 * there's no HMAC key loaded
 	 */
-	if (ns == &init_evm_ns &&
-	    (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES))
+	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES &&
+	    privileged_wrt_inode_uidgid(current_user_ns(), idmap, inode))
 		return 0;
 
 	if (strcmp(xattr_name, XATTR_NAME_EVM) == 0) {
@@ -652,9 +661,6 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			return -EINVAL;
 		if (xattr_data->type != EVM_IMA_XATTR_DIGSIG &&
 		    xattr_data->type != EVM_XATTR_PORTABLE_DIGSIG)
-			return -EPERM;
-
-		if (ns != &init_evm_ns)
 			return -EPERM;
 	}
 	return evm_protect_xattr(ns, idmap, dentry, xattr_name,
@@ -673,12 +679,13 @@ static int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 static int evm_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				 const char *xattr_name)
 {
+	struct inode *inode = d_backing_inode(dentry);
 	struct evm_namespace *ns = current_evm_ns();
 	/* Policy permits modification of the protected xattrs even though
 	 * there's no HMAC key loaded
 	 */
-	if (ns == &init_evm_ns &&
-	    ns->evm_initialized & EVM_ALLOW_METADATA_WRITES)
+	if (ns->evm_initialized & EVM_ALLOW_METADATA_WRITES &&
+	    privileged_wrt_inode_uidgid(current_user_ns(), idmap, inode))
 		return 0;
 
 	return evm_protect_xattr(ns, idmap, dentry, xattr_name, NULL, 0);
