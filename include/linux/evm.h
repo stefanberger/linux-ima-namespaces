@@ -17,6 +17,11 @@ struct integrity_iint_cache;
 struct integrity_namespace;
 
 struct evm_namespace {
+	unsigned long evm_ns_flags;
+/* Bit numbers for above flags; use BIT() to get flag */
+#define EVM_NS_ACTIVE			1
+#define EVM_NS_DISABLED			2
+
 	struct integrity_namespace *integrity_ns;
 	int evm_initialized;
 };
