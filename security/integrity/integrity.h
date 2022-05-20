@@ -168,6 +168,7 @@ struct ns_status {
 	enum integrity_status ima_bprm_status:4;
 	enum integrity_status ima_read_status:4;
 	enum integrity_status ima_creds_status:4;
+	enum integrity_status evm_status:4;
 #ifdef CONFIG_IMA_NS
 	struct list_head ns_node;	/* list connected to ima_namespace */
 	struct integrity_iint_cache *iint;
@@ -190,6 +191,7 @@ static inline void ns_status_reset(struct ns_status *ns_status)
 	ns_status->ima_bprm_status = INTEGRITY_UNKNOWN;
 	ns_status->ima_read_status = INTEGRITY_UNKNOWN;
 	ns_status->ima_creds_status = INTEGRITY_UNKNOWN;
+	ns_status->evm_status = INTEGRITY_UNKNOWN;
 }
 
 static inline void ns_status_init(struct ns_status *ns_status)
@@ -205,7 +207,6 @@ struct integrity_iint_cache {
 	u64 version;		/* track inode changes */
 	unsigned long flags;	/* flags split with ns_status */
 	unsigned long atomic_flags;	/* atomic_flags split with ns_status */
-	enum integrity_status evm_status:4;
 
 	/*
 	 * Lock and list of ns_status for files shared by different
@@ -423,5 +424,28 @@ static inline void __init add_to_machine_keyring(const char *source,
 static inline bool __init trust_moklist(void)
 {
 	return false;
+}
+#endif
+
+// FIXME: this should be integrity_find_ns_status()
+#ifdef CONFIG_IMA_NS
+
+struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
+				     struct inode *inode,
+				     struct integrity_iint_cache *iint);
+
+#else
+
+static inline struct ns_status *ima_find_ns_status
+					(struct ima_namespace *ns,
+					 struct inode *inode,
+					 struct integrity_iint_cache *iint)
+{
+	struct ns_status *ns_status = &iint->ns_status;
+
+	if (list_empty(&iint->ns_list))
+		return NULL;
+
+	return ns_status;
 }
 #endif
