@@ -22,6 +22,7 @@
 #include <linux/magic.h>
 #include <linux/posix_acl_xattr.h>
 #include <linux/lsm_hooks.h>
+#include <linux/ima.h>
 
 #include <crypto/hash.h>
 #include <crypto/hash_info.h>
@@ -218,7 +219,8 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
 					     const char *xattr_name,
 					     char *xattr_value,
 					     size_t xattr_value_len,
-					     struct integrity_iint_cache *iint)
+					     struct integrity_iint_cache *iint,
+					     struct ns_status *ns_status)
 {
 	struct evm_ima_xattr_data *xattr_data = NULL;
 	struct signature_v2_hdr *hdr;
@@ -227,9 +229,9 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
 	struct inode *inode;
 	int rc, xattr_len, evm_immutable = 0;
 
-	if (iint && (iint->evm_status == INTEGRITY_PASS ||
-		     iint->evm_status == INTEGRITY_PASS_IMMUTABLE))
-		return iint->evm_status;
+	if (ns_status && (ns_status->evm_status == INTEGRITY_PASS ||
+			  ns_status->evm_status == INTEGRITY_PASS_IMMUTABLE))
+		return ns_status->evm_status;
 
 	/* if status is not PASS, try to check again - against -ENOMEM */
 
@@ -323,8 +325,8 @@ static enum integrity_status evm_verify_hmac(struct evm_namespace *ns,
 	pr_debug("digest: (%d) [%*phN]\n", digest.hdr.length, digest.hdr.length,
 		  digest.digest);
 out:
-	if (iint)
-		iint->evm_status = evm_status;
+	if (ns_status)
+		ns_status->evm_status = evm_status;
 	kfree(xattr_data);
 	return evm_status;
 }
@@ -464,7 +466,8 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 				      struct dentry *dentry,
 				      const char *xattr_name,
 				      void *xattr_value, size_t xattr_value_len,
-				      struct integrity_iint_cache *iint)
+				      struct integrity_iint_cache *iint,
+				      struct ns_status *ns_status)
 {
 	if (!evm_key_loaded(ns) || !evm_protected_xattr(ns, xattr_name))
 		return INTEGRITY_UNKNOWN;
@@ -475,7 +478,7 @@ enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 			return INTEGRITY_UNKNOWN;
 	}
 	return evm_verify_hmac(ns, dentry, xattr_name, xattr_value,
-				 xattr_value_len, iint);
+				 xattr_value_len, iint, ns_status);
 }
 EXPORT_SYMBOL_GPL(evm_verifyxattr);
 
@@ -493,7 +496,7 @@ static enum integrity_status evm_verify_current_integrity
 
 	if (!evm_key_loaded(ns) || !S_ISREG(inode->i_mode) || evm_fixmode)
 		return INTEGRITY_PASS;
-	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL);
+	return evm_verify_hmac(ns, dentry, NULL, NULL, 0, NULL, NULL);
 }
 
 /*
@@ -781,13 +784,27 @@ static int evm_inode_remove_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 	return evm_inode_set_acl(idmap, dentry, acl_name, NULL);
 }
 
-static void evm_reset_status(struct inode *inode)
+static void evm_reset_status(struct evm_namespace *ns,
+			     struct inode *inode)
 {
 	struct integrity_iint_cache *iint;
+	struct ima_namespace *ima_ns = NULL;
+	struct ns_status *ns_status;
+
+#ifdef CONFIG_IMA_NS
+	ima_ns = ns->integrity_ns->ima_ns;
+	if (!ima_ns)
+		return;
+#endif
 
 	iint = integrity_iint_find(inode);
-	if (iint)
-		iint->evm_status = INTEGRITY_UNKNOWN;
+	if (!iint)
+		return;
+
+	ns_status = ima_find_ns_status(iint, ima_ns);
+	if (!ns_status)
+		return;
+	ns_status->evm_status = INTEGRITY_UNKNOWN;
 }
 
 /**
@@ -842,7 +859,7 @@ static void evm_inode_post_setxattr(struct dentry *dentry,
 	if (!evm_revalidate_status(ns, xattr_name))
 		return;
 
-	evm_reset_status(dentry->d_inode);
+	evm_reset_status(ns, dentry->d_inode);
 
 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
 		return;
@@ -887,7 +904,7 @@ static void evm_inode_post_removexattr(struct dentry *dentry,
 	if (!evm_revalidate_status(ns, xattr_name))
 		return;
 
-	evm_reset_status(dentry->d_inode);
+	evm_reset_status(ns, dentry->d_inode);
 
 	if (!strcmp(xattr_name, XATTR_NAME_EVM))
 		return;
@@ -997,7 +1014,7 @@ static void evm_inode_post_setattr(struct mnt_idmap *idmap,
 	if (!evm_revalidate_status(ns, NULL))
 		return;
 
-	evm_reset_status(dentry->d_inode);
+	evm_reset_status(ns, dentry->d_inode);
 
 	if (!(ns->evm_initialized & EVM_INIT_HMAC))
 		return;

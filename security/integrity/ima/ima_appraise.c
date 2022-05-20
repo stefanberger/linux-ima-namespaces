@@ -548,7 +548,7 @@ int ima_appraise_measurement(struct ima_namespace *ns, enum ima_hooks func,
 
 	status = evm_verifyxattr(integrity_ns_get_evm_ns(ns->integrity_ns),
 				 dentry, XATTR_NAME_IMA, xattr_value,
-				 rc < 0 ? 0 : rc, iint);
+				 rc < 0 ? 0 : rc, iint, ns_status);
 	switch (status) {
 	case INTEGRITY_PASS:
 	case INTEGRITY_PASS_IMMUTABLE:

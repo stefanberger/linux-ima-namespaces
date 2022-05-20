@@ -141,6 +141,9 @@ static inline int ima_securityfs_init(struct user_namespace *user_ns,
 int ima_ns_set_tpm_chip(struct tpm_provider *tpm_provider,
 			struct tpm_chip *chip);
 
+struct ns_status *ima_ns_status_find(struct ima_namespace *ns,
+				     struct inode *inode);
+
 #else
 
 static inline void free_ima_ns(struct user_namespace *user_ns)
