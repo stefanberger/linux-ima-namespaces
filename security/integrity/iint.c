@@ -64,7 +64,6 @@ static void iint_init_always(struct integrity_iint_cache *iint,
 	iint->version = 0;
 	iint->flags = 0UL;
 	iint->atomic_flags = 0UL;
-	iint->evm_status = INTEGRITY_UNKNOWN;
 	mutex_init(&iint->mutex);
 	iint_lockdep_annotate(iint, inode);
 	rwlock_init(&iint->ns_list_lock);

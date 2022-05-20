@@ -17,6 +17,7 @@
 
 struct integrity_iint_cache;
 struct integrity_namespace;
+struct ns_status;
 
 struct evm_namespace {
 	unsigned long evm_ns_flags;
@@ -66,7 +67,8 @@ extern enum integrity_status evm_verifyxattr(struct evm_namespace *ns,
 					     const char *xattr_name,
 					     void *xattr_value,
 					     size_t xattr_value_len,
-					     struct integrity_iint_cache *iint);
+					     struct integrity_iint_cache *iint,
+					     struct ns_status *ns_status);
 int evm_inode_init_security(struct inode *inode, struct inode *dir,
 			    const struct qstr *qstr, struct xattr *xattrs,
 			    int *xattr_count);
@@ -101,7 +103,8 @@ static inline enum integrity_status evm_verifyxattr(
 					const char *xattr_name,
 					void *xattr_value,
 					size_t xattr_value_len,
-					struct integrity_iint_cache *iint)
+					struct integrity_iint_cache *iint,
+					struct ns_status *ns_status)
 {
 	return INTEGRITY_UNKNOWN;
 }
