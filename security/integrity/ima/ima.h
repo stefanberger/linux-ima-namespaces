@@ -709,10 +709,6 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
 				    struct inode *inode,
 				    struct integrity_iint_cache *iint);
 
-struct ns_status *ima_find_ns_status(struct ima_namespace *ns,
-				     struct inode *inode,
-				     struct integrity_iint_cache *iint);
-
 void ima_free_ns_status_tree(struct ima_namespace *ns);
 
 static inline struct ima_namespace *ima_ns_from_file(const struct file *filp)
@@ -763,19 +759,6 @@ static inline struct ns_status *ima_get_ns_status
 		ns_status->ns = &init_ima_ns;
 		list_add(&ns_status->ns_next, &iint->ns_list);
 	}
-
-	return ns_status;
-}
-
-static inline struct ns_status *ima_find_ns_status
-					(struct ima_namespace *ns,
-					 struct inode *inode,
-					 struct integrity_iint_cache *iint)
-{
-	struct ns_status *ns_status = &iint->ns_status;
-
-	if (list_empty(&iint->ns_list))
-		return NULL;
 
 	return ns_status;
 }
