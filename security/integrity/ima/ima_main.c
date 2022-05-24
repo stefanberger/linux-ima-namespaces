@@ -393,7 +393,7 @@ static int __process_measurement(struct ima_namespace *ns,
 	if (action & IMA_MEASURE)
 		ima_store_measurement(ns, iint, file, pathname,
 				      xattr_value, xattr_len, modsig, pcr,
-				      template_desc);
+				      template_desc, ns_status);
 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
 		rc = ima_check_blacklist(ns, iint, modsig, pcr);
 		if (rc != -EPERM) {
