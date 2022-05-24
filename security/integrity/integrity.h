@@ -160,6 +160,7 @@ struct ima_file_id {
 struct ns_status {
 	struct list_head ns_next;	/* list connected to iint */
 	unsigned long flags;		/* flags split with iint */
+	unsigned long measured_pcrs;
 #ifdef CONFIG_IMA_NS
 	struct list_head ns_node;	/* list connected to ima_namespace */
 	struct integrity_iint_cache *iint;
@@ -173,6 +174,7 @@ struct ns_status {
 static inline void ns_status_reset(struct ns_status *ns_status)
 {
 	ns_status->flags = 0;
+	ns_status->measured_pcrs = 0;
 }
 
 static inline void ns_status_init(struct ns_status *ns_status)
@@ -187,7 +189,6 @@ struct integrity_iint_cache {
 	struct inode *inode;	/* back pointer to inode in question */
 	u64 version;		/* track inode changes */
 	unsigned long flags;	/* flags split with ns_status */
-	unsigned long measured_pcrs;
 	unsigned long atomic_flags;
 	unsigned long real_ino;
 	dev_t real_dev;

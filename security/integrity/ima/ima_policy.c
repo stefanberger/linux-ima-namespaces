@@ -49,7 +49,7 @@
 #define DONT_HASH	0x0200
 
 #define INVALID_PCR(a) (((a) < 0) || \
-	(a) >= (sizeof_field(struct integrity_iint_cache, measured_pcrs) * 8))
+	(a) >= (sizeof_field(struct ns_status, measured_pcrs) * 8))
 
 static int temp_ima_appraise;
 static int build_ima_appraise __ro_after_init;

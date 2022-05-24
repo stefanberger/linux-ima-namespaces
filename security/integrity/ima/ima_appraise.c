@@ -696,6 +696,7 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
 				     struct inode *inode, int digsig)
 {
 	struct integrity_iint_cache *iint;
+	struct ns_status *ns_status;
 
 	if (!(ns->ima_policy_flag & IMA_APPRAISE) || !S_ISREG(inode->i_mode))
 		return;
@@ -703,7 +704,12 @@ static void ima_reset_appraise_flags(struct ima_namespace *ns,
 	iint = integrity_iint_find(inode);
 	if (!iint)
 		return;
-	iint->measured_pcrs = 0;
+
+	read_lock(&iint->ns_list_lock);
+	list_for_each_entry(ns_status, &iint->ns_list, ns_next)
+		ns_status->measured_pcrs = 0;
+	read_unlock(&iint->ns_list_lock);
+
 	set_bit(IMA_CHANGE_XATTR, &iint->atomic_flags);
 	if (digsig)
 		set_bit(IMA_DIGSIG, &iint->atomic_flags);

@@ -380,7 +380,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 	 * appraisal, but a file measurement from earlier might already exist in
 	 * the measurement list.
 	 */
-	if (iint->measured_pcrs & (0x1 << pcr) && !modsig)
+	if ((ns_status->measured_pcrs & (0x1 << pcr)) && !modsig)
 		return;
 
 	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);
@@ -393,7 +393,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 	result = ima_store_template(ns, entry, violation, inode, filename, pcr);
 	if ((!result || result == -EEXIST) && !(file->f_flags & O_DIRECT)) {
 		set_iint_flags(iint, ns_status, flags | IMA_MEASURED);
-		iint->measured_pcrs |= (0x1 << pcr);
+		ns_status->measured_pcrs |= (0x1 << pcr);
 	}
 	if (result < 0)
 		ima_free_template_entry(entry);
