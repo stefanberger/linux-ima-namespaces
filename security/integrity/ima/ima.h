@@ -365,7 +365,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 			   const unsigned char *filename,
 			   struct evm_ima_xattr_data *xattr_value,
 			   int xattr_len, const struct modsig *modsig, int pcr,
-			   struct ima_template_desc *template_desc);
+			   struct ima_template_desc *template_desc,
+			   struct ns_status *ns_status);
 int process_buffer_measurement(struct ima_namespace *ns,
 			       struct mnt_idmap *idmap,
 			       struct inode *inode, const void *buf, int size,

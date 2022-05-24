@@ -353,7 +353,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 			   struct file *file, const unsigned char *filename,
 			   struct evm_ima_xattr_data *xattr_value,
 			   int xattr_len, const struct modsig *modsig, int pcr,
-			   struct ima_template_desc *template_desc)
+			   struct ima_template_desc *template_desc,
+			   struct ns_status *ns_status)
 {
 	static const char op[] = "add_template_measure";
 	static const char audit_cause[] = "ENOMEM";
@@ -367,6 +368,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 					     .xattr_len = xattr_len,
 					     .modsig = modsig };
 	int violation = 0;
+	unsigned long flags = iint_flags(iint, ns_status);
 
 	/*
 	 * We still need to store the measurement in the case of MODSIG because
@@ -386,7 +388,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 
 	result = ima_store_template(ns, entry, violation, inode, filename, pcr);
 	if ((!result || result == -EEXIST) && !(file->f_flags & O_DIRECT)) {
-		iint->flags |= IMA_MEASURED;
+		set_iint_flags(iint, ns_status, flags | IMA_MEASURED);
 		iint->measured_pcrs |= (0x1 << pcr);
 	}
 	if (result < 0)
