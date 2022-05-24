@@ -49,7 +49,6 @@ static void iint_free(struct integrity_iint_cache *iint)
 	iint->ima_read_status = INTEGRITY_UNKNOWN;
 	iint->ima_creds_status = INTEGRITY_UNKNOWN;
 	iint->evm_status = INTEGRITY_UNKNOWN;
-	iint->measured_pcrs = 0;
 	rwlock_init(&iint->ns_list_lock);
 	INIT_LIST_HEAD(&iint->ns_list);
 	kmem_cache_free(iint_cache, iint);
