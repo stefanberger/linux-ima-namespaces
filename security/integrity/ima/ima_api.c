@@ -242,6 +242,31 @@ static bool ima_get_verity_digest(struct integrity_iint_cache *iint,
 	return true;
 }
 
+static int iint_find_hash(struct integrity_iint_cache *iint,
+			  enum hash_algo algo,
+			  struct ima_max_digest_data *hash,
+			  u64 *i_version)
+{
+	struct ima_digest_data *ima_hash;
+	struct ns_status *ns_status;
+	int length = 0;
+
+	read_lock(&iint->ns_list_lock);
+	list_for_each_entry(ns_status, &iint->ns_list, ns_next) {
+		if (iint_flags(iint, ns_status) & IMA_COLLECTED &&
+		    ns_status->ima_hash->algo == algo) {
+			ima_hash = ns_status->ima_hash;
+			length = sizeof(*ima_hash) + ima_hash->length;
+			memcpy(hash, ima_hash, length);
+			*i_version = iint->version;
+			break;
+		}
+	}
+	read_unlock(&iint->ns_list_lock);
+
+	return length;
+}
+
 /*
  * ima_collect_measurement - collect file measurement
  *
@@ -280,6 +305,10 @@ int ima_collect_measurement(struct ima_namespace *ns,
 	if (iint_flags(iint, ns_status) & IMA_COLLECTED)
 		goto out;
 
+	length = iint_find_hash(iint, algo, &hash, &i_version);
+	if (length > 0)
+		goto skip_hashcalc;
+
 	/*
 	 * Detecting file change is based on i_version. On filesystems
 	 * which do not support i_version, support was originally limited
@@ -311,6 +340,8 @@ int ima_collect_measurement(struct ima_namespace *ns,
 		goto out;
 
 	length = sizeof(hash.hdr) + hash.hdr.length;
+
+skip_hashcalc:
 	tmpbuf = krealloc(ns_status->ima_hash, length, GFP_NOFS);
 	if (!tmpbuf) {
 		result = -ENOMEM;
