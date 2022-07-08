@@ -653,6 +653,11 @@ static inline int ima_filter_rule_match(u32 secid, u32 field, u32 op,
 static inline unsigned long iint_flags(struct integrity_iint_cache *iint,
 				       struct ns_status *ns_status)
 {
+#if 0
+	// this may cause unrelated RCU related error messages
+	if (!mutex_is_locked(&iint->mutex))
+		WARN_ON(true);
+#endif
 	if (!ns_status)
 		return iint->flags;
 
@@ -666,6 +671,11 @@ static inline unsigned long set_iint_flags(struct integrity_iint_cache *iint,
 {
 	unsigned long ns_status_flags = flags & IMA_NS_STATUS_FLAGS;
 
+#if 0
+	// this may cause unrelated RCU related error messages
+	if (!mutex_is_locked(&iint->mutex))
+		WARN_ON(true);
+#endif
 	WARN_ON(!ns_status && ns_status_flags);
 
 	iint->flags = flags & ~IMA_NS_STATUS_FLAGS;
