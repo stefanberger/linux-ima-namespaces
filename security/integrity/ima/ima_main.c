@@ -241,11 +241,12 @@ static void ima_file_free(struct file *file)
 	ima_check_last_writer(ns, iint, inode, file);
 }
 
-static int __process_measurement(struct ima_namespace *ns,
+static int __process_measurement(struct user_namespace *user_ns,
 				 struct file *file, const struct cred *cred,
 				 u32 secid, char *buf, loff_t size, int mask,
 				 enum ima_hooks func, const uuid_t *src_userns)
 {
+	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
 	struct inode *inode = file_inode(file);
 	struct integrity_iint_cache *iint = NULL;
 	struct ns_status *ns_status = NULL;
@@ -346,7 +347,11 @@ static int __process_measurement(struct ima_namespace *ns,
 	action &= ~((flags & (IMA_DONE_MASK ^ IMA_MEASURED)) >> 1);
 
 	/* If target pcr is already measured, unset IMA_MEASURE action */
-	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr)))
+	if ((action & IMA_MEASURE) && (ns_status->measured_pcrs & (0x1 << pcr))
+#ifdef CONFIG_IMA_NS_LOG_CHILD_DUPLICATES
+	    && (src_userns == &user_ns->uuid)
+#endif
+           )
 		action ^= IMA_MEASURE;
 
 	/* HASH sets the digital signature and update flags, nothing else */
@@ -404,7 +409,7 @@ static int __process_measurement(struct ima_namespace *ns,
 		pathname = ima_d_path(&file->f_path, &pathbuf, filename);
 
 	if (action & IMA_MEASURE)
-		ima_store_measurement(ns, iint, file, pathname,
+		ima_store_measurement(user_ns, iint, file, pathname,
 				      xattr_value, xattr_len, modsig, pcr,
 				      template_desc, ns_status, src_userns);
 	if (rc == 0 && (action & IMA_APPRAISE_SUBMASK)) {
@@ -469,7 +474,7 @@ static int process_measurement(struct user_namespace *user_ns,
 		if (ns_is_active(ns)) {
 			int rc;
 
-			rc = __process_measurement(ns, file, cred, secid, buf,
+			rc = __process_measurement(user_ns, file, cred, secid, buf,
 						   size, mask, func,
 						   src_userns);
 			switch (rc) {
