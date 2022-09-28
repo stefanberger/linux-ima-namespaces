@@ -354,7 +354,7 @@ out:
  *
  * Must be called with iint->mutex held.
  */
-void ima_store_measurement(struct ima_namespace *ns,
+void ima_store_measurement(struct user_namespace *user_ns,
 			   struct integrity_iint_cache *iint,
 			   struct file *file, const unsigned char *filename,
 			   struct evm_ima_xattr_data *xattr_value,
@@ -363,6 +363,7 @@ void ima_store_measurement(struct ima_namespace *ns,
 			   struct ns_status *ns_status,
 			   const uuid_t *src_userns)
 {
+	struct ima_namespace *ns = ima_ns_from_user_ns(user_ns);
 	static const char op[] = "add_template_measure";
 	static const char audit_cause[] = "ENOMEM";
 	int result = -ENOMEM;
@@ -388,7 +389,8 @@ void ima_store_measurement(struct ima_namespace *ns,
 	 * appraisal, but a file measurement from earlier might already exist in
 	 * the measurement list.
 	 */
-	if ((ns_status->measured_pcrs & (0x1 << pcr)) && !modsig)
+	if ((ns_status->measured_pcrs & (0x1 << pcr)) && !modsig &&
+	    src_userns == &user_ns->uuid)
 		return;
 
 	result = ima_alloc_init_template(ns, &event_data, &entry, template_desc);

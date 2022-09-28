@@ -320,4 +320,14 @@ config IMA_DISABLE_HTABLE
 	help
 	   This option disables htable to allow measurement of duplicate records.
 
+config IMA_NS_LOG_CHILD_DUPLICATES
+	bool "Enable logging of measurements with same hash from child namespaces"
+	depends on IMA_NS
+	default n
+	help
+	   This option enables logging of measurements from a child namespace
+	   even though the same measurement was already logged from another
+	   child namespace or the 'current' namespace. If enabled, this may
+	   contribute to faster growing logs and has an impact on performance.
+
 endif
