@@ -383,7 +383,7 @@ int ima_collect_measurement(struct ima_namespace *ns,
 			    struct ns_status *ns_status,
 			    struct file *file, void *buf, loff_t size,
 			    enum hash_algo algo, struct modsig *modsig);
-void ima_store_measurement(struct ima_namespace *ns,
+void ima_store_measurement(struct user_namespace *user_ns,
 			   struct integrity_iint_cache *iint, struct file *file,
 			   const unsigned char *filename,
 			   struct evm_ima_xattr_data *xattr_value,
