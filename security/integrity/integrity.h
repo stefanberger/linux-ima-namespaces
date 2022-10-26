@@ -72,7 +72,7 @@
 #define IMA_UPDATE_XATTR	1
 #define IMA_CHANGE_ATTR		2
 #define IMA_DIGSIG		3
-#define IMA_MUST_MEASURE	4
+#define IMA_MUST_MEASURE	4	/* in ns_status's atomic_flags */
 
 enum evm_ima_xattr_type {
 	IMA_XATTR_DIGEST = 0x01,
@@ -160,6 +160,7 @@ struct ima_file_id {
 struct ns_status {
 	struct list_head ns_next;	/* list connected to iint */
 	unsigned long flags;		/* flags split with iint */
+	unsigned long atomic_flags;	/* atomic_flags split with iint */
 	unsigned long measured_pcrs;
 #ifdef CONFIG_IMA_NS
 	struct list_head ns_node;	/* list connected to ima_namespace */
@@ -175,6 +176,7 @@ struct ns_status {
 static inline void ns_status_reset(struct ns_status *ns_status)
 {
 	ns_status->flags = 0;
+	ns_status->atomic_flags = 0;
 	ns_status->measured_pcrs = 0;
 }
 
@@ -190,7 +192,7 @@ struct integrity_iint_cache {
 	struct inode *inode;	/* back pointer to inode in question */
 	u64 version;		/* track inode changes */
 	unsigned long flags;	/* flags split with ns_status */
-	unsigned long atomic_flags;
+	unsigned long atomic_flags;	/* atomic_flags split with ns_status */
 	enum integrity_status ima_file_status:4;
 	enum integrity_status ima_mmap_status:4;
 	enum integrity_status ima_bprm_status:4;

@@ -130,14 +130,21 @@ static void ima_rdwr_violation_check(struct ima_namespace *ns,
 		if (atomic_read(&inode->i_readcount) && IS_IMA(inode)) {
 			if (!iint)
 				iint = integrity_iint_find(inode);
+			if (iint && !ns_status)
+				ns_status = ima_find_ns_status(iint, ns);
 			/* IMA_MEASURE is set from reader side */
-			if (iint && test_bit(IMA_MUST_MEASURE,
-						&iint->atomic_flags))
+			if (ns_status && test_bit(IMA_MUST_MEASURE,
+						  &ns_status->atomic_flags))
 				send_tomtou = true;
 		}
 	} else {
-		if (must_measure)
-			set_bit(IMA_MUST_MEASURE, &iint->atomic_flags);
+		if (must_measure) {
+			if (!ns_status)
+				ns_status = ima_get_ns_status(ns, inode, iint);
+			if (!IS_ERR(ns_status))
+				set_bit(IMA_MUST_MEASURE,
+					&ns_status->atomic_flags);
+		}
 		if (inode_is_open_for_write(inode) && must_measure)
 			send_writers = true;
 	}
