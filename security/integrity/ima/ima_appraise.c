@@ -873,7 +873,9 @@ static int ima_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 static int ima_inode_set_acl(struct mnt_idmap *idmap, struct dentry *dentry,
 			     const char *acl_name, struct posix_acl *kacl)
 {
-	struct evm_namespace *evm_ns = &init_evm_ns;
+	struct evm_namespace *evm_ns;
+
+	evm_ns = integrity_ns_get_evm_ns(current_integrity_ns());
 
 	if (evm_revalidate_status(evm_ns, acl_name))
 		ima_reset_appraise_flags(d_backing_inode(dentry), 0);
