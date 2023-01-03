@@ -3133,7 +3133,8 @@ static int selinux_inode_setxattr(struct mnt_idmap *idmap,
 	int rc = 0;
 
 	if (strcmp(name, XATTR_NAME_SELINUX)) {
-		rc = cap_inode_setxattr(dentry, name, value, size, flags);
+		rc = cap_inode_setxattr(idmap, dentry, name, value, size,
+				        flags);
 		if (rc)
 			return rc;
 
