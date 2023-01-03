@@ -974,6 +974,7 @@ int cap_bprm_creds_from_file(struct linux_binprm *bprm, struct file *file)
 
 /**
  * cap_inode_setxattr - Determine whether an xattr may be altered
+ * @idmap: idmap of the mount the inode was found from
  * @dentry: The inode/dentry being altered
  * @name: The name of the xattr to be changed
  * @value: The value that the xattr will be changed to
@@ -986,7 +987,8 @@ int cap_bprm_creds_from_file(struct linux_binprm *bprm, struct file *file)
  * This is used to make sure security xattrs don't get updated or set by those
  * who aren't privileged to do so.
  */
-int cap_inode_setxattr(struct dentry *dentry, const char *name,
+int cap_inode_setxattr(struct mnt_idmap *idmap,
+		       struct dentry *dentry, const char *name,
 		       const void *value, size_t size, int flags)
 {
 	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
@@ -1007,11 +1009,22 @@ int cap_inode_setxattr(struct dentry *dentry, const char *name,
 	 * If IMA namespacing is enabled then setting security.ima is allowed
 	 * for users as well and the check for XATTR_NAME_IMA will be done in
 	 * ima_inode_setxattr() once CONIG_IMA_APPRAISE is set.
+	 * Also, all 'security.' xattrs in a use namespace will be handled
+	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
 	 */
 	if (IS_ENABLED(CONFIG_IMA_NS)) {
 		if (IS_ENABLED(CONFIG_IMA_APPRAISE) &&
 		    strcmp(name, XATTR_NAME_IMA) == 0)
 			return 0;
+
+		if (IS_ENABLED(CONFIG_EVM)) {
+			if (current_user_ns() != &init_user_ns &&
+			    mac_admin_ns_capable(current_user_ns()) &&
+			    privileged_wrt_inode_uidgid(current_user_ns(),
+						idmap,
+						d_backing_inode(dentry)))
+				return 0;
+		}
 	}
 
 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
@@ -1042,15 +1055,16 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
 			  struct dentry *dentry, const char *name)
 {
 	struct user_namespace *user_ns = dentry->d_sb->s_user_ns;
+	struct inode *inode;
 
 	/* Ignore non-security xattrs */
 	if (strncmp(name, XATTR_SECURITY_PREFIX,
 			XATTR_SECURITY_PREFIX_LEN) != 0)
 		return 0;
 
+	inode = d_backing_inode(dentry);
 	if (strcmp(name, XATTR_NAME_CAPS) == 0) {
 		/* security.capability gets namespaced */
-		struct inode *inode = d_backing_inode(dentry);
 		if (!inode)
 			return -EINVAL;
 		if (!capable_wrt_inode_uidgid(idmap, inode, CAP_SETFCAP))
@@ -1062,13 +1076,23 @@ int cap_inode_removexattr(struct mnt_idmap *idmap,
 	 * If IMA namespacing is enabled then removing security.ima is allowed
 	 * for users as well and the check for XATTR_NAME_IMA will be done in
 	 * ima_inode_removexattr() once CONIG_IMA_APPRAISE is set.
+	 * Also, all 'security.' xattrs in a use namespace will be handled
+	 * by EVM with CAP_MAC_ADMIN if EVM is also enabled.
 	 */
 	if (IS_ENABLED(CONFIG_IMA_NS)) {
 		if (IS_ENABLED(CONFIG_IMA_APPRAISE) &&
 		    strcmp(name, XATTR_NAME_IMA) == 0)
 			return 0;
-	}
 
+		if (IS_ENABLED(CONFIG_EVM)) {
+			if (current_user_ns() != &init_user_ns &&
+			    mac_admin_ns_capable(current_user_ns()) &&
+			    privileged_wrt_inode_uidgid(current_user_ns(),
+						idmap,
+						d_backing_inode(dentry)))
+				return 0;
+		}
+	}
 
 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
