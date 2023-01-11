@@ -169,8 +169,8 @@ static void hmac_add_misc(struct evm_namespace *ns,
 	 * filesystem for real on next boot and trust it because
 	 * everything is signed.
 	 */
-	hmac_misc.uid = from_kuid(&init_user_ns, inode->i_uid);
-	hmac_misc.gid = from_kgid(&init_user_ns, inode->i_gid);
+	hmac_misc.uid = from_kuid(current_user_ns(), inode->i_uid);
+	hmac_misc.gid = from_kgid(current_user_ns(), inode->i_gid);
 	hmac_misc.mode = inode->i_mode;
 	crypto_shash_update(desc, (const u8 *)&hmac_misc, sizeof(hmac_misc));
 	if ((ns->evm_hmac_attrs & EVM_ATTR_FSUUID) &&
