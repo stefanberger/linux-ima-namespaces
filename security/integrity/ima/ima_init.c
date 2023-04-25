@@ -121,7 +121,7 @@ int __init ima_init(void)
 	if (rc)
 		return rc;
 
-	ima_tpm_chip = tpm_default_chip();
+	ima_tpm_chip = tpm_default_chip(&init_user_ns);
 	if (!ima_tpm_chip)
 		pr_info("No TPM chip found, activating TPM-bypass!\n");
 
