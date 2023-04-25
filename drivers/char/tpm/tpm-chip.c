@@ -169,6 +169,8 @@ int tpm_try_get_ops(struct tpm_chip *chip)
 	if (rc)
 		goto out_lock;
 
+	chip->users++;
+
 	return 0;
 out_lock:
 	mutex_unlock(&chip->tpm_mutex);
@@ -188,6 +190,7 @@ EXPORT_SYMBOL_GPL(tpm_try_get_ops);
  */
 void tpm_put_ops(struct tpm_chip *chip)
 {
+	chip->users--;
 	tpm_chip_stop(chip);
 	mutex_unlock(&chip->tpm_mutex);
 	up_read(&chip->ops_sem);
@@ -196,9 +199,53 @@ void tpm_put_ops(struct tpm_chip *chip)
 EXPORT_SYMBOL_GPL(tpm_put_ops);
 
 /**
- * tpm_default_chip() - find a TPM chip and get a reference to it
+ * tpm_transfer_chip_user_ns() - transfer an unused chip to a user namespace
+ * @chip:      a &struct tpm_chip instance, %NULL for the default chip
+ * @user_ns:    the user namespace to transfer the unused chip to
+ *
+ * A chip can only be transferred to user_ns if it has no users.
  */
-struct tpm_chip *tpm_default_chip(void)
+struct user_namespace *tpm_transfer_chip_user_ns(struct tpm_chip *chip,
+						 struct user_namespace *user_ns)
+{
+	struct user_namespace *ret;
+
+	mutex_lock(&chip->tpm_mutex);
+	ret = chip->user_ns;
+	if (chip->users == 0) {
+		ret = chip->user_ns = user_ns;
+		chip->users++;
+	}
+	mutex_unlock(&chip->tpm_mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tpm_transfer_chip_user_ns);
+
+/**
+ * tpm_release_chip_user_ns() - release a chip used by a user namespace
+ * @chip:      a &struct tpm_chip instance, %NULL for the default chip
+ */
+bool tpm_release_chip_user_ns(struct tpm_chip *chip)
+{
+	bool ret;
+
+	mutex_lock(&chip->tpm_mutex);
+	chip->users--;
+	ret = chip->users == 0;
+	if (ret)
+		chip->user_ns = NULL;
+	mutex_unlock(&chip->tpm_mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tpm_release_chip_user_ns);
+
+/**
+ * tpm_default_chip() - find a TPM chip and get a reference to it
+ * @user_ns:    the user namespace to transfer the unused chip to
+ */
+struct tpm_chip *tpm_default_chip(struct user_namespace *user_ns)
 {
 	struct tpm_chip *chip, *res = NULL;
 	int chip_num = 0;
@@ -209,7 +256,8 @@ struct tpm_chip *tpm_default_chip(void)
 	do {
 		chip_prev = chip_num;
 		chip = idr_get_next(&dev_nums_idr, &chip_num);
-		if (chip) {
+		if (chip &&
+		    tpm_transfer_chip_user_ns(chip, user_ns) == user_ns) {
 			get_device(&chip->dev);
 			res = chip;
 			break;
@@ -223,8 +271,21 @@ struct tpm_chip *tpm_default_chip(void)
 EXPORT_SYMBOL_GPL(tpm_default_chip);
 
 /**
+ * tpm_put_default_chip() - release chip found using tpm_default_chip()
+ * @chip:      a &struct tpm_chip instance
+ */
+void tpm_put_default_chip(struct tpm_chip *chip)
+{
+	BUG_ON(!tpm_release_chip_user_ns(chip));
+
+	put_device(&chip->dev);
+}
+EXPORT_SYMBOL_GPL(tpm_put_default_chip);
+
+/**
  * tpm_find_get_ops() - find and reserve a TPM chip
  * @chip:	a &struct tpm_chip instance, %NULL for the default chip
+ * @user_ns:    The user namespace requesting the use of the chip
  *
  * Finds a TPM chip and reserves its class device and operations. The chip must
  * be released with tpm_put_ops() after use.
@@ -237,7 +298,8 @@ EXPORT_SYMBOL_GPL(tpm_default_chip);
  * %NULL if a chip is not found.
  * %NULL if the chip is not available.
  */
-struct tpm_chip *tpm_find_get_ops(struct tpm_chip *chip)
+struct tpm_chip *tpm_find_get_ops(struct tpm_chip *chip,
+				  struct user_namespace *user_ns)
 {
 	int rc;
 
@@ -247,12 +309,12 @@ struct tpm_chip *tpm_find_get_ops(struct tpm_chip *chip)
 		return NULL;
 	}
 
-	chip = tpm_default_chip();
+	chip = tpm_default_chip(user_ns);
 	if (!chip)
 		return NULL;
 	rc = tpm_try_get_ops(chip);
 	/* release additional reference we got from tpm_default_chip() */
-	put_device(&chip->dev);
+	tpm_put_default_chip(chip);
 	if (rc)
 		return NULL;
 	return chip;

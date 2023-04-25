@@ -30,6 +30,7 @@
 struct tpm_chip;
 struct trusted_key_payload;
 struct trusted_key_options;
+struct user_namespace;
 
 /* if you add a new hash to this, increment TPM_MAX_HASHES below */
 enum tpm_algorithms {
@@ -170,6 +171,11 @@ struct tpm_chip {
 
 	/* active locality */
 	int locality;
+
+	/* user namespace TPM chip is associated with / used by */
+	struct user_namespace *user_ns;
+	/* count of uses by above user_ns */
+	int users;
 };
 
 #define TPM_HEADER_SIZE		10
@@ -431,7 +437,11 @@ extern int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 			  struct tpm_digest *digests);
 extern int tpm_send(struct tpm_chip *chip, void *cmd, size_t buflen);
 extern int tpm_get_random(struct tpm_chip *chip, u8 *data, size_t max);
-extern struct tpm_chip *tpm_default_chip(void);
+extern struct user_namespace *tpm_transfer_chip_user_ns(struct tpm_chip *chip,
+					       struct user_namespace *user_ns);
+extern bool tpm_release_chip_user_ns(struct tpm_chip *chip);
+extern struct tpm_chip *tpm_default_chip(struct user_namespace *user_ns);
+extern void tpm_put_default_chip(struct tpm_chip *chip);
 void tpm2_flush_context(struct tpm_chip *chip, u32 handle);
 #else
 static inline int tpm_is_tpm2(struct tpm_chip *chip)
@@ -459,7 +469,7 @@ static inline int tpm_get_random(struct tpm_chip *chip, u8 *data, size_t max)
 	return -ENODEV;
 }
 
-static inline struct tpm_chip *tpm_default_chip(void)
+static inline struct tpm_chip *tpm_default_chip(struct user_namespace *user_ns)
 {
 	return NULL;
 }
