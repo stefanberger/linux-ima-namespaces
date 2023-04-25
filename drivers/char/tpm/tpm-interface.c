@@ -261,7 +261,7 @@ int tpm_is_tpm2(struct tpm_chip *chip)
 {
 	int rc;
 
-	chip = tpm_find_get_ops(chip);
+	chip = tpm_find_get_ops(chip, current_user_ns());
 	if (!chip)
 		return -ENODEV;
 
@@ -286,7 +286,7 @@ int tpm_pcr_read(struct tpm_chip *chip, u32 pcr_idx,
 {
 	int rc;
 
-	chip = tpm_find_get_ops(chip);
+	chip = tpm_find_get_ops(chip, current_user_ns());
 	if (!chip)
 		return -ENODEV;
 
@@ -317,7 +317,7 @@ int tpm_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 	int rc;
 	int i;
 
-	chip = tpm_find_get_ops(chip);
+	chip = tpm_find_get_ops(chip, current_user_ns());
 	if (!chip)
 		return -ENODEV;
 
@@ -355,7 +355,7 @@ int tpm_send(struct tpm_chip *chip, void *cmd, size_t buflen)
 	struct tpm_buf buf;
 	int rc;
 
-	chip = tpm_find_get_ops(chip);
+	chip = tpm_find_get_ops(chip, current_user_ns());
 	if (!chip)
 		return -ENODEV;
 
@@ -458,7 +458,7 @@ int tpm_get_random(struct tpm_chip *chip, u8 *out, size_t max)
 	if (!out || max > TPM_MAX_RNG_DATA)
 		return -EINVAL;
 
-	chip = tpm_find_get_ops(chip);
+	chip = tpm_find_get_ops(chip, current_user_ns());
 	if (!chip)
 		return -ENODEV;
 

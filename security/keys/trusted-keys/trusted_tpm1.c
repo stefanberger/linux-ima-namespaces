@@ -1031,7 +1031,7 @@ static int __init trusted_tpm_init(void)
 {
 	int ret;
 
-	chip = tpm_default_chip();
+	chip = tpm_default_chip(current_user_ns());
 	if (!chip)
 		return -ENODEV;
 
@@ -1050,14 +1050,14 @@ err_release:
 err_free:
 	kfree(digests);
 err_put:
-	put_device(&chip->dev);
+	tpm_put_default_chip(chip);
 	return ret;
 }
 
 static void trusted_tpm_exit(void)
 {
 	if (chip) {
-		put_device(&chip->dev);
+		tpm_put_default_chip(chip);
 		kfree(digests);
 		trusted_shash_release();
 		unregister_key_type(&key_type_trusted);
