@@ -21,6 +21,20 @@
 
 static struct workqueue_struct *tpm_dev_wq;
 
+int tpm_common_check_access(struct tpm_chip *chip)
+{
+	int ret = 0;
+
+	mutex_lock(&chip->tpm_mutex);
+
+	if (chip->users && chip->user_ns != current_user_ns())
+		ret =  -EPERM;
+
+	mutex_unlock(&chip->tpm_mutex);
+
+	return ret;
+}
+
 static ssize_t tpm_dev_transmit(struct tpm_chip *chip, struct tpm_space *space,
 				u8 *buf, size_t bufsiz)
 {
@@ -129,6 +143,10 @@ ssize_t tpm_common_read(struct file *file, char __user *buf,
 	ssize_t ret_size = 0;
 	int rc;
 
+	rc = tpm_common_check_access(priv->chip);
+	if (rc)
+		return rc;
+
 	mutex_lock(&priv->buffer_mutex);
 
 	if (priv->response_length) {
@@ -166,10 +184,14 @@ ssize_t tpm_common_write(struct file *file, const char __user *buf,
 			 size_t size, loff_t *off)
 {
 	struct file_priv *priv = file->private_data;
-	int ret = 0;
+	int ret;
 
 	if (size > TPM_BUFSIZE)
 		return -E2BIG;
+
+	ret = tpm_common_check_access(priv->chip);
+	if (ret)
+		return ret;
 
 	mutex_lock(&priv->buffer_mutex);
 
