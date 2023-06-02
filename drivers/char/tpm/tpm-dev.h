@@ -30,4 +30,7 @@ ssize_t tpm_common_write(struct file *file, const char __user *buf,
 __poll_t tpm_common_poll(struct file *file, poll_table *wait);
 
 void tpm_common_release(struct file *file, struct file_priv *priv);
+
+int tpm_common_check_access(struct tpm_chip *chip);
+
 #endif
