@@ -19,8 +19,13 @@ static int tpm_open(struct inode *inode, struct file *file)
 {
 	struct tpm_chip *chip;
 	struct file_priv *priv;
+	int ret;
 
 	chip = container_of(inode->i_cdev, struct tpm_chip, cdev);
+
+	ret = tpm_common_check_access(chip);
+	if (ret)
+		return ret;
 
 	/* It's assured that the chip will be opened just once,
 	 * by the check of is_open variable, which is protected
