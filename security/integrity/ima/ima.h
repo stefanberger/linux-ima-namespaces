@@ -201,6 +201,23 @@ struct ima_namespace {
 	struct ima_template_desc *ima_template;
 	int template_setup_done;
 	struct ima_template_desc *ima_buf_template;
+
+#ifdef CONFIG_IMA_QUEUE_EARLY_BOOT_KEYS
+	/*
+	 * Keys queue:
+	 * To synchronize access to the list of keys that need to be measured
+	 */
+	struct mutex ima_keys_lock;
+	struct list_head ima_keys;
+	/*
+	 * If custom IMA policy is not loaded then keys queued up
+	 * for measurement should be freed. This worker is used
+	 * for handling this scenario.
+	 */
+	long ima_key_queue_timeout;
+	struct delayed_work ima_keys_delayed_work;
+	bool timer_expired;
+#endif
 } __randomize_layout;
 extern struct ima_namespace init_ima_ns;
 
@@ -352,14 +369,22 @@ struct ima_key_entry {
 	size_t payload_len;
 	char *keyring_name;
 };
-void ima_init_key_queue(void);
+void ima_init_key_queue(struct ima_namespace *ns);
 bool ima_should_queue_key(struct ima_namespace *ns);
 bool ima_queue_key(struct ima_namespace *ns, struct key *keyring,
 		   const void *payload, size_t payload_len);
 void ima_process_queued_keys(struct ima_namespace *ns);
+/*
+ * If custom IMA policy is not loaded then keys queued up
+ * for measurement should be freed. This worker is used
+ * for handling this scenario.
+ */
+void ima_keys_handler(struct work_struct *work);
+
+void ima_free_queued_keys(struct ima_namespace *ns);
 #else
-static inline void ima_init_key_queue(void) {}
-static inline bool ima_should_queue_key(struct ima_namespace)
+static inline void ima_init_key_queue(struct ima_namespace *ns) {}
+static inline bool ima_should_queue_key(struct ima_namespace *ns)
 {
 	return false;
 }
@@ -368,6 +393,7 @@ static inline bool ima_queue_key(struct ima_namespace *ns,
 				 const void *payload,
 				 size_t payload_len) { return false; }
 static inline void ima_process_queued_keys(struct ima_namespace *ns) {}
+static inline void ima_free_queued_keys(struct ima_namespace *ns) {}
 #endif /* CONFIG_IMA_QUEUE_EARLY_BOOT_KEYS */
 
 /* LIM API function definitions */
