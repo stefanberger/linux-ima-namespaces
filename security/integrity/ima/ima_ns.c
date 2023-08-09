@@ -46,6 +46,8 @@ struct ima_namespace *create_ima_ns(struct user_namespace *user_ns)
 static void destroy_ima_ns(struct ima_namespace *ns)
 {
 	clear_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
+	cancel_delayed_work_sync(&ns->ima_keys_delayed_work);
+	ima_free_queued_keys(ns);
 	unregister_blocking_lsm_notifier(&ns->ima_lsm_policy_notifier);
 	kfree(ns->arch_policy_entry);
 	ima_free_digests(ns);

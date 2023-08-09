@@ -39,10 +39,15 @@ int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
 	ns->valid_policy = 1;
 	ns->ima_fs_flags = 0;
 
-	if (ns == &init_ima_ns)
-		ns->ima_process_keys = false;
-	else
-		ns->ima_process_keys = true;
+#ifdef CONFIG_IMA_QUEUE_EARLY_BOOT_KEYS
+	if (ns != &init_ima_ns) {
+		mutex_init(&ns->ima_keys_lock);
+		INIT_LIST_HEAD(&ns->ima_keys);
+	}
+	ns->ima_key_queue_timeout = 300000; /* 5 Minutes */
+	INIT_DELAYED_WORK(&ns->ima_keys_delayed_work, ima_keys_handler);
+	ns->timer_expired = false;
+#endif
 
 	if (ns != &init_ima_ns) {
 		ns->ima_lsm_policy_notifier.notifier_call =
@@ -77,6 +82,7 @@ int ima_init_namespace(struct ima_namespace *ns, uuid_t *src_userns)
 		ret = ima_add_boot_aggregate(ns, src_userns);
 		if (ret != 0)
 			goto err_free_digests;
+		ima_init_key_queue(ns);
 	}
 
 	set_bit(IMA_NS_ACTIVE, &ns->ima_ns_flags);
@@ -112,5 +118,9 @@ struct ima_namespace init_ima_ns = {
 		.ima_hash_algo = HASH_ALGO_SHA1,
 		.template_name = CONFIG_IMA_DEFAULT_TEMPLATE,
 	},
+#ifdef CONFIG_IMA_QUEUE_EARLY_BOOT_KEYS
+	.ima_keys_lock = __MUTEX_INITIALIZER(init_ima_ns.ima_keys_lock),
+	.ima_keys = LIST_HEAD_INIT(init_ima_ns.ima_keys),
+#endif
 };
 EXPORT_SYMBOL(init_ima_ns);
