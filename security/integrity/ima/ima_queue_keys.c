@@ -15,39 +15,26 @@
 #include "ima.h"
 
 /*
- * To synchronize access to the list of keys that need to be measured
- */
-static DEFINE_MUTEX(ima_keys_lock);
-static LIST_HEAD(ima_keys);
-
-/*
- * If custom IMA policy is not loaded then keys queued up
- * for measurement should be freed. This worker is used
- * for handling this scenario.
- */
-static long ima_key_queue_timeout = 300000; /* 5 Minutes */
-static void ima_keys_handler(struct work_struct *work);
-static DECLARE_DELAYED_WORK(ima_keys_delayed_work, ima_keys_handler);
-static bool timer_expired;
-
-/*
  * This worker function frees keys that may still be
  * queued up in case custom IMA policy was not loaded.
  */
-static void ima_keys_handler(struct work_struct *work)
+void ima_keys_handler(struct work_struct *work)
 {
-	timer_expired = true;
-	ima_process_queued_keys(&init_ima_ns);
+	struct ima_namespace *ns = container_of(work, struct ima_namespace,
+						ima_keys_delayed_work.work);
+
+	ns->timer_expired = true;
+	ima_process_queued_keys(ns);
 }
 
 /*
  * This function sets up a worker to free queued keys in case
  * custom IMA policy was never loaded.
  */
-void ima_init_key_queue(void)
+void ima_init_key_queue(struct ima_namespace *ns)
 {
-	schedule_delayed_work(&ima_keys_delayed_work,
-			      msecs_to_jiffies(ima_key_queue_timeout));
+	schedule_delayed_work(&ns->ima_keys_delayed_work,
+			      msecs_to_jiffies(ns->ima_key_queue_timeout));
 }
 
 static void ima_free_key_entry(struct ima_key_entry *entry)
@@ -106,12 +93,12 @@ bool ima_queue_key(struct ima_namespace *ns, struct key *keyring,
 	if (!entry)
 		return false;
 
-	mutex_lock(&ima_keys_lock);
+	mutex_lock(&ns->ima_keys_lock);
 	if (!ns->ima_process_keys) {
-		list_add_tail(&entry->list, &ima_keys);
+		list_add_tail(&entry->list, &ns->ima_keys);
 		queued = true;
 	}
-	mutex_unlock(&ima_keys_lock);
+	mutex_unlock(&ns->ima_keys_lock);
 
 	if (!queued)
 		ima_free_key_entry(entry);
@@ -130,10 +117,6 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 	struct ima_key_entry *entry, *tmp;
 	bool process = false;
 
-	/* only applies to init_ima_ns */
-	if (ns != &init_ima_ns)
-		return;
-
 	if (ns->ima_process_keys)
 		return;
 
@@ -143,21 +126,21 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 	 * First one setting the ima_process_keys flag to true will
 	 * process the queued keys.
 	 */
-	mutex_lock(&ima_keys_lock);
+	mutex_lock(&ns->ima_keys_lock);
 	if (!ns->ima_process_keys) {
 		ns->ima_process_keys = true;
 		process = true;
 	}
-	mutex_unlock(&ima_keys_lock);
+	mutex_unlock(&ns->ima_keys_lock);
 
 	if (!process)
 		return;
 
-	if (!timer_expired)
-		cancel_delayed_work_sync(&ima_keys_delayed_work);
+	if (!ns->timer_expired)
+		cancel_delayed_work_sync(&ns->ima_keys_delayed_work);
 
-	list_for_each_entry_safe(entry, tmp, &ima_keys, list) {
-		if (!timer_expired)
+	list_for_each_entry_safe(entry, tmp, &ns->ima_keys, list) {
+		if (!ns->timer_expired)
 			process_buffer_measurement(ns, &nop_mnt_idmap, NULL,
 						   entry->payload,
 						   entry->payload_len,
@@ -166,6 +149,16 @@ void ima_process_queued_keys(struct ima_namespace *ns)
 						   entry->keyring_name,
 						   false, NULL, 0,
 						   &init_user_ns.uuid);
+		list_del(&entry->list);
+		ima_free_key_entry(entry);
+	}
+}
+
+void ima_free_queued_keys(struct ima_namespace *ns)
+{
+	struct ima_key_entry *entry, *tmp;
+
+	list_for_each_entry_safe(entry, tmp, &ns->ima_keys, list) {
 		list_del(&entry->list);
 		ima_free_key_entry(entry);
 	}
