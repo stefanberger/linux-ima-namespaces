@@ -218,8 +218,8 @@ void ima_free_ns_status_tree(struct ima_namespace *ns)
 			 * Pass along the test function in case inode is in
 			 * use now.
 			 */
-			integrity_inode_free(ns_status->inode_to_remove,
-					     iint_is_unused);
+			integrity_inode_free_test(ns_status->inode_to_remove,
+						  iint_is_unused);
 		}
 		ns_status_free(ns, ns_status);
 	}
