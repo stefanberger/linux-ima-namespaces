@@ -52,17 +52,23 @@ static struct wait_queue_head lg_wq[2] = {
 
 static atomic_t ns_list_waiters = ATOMIC_INIT(0);
 
+static atomic_t passes = ATOMIC_INIT(0);
+static atomic_t sleeps = ATOMIC_INIT(0);
+static atomic_t long_sleeps = ATOMIC_INIT(0);
+static atomic_t reports = ATOMIC_INIT(0);
+
 /*
  * Any number of concurrent threads may free ns_status's in either one of the
  * groups but the groups must not run concurrently. The GRP_NS_STATUS_LIST
  * group yields to waiters in the GRP_IINT_STATUS_LIST group since namespace
  * deletion has more time.
  */
-static void lock_group(enum lk_group group)
+static void lock_group(enum lk_group group, bool do_count)
 {
 	unsigned long flags;
 	bool done = false;
 	int announced = 0;
+	bool slept = false;
 
 	while (1) {
 		spin_lock_irqsave(&lg_ctr_lock, flags);
@@ -92,12 +98,34 @@ static void lock_group(enum lk_group group)
 
 		spin_unlock_irqrestore(&lg_ctr_lock, flags);
 
+		if (do_count) {
+			if (done && !slept) {
+				atomic_inc(&passes);
+			}
+			if (done) {
+				atomic_inc(&reports);
+				if ((atomic_read(&reports) % 10000) == 0)
+					printk(KERN_INFO "sleeps: %u long sleeps: %u passes: %u\n",
+					       atomic_read(&sleeps),
+					       atomic_read(&long_sleeps),
+					       atomic_read(&passes));
+			}
+		}
+
 		if (done)
 			break;
 
 		/* wait until opposite group is done */
 		switch (group) {
 		case GRP_IINT_STATUS_LIST:
+			if (do_count) {
+				if (!slept) {
+					slept = true;
+					atomic_inc(&sleeps);
+				} else {
+					atomic_inc(&long_sleeps);
+				}
+			}
 			wait_event_interruptible
 			    (lg_wq[GRP_IINT_STATUS_LIST],
 			     atomic_read(&lg_ctr[GRP_NS_STATUS_LIST]) == 0);
@@ -155,7 +183,7 @@ void ima_ns_free_ns_status_list(struct ima_namespace *ns)
 		ctr = 0;
 		restart = false;
 
-		lock_group(GRP_NS_STATUS_LIST);
+		lock_group(GRP_NS_STATUS_LIST, false);
 		write_lock(&ns->ns_status_list_lock);
 
 		list_for_each_entry_safe(ns_status, next, &ns->ns_status_list,
@@ -201,7 +229,7 @@ void ima_free_ns_status_list(struct integrity_iint_cache *iint)
 	struct list_head *head = &iint->ns_list;
 	struct ns_status *ns_status;
 
-	lock_group(GRP_IINT_STATUS_LIST);
+	lock_group(GRP_IINT_STATUS_LIST, true);
 
 	while (1) {
 		write_lock(&iint->ns_list_lock);
@@ -260,7 +288,7 @@ struct ns_status *ima_get_ns_status(struct ima_namespace *ns,
 	 * Prevent finding the status via the list (inode/iint deletion)
 	 * since we may modify it here
 	 */
-	lock_group(GRP_NS_STATUS_LIST);
+	lock_group(GRP_NS_STATUS_LIST, false);
 
 	ns_status = ima_find_ns_status(iint, ns);
 	if (ns_status) {
