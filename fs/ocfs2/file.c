@@ -1300,7 +1300,8 @@ bail:
 }
 
 int ocfs2_getattr(struct mnt_idmap *idmap, const struct path *path,
-		  struct kstat *stat, u32 request_mask, unsigned int flags)
+		  struct kstat *stat, u32 request_mask, unsigned int flags,
+		  unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct super_block *sb = path->dentry->d_sb;

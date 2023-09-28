@@ -155,7 +155,8 @@ static void ovl_map_dev_ino(struct dentry *dentry, struct kstat *stat, int fsid)
 }
 
 int ovl_getattr(struct mnt_idmap *idmap, const struct path *path,
-		struct kstat *stat, u32 request_mask, unsigned int flags)
+		struct kstat *stat, u32 request_mask, unsigned int flags,
+		unsigned int getattr_flags)
 {
 	struct dentry *dentry = path->dentry;
 	enum ovl_path_type type;
@@ -171,7 +172,10 @@ int ovl_getattr(struct mnt_idmap *idmap, const struct path *path,
 
 	type = ovl_path_real(dentry, &realpath);
 	old_cred = ovl_override_creds(dentry->d_sb);
-	err = vfs_getattr(&realpath, stat, request_mask, flags);
+	if (getattr_flags & GETATTR_NOSEC)
+		err = vfs_getattr_nosec(&realpath, stat, request_mask, flags);
+	else
+		err = vfs_getattr(&realpath, stat, request_mask, flags);
 	if (err)
 		goto out;
 

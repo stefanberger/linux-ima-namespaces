@@ -210,11 +210,12 @@ out_fc:
 static int
 nfs_namespace_getattr(struct mnt_idmap *idmap,
 		      const struct path *path, struct kstat *stat,
-		      u32 request_mask, unsigned int query_flags)
+		      u32 request_mask, unsigned int query_flags,
+		      unsigned int getattr_flags)
 {
 	if (NFS_FH(d_inode(path->dentry))->size != 0)
 		return nfs_getattr(idmap, path, stat, request_mask,
-				   query_flags);
+				   query_flags, getattr_flags);
 	generic_fillattr(&nop_mnt_idmap, request_mask, d_inode(path->dentry),
 			 stat);
 	return 0;

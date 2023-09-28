@@ -135,7 +135,8 @@ static int proc_notify_change(struct mnt_idmap *idmap,
 
 static int proc_getattr(struct mnt_idmap *idmap,
 			const struct path *path, struct kstat *stat,
-			u32 request_mask, unsigned int query_flags)
+			u32 request_mask, unsigned int query_flags,
+			unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct proc_dir_entry *de = PDE(inode);

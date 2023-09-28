@@ -182,7 +182,8 @@ static void kernfs_refresh_inode(struct kernfs_node *kn, struct inode *inode)
 
 int kernfs_iop_getattr(struct mnt_idmap *idmap,
 		       const struct path *path, struct kstat *stat,
-		       u32 request_mask, unsigned int query_flags)
+		       u32 request_mask, unsigned int query_flags,
+		       unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct kernfs_node *kn = inode->i_private;

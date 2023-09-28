@@ -1100,7 +1100,8 @@ extern int ceph_setattr(struct mnt_idmap *idmap,
 			struct dentry *dentry, struct iattr *attr);
 extern int ceph_getattr(struct mnt_idmap *idmap,
 			const struct path *path, struct kstat *stat,
-			u32 request_mask, unsigned int flags);
+			u32 request_mask, unsigned int flags,
+			unsigned int getattr_flags);
 void ceph_inode_shutdown(struct inode *inode);
 
 static inline bool ceph_inode_is_shutdown(struct inode *inode)

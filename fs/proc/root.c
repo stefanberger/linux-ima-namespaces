@@ -312,7 +312,8 @@ void __init proc_root_init(void)
 
 static int proc_root_getattr(struct mnt_idmap *idmap,
 			     const struct path *path, struct kstat *stat,
-			     u32 request_mask, unsigned int query_flags)
+			     u32 request_mask, unsigned int query_flags,
+			     unsigned int getattr_flags)
 {
 	generic_fillattr(&nop_mnt_idmap, request_mask, d_inode(path->dentry),
 			 stat);

@@ -5515,7 +5515,8 @@ u32 ext4_dio_alignment(struct inode *inode)
 }
 
 int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, unsigned int query_flags)
+		 struct kstat *stat, u32 request_mask, unsigned int query_flags,
+		 unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct ext4_inode *raw_inode;
@@ -5577,12 +5578,14 @@ int ext4_getattr(struct mnt_idmap *idmap, const struct path *path,
 
 int ext4_file_getattr(struct mnt_idmap *idmap,
 		      const struct path *path, struct kstat *stat,
-		      u32 request_mask, unsigned int query_flags)
+		      u32 request_mask, unsigned int query_flags,
+		      unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	u64 delalloc_blocks;
 
-	ext4_getattr(idmap, path, stat, request_mask, query_flags);
+	ext4_getattr(idmap, path, stat, request_mask, query_flags,
+		     getattr_flags);
 
 	/*
 	 * If there is inline data in the inode, the inode will normally not

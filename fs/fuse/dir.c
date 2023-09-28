@@ -2069,7 +2069,8 @@ static int fuse_setattr(struct mnt_idmap *idmap, struct dentry *entry,
 
 static int fuse_getattr(struct mnt_idmap *idmap,
 			const struct path *path, struct kstat *stat,
-			u32 request_mask, unsigned int flags)
+			u32 request_mask, unsigned int flags,
+			unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct fuse_conn *fc = get_fuse_conn(inode);

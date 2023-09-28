@@ -73,7 +73,8 @@ extern int cifs_invalidate_mapping(struct inode *inode);
 extern int cifs_revalidate_mapping(struct inode *inode);
 extern int cifs_zap_mapping(struct inode *inode);
 extern int cifs_getattr(struct mnt_idmap *, const struct path *,
-			struct kstat *, u32, unsigned int);
+			struct kstat *, u32, unsigned int,
+			unsigned int);
 extern int cifs_setattr(struct mnt_idmap *, struct dentry *,
 			struct iattr *);
 extern int cifs_fiemap(struct inode *, struct fiemap_extent_info *, u64 start,

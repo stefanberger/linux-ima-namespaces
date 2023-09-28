@@ -403,7 +403,8 @@ extern int fat_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 extern void fat_truncate_blocks(struct inode *inode, loff_t offset);
 extern int fat_getattr(struct mnt_idmap *idmap,
 		       const struct path *path, struct kstat *stat,
-		       u32 request_mask, unsigned int flags);
+		       u32 request_mask, unsigned int flags,
+		       unsigned int getattr_flags);
 extern int fat_file_fsync(struct file *file, loff_t start, loff_t end,
 			  int datasync);
 

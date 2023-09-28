@@ -651,7 +651,8 @@ static int minix_write_inode(struct inode *inode, struct writeback_control *wbc)
 }
 
 int minix_getattr(struct mnt_idmap *idmap, const struct path *path,
-		  struct kstat *stat, u32 request_mask, unsigned int flags)
+		  struct kstat *stat, u32 request_mask, unsigned int flags,
+		  unsigned int getattr_flags)
 {
 	struct super_block *sb = path->dentry->d_sb;
 	struct inode *inode = d_inode(path->dentry);

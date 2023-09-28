@@ -1119,7 +1119,8 @@ EXPORT_SYMBOL_GPL(shmem_truncate_range);
 
 static int shmem_getattr(struct mnt_idmap *idmap,
 			 const struct path *path, struct kstat *stat,
-			 u32 request_mask, unsigned int query_flags)
+			 u32 request_mask, unsigned int query_flags,
+			 unsigned int getattr_flags)
 {
 	struct inode *inode = path->dentry->d_inode;
 	struct shmem_inode_info *info = SHMEM_I(inode);

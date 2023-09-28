@@ -135,7 +135,8 @@ int kernfs_iop_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		       struct iattr *iattr);
 int kernfs_iop_getattr(struct mnt_idmap *idmap,
 		       const struct path *path, struct kstat *stat,
-		       u32 request_mask, unsigned int query_flags);
+		       u32 request_mask, unsigned int query_flags,
+		       unsigned int getattr_flags);
 ssize_t kernfs_iop_listxattr(struct dentry *dentry, char *buf, size_t size);
 int __kernfs_setattr(struct kernfs_node *kn, const struct iattr *iattr);
 

@@ -1632,7 +1632,8 @@ static int ubifs_rename(struct mnt_idmap *idmap,
 }
 
 int ubifs_getattr(struct mnt_idmap *idmap, const struct path *path,
-		  struct kstat *stat, u32 request_mask, unsigned int flags)
+		  struct kstat *stat, u32 request_mask, unsigned int flags,
+		  unsigned int getattr_flags)
 {
 	loff_t size;
 	struct inode *inode = d_inode(path->dentry);

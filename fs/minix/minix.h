@@ -52,7 +52,8 @@ extern int minix_new_block(struct inode * inode);
 extern void minix_free_block(struct inode *inode, unsigned long block);
 extern unsigned long minix_count_free_blocks(struct super_block *sb);
 extern int minix_getattr(struct mnt_idmap *, const struct path *,
-			 struct kstat *, u32, unsigned int);
+			 struct kstat *, u32, unsigned int,
+			 unsigned int);
 extern int minix_prepare_chunk(struct page *page, loff_t pos, unsigned len);
 
 extern void V1_minix_truncate(struct inode *);

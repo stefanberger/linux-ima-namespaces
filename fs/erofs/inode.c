@@ -358,7 +358,7 @@ struct inode *erofs_iget(struct super_block *sb, erofs_nid_t nid)
 
 int erofs_getattr(struct mnt_idmap *idmap, const struct path *path,
 		  struct kstat *stat, u32 request_mask,
-		  unsigned int query_flags)
+		  unsigned int query_flags, unsigned int getattr_flags)
 {
 	struct inode *const inode = d_inode(path->dentry);
 

@@ -842,7 +842,8 @@ static int proc_sys_setattr(struct mnt_idmap *idmap,
 
 static int proc_sys_getattr(struct mnt_idmap *idmap,
 			    const struct path *path, struct kstat *stat,
-			    u32 request_mask, unsigned int query_flags)
+			    u32 request_mask, unsigned int query_flags,
+			    unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct ctl_table_header *head = grab_header(inode);

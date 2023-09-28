@@ -227,7 +227,7 @@ write_size:
 
 int exfat_getattr(struct mnt_idmap *idmap, const struct path *path,
 		  struct kstat *stat, unsigned int request_mask,
-		  unsigned int query_flags)
+		  unsigned int query_flags, unsigned int getattr_flags)
 {
 	struct inode *inode = d_backing_inode(path->dentry);
 	struct exfat_inode_info *ei = EXFAT_I(inode);

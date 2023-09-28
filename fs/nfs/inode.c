@@ -831,7 +831,8 @@ static u32 nfs_get_valid_attrmask(struct inode *inode)
 }
 
 int nfs_getattr(struct mnt_idmap *idmap, const struct path *path,
-		struct kstat *stat, u32 request_mask, unsigned int query_flags)
+		struct kstat *stat, u32 request_mask, unsigned int query_flags,
+		unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct nfs_server *server = NFS_SERVER(inode);

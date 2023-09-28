@@ -2977,11 +2977,13 @@ extern int  ext4_setattr(struct mnt_idmap *, struct dentry *,
 			 struct iattr *);
 extern u32  ext4_dio_alignment(struct inode *inode);
 extern int  ext4_getattr(struct mnt_idmap *, const struct path *,
-			 struct kstat *, u32, unsigned int);
+			 struct kstat *, u32, unsigned int,
+			 unsigned int);
 extern void ext4_evict_inode(struct inode *);
 extern void ext4_clear_inode(struct inode *);
 extern int  ext4_file_getattr(struct mnt_idmap *, const struct path *,
-			      struct kstat *, u32, unsigned int);
+			      struct kstat *, u32, unsigned int,
+			      unsigned int);
 extern void ext4_dirty_inode(struct inode *, int);
 extern int ext4_change_inode_journal_flag(struct inode *, int);
 extern int ext4_get_inode_loc(struct inode *, struct ext4_iloc *);

@@ -30,7 +30,7 @@
 
 int simple_getattr(struct mnt_idmap *idmap, const struct path *path,
 		   struct kstat *stat, u32 request_mask,
-		   unsigned int query_flags)
+		   unsigned int query_flags, unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	generic_fillattr(&nop_mnt_idmap, request_mask, inode, stat);
@@ -1579,7 +1579,8 @@ static struct dentry *empty_dir_lookup(struct inode *dir, struct dentry *dentry,
 
 static int empty_dir_getattr(struct mnt_idmap *idmap,
 			     const struct path *path, struct kstat *stat,
-			     u32 request_mask, unsigned int query_flags)
+			     u32 request_mask, unsigned int query_flags,
+			     unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	generic_fillattr(&nop_mnt_idmap, request_mask, inode, stat);

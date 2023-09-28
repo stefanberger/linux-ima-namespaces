@@ -278,7 +278,7 @@ static int hfsplus_setattr(struct mnt_idmap *idmap,
 
 int hfsplus_getattr(struct mnt_idmap *idmap, const struct path *path,
 		    struct kstat *stat, u32 request_mask,
-		    unsigned int query_flags)
+		    unsigned int query_flags, unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct hfsplus_inode_info *hip = HFSPLUS_I(inode);

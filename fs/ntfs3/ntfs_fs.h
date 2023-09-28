@@ -492,7 +492,8 @@ extern const struct file_operations ntfs_dir_operations;
 
 /* Globals from file.c */
 int ntfs_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, u32 flags);
+		 struct kstat *stat, u32 request_mask, u32 flags,
+		 unsigned int getattr_flags);
 int ntfs3_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
 		  struct iattr *attr);
 void ntfs_sparse_cluster(struct inode *inode, struct page *page0, CLST vcn,

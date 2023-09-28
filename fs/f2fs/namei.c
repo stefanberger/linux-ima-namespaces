@@ -1356,9 +1356,11 @@ static const char *f2fs_encrypted_get_link(struct dentry *dentry,
 static int f2fs_encrypted_symlink_getattr(struct mnt_idmap *idmap,
 					  const struct path *path,
 					  struct kstat *stat, u32 request_mask,
-					  unsigned int query_flags)
+					  unsigned int query_flags,
+					  unsigned int getattr_flags)
 {
-	f2fs_getattr(idmap, path, stat, request_mask, query_flags);
+	f2fs_getattr(idmap, path, stat, request_mask, query_flags,
+		     getattr_flags);
 
 	return fscrypt_symlink_getattr(path, stat);
 }

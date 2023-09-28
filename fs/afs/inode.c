@@ -750,7 +750,8 @@ error_unlock:
  * read the attributes of an inode
  */
 int afs_getattr(struct mnt_idmap *idmap, const struct path *path,
-		struct kstat *stat, u32 request_mask, unsigned int query_flags)
+		struct kstat *stat, u32 request_mask, unsigned int query_flags,
+		unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct afs_vnode *vnode = AFS_FS_I(inode);

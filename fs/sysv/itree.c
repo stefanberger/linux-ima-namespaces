@@ -446,7 +446,8 @@ static unsigned sysv_nblocks(struct super_block *s, loff_t size)
 }
 
 int sysv_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, unsigned int flags)
+		 struct kstat *stat, u32 request_mask, unsigned int flags,
+		 unsigned int getattr_flags)
 {
 	struct super_block *s = path->dentry->d_sb;
 	generic_fillattr(&nop_mnt_idmap, request_mask, d_inode(path->dentry),

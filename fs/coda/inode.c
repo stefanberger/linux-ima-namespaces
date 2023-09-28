@@ -252,7 +252,8 @@ static void coda_evict_inode(struct inode *inode)
 }
 
 int coda_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, unsigned int flags)
+		 struct kstat *stat, u32 request_mask, unsigned int flags,
+		 unsigned int getattr_flags)
 {
 	int err = coda_revalidate_inode(d_inode(path->dentry));
 	if (!err)

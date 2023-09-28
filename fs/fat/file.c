@@ -396,7 +396,8 @@ void fat_truncate_blocks(struct inode *inode, loff_t offset)
 }
 
 int fat_getattr(struct mnt_idmap *idmap, const struct path *path,
-		struct kstat *stat, u32 request_mask, unsigned int flags)
+		struct kstat *stat, u32 request_mask, unsigned int flags,
+		unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct msdos_sb_info *sbi = MSDOS_SB(inode->i_sb);

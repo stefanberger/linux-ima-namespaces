@@ -1960,7 +1960,8 @@ static struct inode *proc_pid_make_base_inode(struct super_block *sb,
 }
 
 int pid_getattr(struct mnt_idmap *idmap, const struct path *path,
-		struct kstat *stat, u32 request_mask, unsigned int query_flags)
+		struct kstat *stat, u32 request_mask, unsigned int query_flags,
+		unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct proc_fs_info *fs_info = proc_sb_info(inode->i_sb);
@@ -3896,7 +3897,8 @@ static int proc_task_readdir(struct file *file, struct dir_context *ctx)
 
 static int proc_task_getattr(struct mnt_idmap *idmap,
 			     const struct path *path, struct kstat *stat,
-			     u32 request_mask, unsigned int query_flags)
+			     u32 request_mask, unsigned int query_flags,
+			     unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct task_struct *p = get_proc_task(inode);

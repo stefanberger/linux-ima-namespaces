@@ -232,7 +232,8 @@ int vboxsf_inode_revalidate(struct dentry *dentry)
 }
 
 int vboxsf_getattr(struct mnt_idmap *idmap, const struct path *path,
-		   struct kstat *kstat, u32 request_mask, unsigned int flags)
+		   struct kstat *kstat, u32 request_mask, unsigned int flags,
+		   unsigned int getattr_flags)
 {
 	int err;
 	struct dentry *dentry = path->dentry;

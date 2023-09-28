@@ -301,7 +301,8 @@ static struct dentry *proc_tgid_net_lookup(struct inode *dir,
 
 static int proc_tgid_net_getattr(struct mnt_idmap *idmap,
 				 const struct path *path, struct kstat *stat,
-				 u32 request_mask, unsigned int query_flags)
+				 u32 request_mask, unsigned int query_flags,
+				 unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct net *net;

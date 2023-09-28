@@ -832,7 +832,8 @@ static bool f2fs_force_buffered_io(struct inode *inode, int rw)
 }
 
 int f2fs_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, unsigned int query_flags)
+		 struct kstat *stat, u32 request_mask, unsigned int query_flags,
+		 unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct f2fs_inode_info *fi = F2FS_I(inode);

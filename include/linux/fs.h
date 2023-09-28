@@ -1924,7 +1924,7 @@ struct inode_operations {
 			struct inode *, struct dentry *, unsigned int);
 	int (*setattr) (struct mnt_idmap *, struct dentry *, struct iattr *);
 	int (*getattr) (struct mnt_idmap *, const struct path *,
-			struct kstat *, u32, unsigned int);
+			struct kstat *, u32, unsigned int, unsigned int);
 	ssize_t (*listxattr) (struct dentry *, char *, size_t);
 	int (*fiemap)(struct inode *, struct fiemap_extent_info *, u64 start,
 		      u64 len);
@@ -2097,6 +2097,11 @@ static inline bool sb_rdonly(const struct super_block *sb) { return sb->s_flags 
 
 #define IS_WHITEOUT(inode)	(S_ISCHR(inode->i_mode) && \
 				 (inode)->i_rdev == WHITEOUT_DEV)
+
+/*
+ * getattr flags
+ */
+#define GETATTR_NOSEC	(1 << 0)
 
 static inline bool HAS_UNMAPPED_ID(struct mnt_idmap *idmap,
 				   struct inode *inode)
@@ -3066,7 +3071,8 @@ extern int dcache_readdir(struct file *, struct dir_context *);
 extern int simple_setattr(struct mnt_idmap *, struct dentry *,
 			  struct iattr *);
 extern int simple_getattr(struct mnt_idmap *, const struct path *,
-			  struct kstat *, u32, unsigned int);
+			  struct kstat *, u32, unsigned int,
+			  unsigned int);
 extern int simple_statfs(struct dentry *, struct kstatfs *);
 extern int simple_open(struct inode *inode, struct file *file);
 extern int simple_link(struct dentry *, struct inode *, struct dentry *);

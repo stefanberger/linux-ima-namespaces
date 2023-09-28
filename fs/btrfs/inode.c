@@ -8624,7 +8624,8 @@ fail:
 
 static int btrfs_getattr(struct mnt_idmap *idmap,
 			 const struct path *path, struct kstat *stat,
-			 u32 request_mask, unsigned int flags)
+			 u32 request_mask, unsigned int flags,
+			 unsigned int getattr_flags)
 {
 	u64 delalloc_bytes;
 	u64 inode_bytes;

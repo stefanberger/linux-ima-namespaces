@@ -133,7 +133,8 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	idmap = mnt_idmap(path->mnt);
 	if (inode->i_op->getattr)
 		return inode->i_op->getattr(idmap, path, stat,
-					    request_mask, query_flags);
+					    request_mask, query_flags,
+					    GETATTR_NOSEC);
 
 	generic_fillattr(idmap, request_mask, inode, stat);
 	return 0;

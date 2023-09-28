@@ -552,7 +552,8 @@ xfs_vn_getattr(
 	const struct path	*path,
 	struct kstat		*stat,
 	u32			request_mask,
-	unsigned int		query_flags)
+	unsigned int		query_flags,
+	unsigned int		getattr_flags)
 {
 	struct inode		*inode = d_inode(path->dentry);
 	struct xfs_inode	*ip = XFS_I(inode);

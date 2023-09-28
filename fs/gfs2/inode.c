@@ -2038,6 +2038,7 @@ out:
  * @stat: The inode's stats
  * @request_mask: Mask of STATX_xxx flags indicating the caller's interests
  * @flags: AT_STATX_xxx setting
+ * @getattr_flags: GETATTR_xxx
  *
  * This may be called from the VFS directly, or from within GFS2 with the
  * inode locked, so we look to see if the glock is already locked and only
@@ -2050,7 +2051,8 @@ out:
 
 static int gfs2_getattr(struct mnt_idmap *idmap,
 			const struct path *path, struct kstat *stat,
-			u32 request_mask, unsigned int flags)
+			u32 request_mask, unsigned int flags,
+			unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct gfs2_inode *ip = GFS2_I(inode);

@@ -2570,7 +2570,8 @@ int cifs_revalidate_dentry(struct dentry *dentry)
 }
 
 int cifs_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, unsigned int flags)
+		 struct kstat *stat, u32 request_mask, unsigned int flags,
+		 unsigned int getattr_flags)
 {
 	struct dentry *dentry = path->dentry;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(dentry->d_sb);

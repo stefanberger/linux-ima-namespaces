@@ -2255,11 +2255,13 @@ static const char *ceph_encrypted_get_link(struct dentry *dentry,
 static int ceph_encrypted_symlink_getattr(struct mnt_idmap *idmap,
 					  const struct path *path,
 					  struct kstat *stat, u32 request_mask,
-					  unsigned int query_flags)
+					  unsigned int query_flags,
+					  unsigned int getattr_flags)
 {
 	int ret;
 
-	ret = ceph_getattr(idmap, path, stat, request_mask, query_flags);
+	ret = ceph_getattr(idmap, path, stat, request_mask, query_flags,
+			   getattr_flags);
 	if (ret)
 		return ret;
 	return fscrypt_symlink_getattr(path, stat);
@@ -2960,7 +2962,8 @@ static int statx_to_caps(u32 want, umode_t mode)
  * then we can avoid talking to the MDS at all.
  */
 int ceph_getattr(struct mnt_idmap *idmap, const struct path *path,
-		 struct kstat *stat, u32 request_mask, unsigned int flags)
+		 struct kstat *stat, u32 request_mask, unsigned int flags,
+		 unsigned int getattr_flags)
 {
 	struct inode *inode = d_inode(path->dentry);
 	struct super_block *sb = inode->i_sb;

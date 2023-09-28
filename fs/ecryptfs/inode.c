@@ -974,7 +974,8 @@ out:
 
 static int ecryptfs_getattr_link(struct mnt_idmap *idmap,
 				 const struct path *path, struct kstat *stat,
-				 u32 request_mask, unsigned int flags)
+				 u32 request_mask, unsigned int flags,
+				 unsigned int getattr_flags)
 {
 	struct dentry *dentry = path->dentry;
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
@@ -1000,14 +1001,19 @@ static int ecryptfs_getattr_link(struct mnt_idmap *idmap,
 
 static int ecryptfs_getattr(struct mnt_idmap *idmap,
 			    const struct path *path, struct kstat *stat,
-			    u32 request_mask, unsigned int flags)
+			    u32 request_mask, unsigned int flags,
+			    unsigned int getattr_flags)
 {
 	struct dentry *dentry = path->dentry;
 	struct kstat lower_stat;
 	int rc;
 
-	rc = vfs_getattr(ecryptfs_dentry_to_lower_path(dentry), &lower_stat,
-			 request_mask, flags);
+	if (getattr_flags & GETATTR_NOSEC)
+		rc = vfs_getattr_nosec(ecryptfs_dentry_to_lower_path(dentry),
+				       &lower_stat, request_mask, flags);
+	else
+		rc = vfs_getattr(ecryptfs_dentry_to_lower_path(dentry),
+				 &lower_stat, request_mask, flags);
 	if (!rc) {
 		fsstack_copy_attr_all(d_inode(dentry),
 				      ecryptfs_inode_to_lower(d_inode(dentry)));
