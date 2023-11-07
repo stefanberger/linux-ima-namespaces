@@ -209,6 +209,21 @@ static inline void __init init_ima_lsm(void)
 
 #endif
 
+#ifdef CONFIG_EVM
+const struct lsm_id *evm_get_lsm_id(void);
+void __init init_evm_lsm(void);
+#else
+static inline const struct lsm_id *evm_get_lsm_id(void)
+{
+	return NULL;
+}
+
+static inline void __init init_evm_lsm(void)
+{
+}
+
+#endif
+
 #ifdef CONFIG_INTEGRITY_SIGNATURE
 
 int integrity_digsig_verify(const unsigned int id, const char *sig, int siglen,

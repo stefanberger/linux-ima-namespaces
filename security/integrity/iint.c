@@ -199,6 +199,7 @@ static int __init integrity_lsm_init(void)
 	    kmem_cache_create("iint_cache", sizeof(struct integrity_iint_cache),
 			      0, SLAB_PANIC, iint_init_once);
 	init_ima_lsm();
+	init_evm_lsm();
 	return 0;
 }
 
