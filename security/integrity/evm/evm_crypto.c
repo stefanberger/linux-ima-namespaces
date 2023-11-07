@@ -63,12 +63,14 @@ int evm_set_key(struct evm_namespace *ns, void *key, size_t keylen)
 		goto inval;
 	memcpy(ns->evmkey, key, keylen);
 	ns->evm_initialized |= EVM_INIT_HMAC;
-	pr_info("key initialized\n");
+	if (ns == &init_evm_ns)
+		pr_info("key initialized\n");
 	return 0;
 inval:
 	clear_bit(EVM_SET_KEY_BUSY, &ns->evm_set_key_flags);
 busy:
-	pr_err("key initialization failed\n");
+	if (ns == &init_evm_ns)
+		pr_err("key initialization failed\n");
 	return rc;
 }
 EXPORT_SYMBOL_GPL(evm_set_key);
