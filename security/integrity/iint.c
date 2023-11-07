@@ -171,7 +171,7 @@ struct integrity_iint_cache *integrity_inode_get(struct inode *inode)
  *
  * Free the integrity information(iint) associated with an inode.
  */
-void integrity_inode_free(struct inode *inode)
+static void integrity_inode_free(struct inode *inode)
 {
 	struct integrity_iint_cache *iint;
 
@@ -193,11 +193,39 @@ static void iint_init_once(void *foo)
 	memset(iint, 0, sizeof(*iint));
 }
 
+static struct security_hook_list integrity_hooks[] __ro_after_init = {
+	LSM_HOOK_INIT(inode_free_security, integrity_inode_free),
+#ifdef CONFIG_INTEGRITY_ASYMMETRIC_KEYS
+	LSM_HOOK_INIT(kernel_module_request, integrity_kernel_module_request),
+#endif
+};
+
+/*
+ * Perform the initialization of the 'integrity', 'ima' and 'evm' LSMs to
+ * ensure that the management of integrity metadata is working at the time
+ * IMA and EVM hooks are registered to the LSM infrastructure, and to keep
+ * the original ordering of IMA and EVM functions as when they were hardcoded.
+ */
 static int __init integrity_lsm_init(void)
 {
+	const struct lsm_id *lsmid;
+
 	iint_cache =
 	    kmem_cache_create("iint_cache", sizeof(struct integrity_iint_cache),
 			      0, SLAB_PANIC, iint_init_once);
+	/*
+	 * Obtain either the IMA or EVM LSM ID to register integrity-specific
+	 * hooks under that LSM, since there is no LSM ID assigned to the
+	 * 'integrity' LSM.
+	 */
+	lsmid = ima_get_lsm_id();
+	if (!lsmid)
+		lsmid = evm_get_lsm_id();
+	/* No point in continuing, since both IMA and EVM are disabled. */
+	if (!lsmid)
+		return 0;
+
+	security_add_hooks(integrity_hooks, ARRAY_SIZE(integrity_hooks), lsmid);
 	init_ima_lsm();
 	init_evm_lsm();
 	return 0;
