@@ -1161,6 +1161,7 @@ const struct lsm_id *ima_get_lsm_id(void)
 void __init init_ima_lsm(void)
 {
 	security_add_hooks(ima_hooks, ARRAY_SIZE(ima_hooks), &ima_lsmid);
+	init_ima_appraise_lsm(&ima_lsmid);
 }
 
 /* Introduce a dummy function as 'ima' init method (it cannot be NULL). */
