@@ -305,10 +305,10 @@ static inline ssize_t ovl_path_getxattr(struct ovl_fs *ofs,
 
 static inline int ovl_do_setxattr(struct ovl_fs *ofs, struct dentry *dentry,
 				  const char *name, const void *value,
-				  size_t size, int flags)
+				  size_t size, int flags, int check_flags)
 {
 	int err = vfs_setxattr(ovl_upper_mnt_idmap(ofs), dentry, name,
-			       value, size, flags, 0);
+			       value, size, flags, check_flags);
 
 	pr_debug("setxattr(%pd2, \"%s\", \"%*pE\", %zu, %d) = %i\n",
 		 dentry, name, min((int)size, 48), value, size, flags, err);
@@ -319,7 +319,8 @@ static inline int ovl_setxattr(struct ovl_fs *ofs, struct dentry *dentry,
 			       enum ovl_xattr ox, const void *value,
 			       size_t size)
 {
-	return ovl_do_setxattr(ofs, dentry, ovl_xattr(ofs, ox), value, size, 0);
+	return ovl_do_setxattr(ofs, dentry, ovl_xattr(ofs, ox), value, size, 0,
+			       0);
 }
 
 static inline int ovl_do_removexattr(struct ovl_fs *ofs, struct dentry *dentry,

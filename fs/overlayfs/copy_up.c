@@ -154,7 +154,8 @@ retry:
 			goto retry;
 		}
 
-		error = ovl_do_setxattr(OVL_FS(sb), new, name, value, size, 0);
+		error = ovl_do_setxattr(OVL_FS(sb), new, name, value, size, 0,
+		                        XATTR_NO_CHECK_XATTR_CONTENTS);
 		if (error) {
 			if (error != -EOPNOTSUPP || ovl_must_copy_xattr(name))
 				break;
@@ -1093,7 +1094,7 @@ static int ovl_copy_up_meta_inode_data(struct ovl_copy_up_ctx *c)
 	ovl_start_write(c->dentry);
 	if (capability) {
 		err = ovl_do_setxattr(ofs, upperpath.dentry, XATTR_NAME_CAPS,
-				      capability, cap_size, 0);
+				      capability, cap_size, 0, 0);
 	}
 	if (!err) {
 		err = ovl_removexattr(ofs, upperpath.dentry,

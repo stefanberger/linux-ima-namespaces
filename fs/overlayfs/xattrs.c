@@ -67,7 +67,7 @@ static int ovl_xattr_set(struct dentry *dentry, struct inode *inode, const char 
 	old_cred = ovl_override_creds(dentry->d_sb);
 	if (value) {
 		err = ovl_do_setxattr(ofs, realdentry, name, value, size,
-				      flags);
+				      flags, 0);
 	} else {
 		WARN_ON(flags != XATTR_REPLACE);
 		err = ovl_do_removexattr(ofs, realdentry, name);
