@@ -1127,6 +1127,10 @@ static int ovl_copy_up_one(struct dentry *parent, struct dentry *dentry,
 	if (WARN_ON(!ctx.workdir))
 		return -EROFS;
 
+	err = security_file_copy_up(dentry);
+	if (err)
+		return err;
+
 	ovl_path_lower(dentry, &ctx.lowerpath);
 	err = vfs_getattr(&ctx.lowerpath, &ctx.stat,
 			  STATX_BASIC_STATS, AT_STATX_SYNC_AS_STAT);
