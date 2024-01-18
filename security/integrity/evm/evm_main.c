@@ -501,7 +501,8 @@ out:
  */
 static int evm_protect_xattr(struct mnt_idmap *idmap,
 			     struct dentry *dentry, const char *xattr_name,
-			     const void *xattr_value, size_t xattr_value_len)
+			     const void *xattr_value, size_t xattr_value_len,
+			     int flags)
 {
 	enum integrity_status evm_status;
 
@@ -522,6 +523,9 @@ static int evm_protect_xattr(struct mnt_idmap *idmap,
 			return 0;
 		goto out;
 	} else if (is_unsupported_fs(dentry))
+		return 0;
+
+	if (flags & XATTR_NO_CHECK_XATTR_CONTENTS)
 		return 0;
 
 	evm_status = evm_verify_current_integrity(dentry);
@@ -608,7 +612,7 @@ int evm_inode_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 			return -EPERM;
 	}
 	return evm_protect_xattr(idmap, dentry, xattr_name, xattr_value,
-				 xattr_value_len);
+				 xattr_value_len, flags);
 }
 
 /**
@@ -629,7 +633,7 @@ int evm_inode_removexattr(struct mnt_idmap *idmap,
 	if (evm_initialized & EVM_ALLOW_METADATA_WRITES)
 		return 0;
 
-	return evm_protect_xattr(idmap, dentry, xattr_name, NULL, 0);
+	return evm_protect_xattr(idmap, dentry, xattr_name, NULL, 0, 0);
 }
 
 #ifdef CONFIG_FS_POSIX_ACL
@@ -894,6 +898,44 @@ void evm_inode_post_setattr(struct dentry *dentry, int ia_valid)
 
 	if (ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID))
 		evm_update_evmxattr(dentry, NULL, NULL, 0);
+}
+
+int evm_file_copy_up(struct dentry *dentry)
+{
+	struct evm_ima_xattr_data *xattr_data = NULL;
+	enum integrity_status evm_status;
+	int rc;
+
+	/* first need to know the sig type */
+	rc = vfs_getxattr_alloc(&nop_mnt_idmap, dentry, XATTR_NAME_EVM,
+				(char **)&xattr_data, 0, GFP_NOFS);
+	if (rc <= 0)
+		return -EPERM;
+
+	rc = 0;
+	switch (xattr_data->type) {
+	case EVM_XATTR_HMAC:
+		/* only allow file copy-up if signature is good now */
+		evm_status = evm_verify_current_integrity(dentry);
+		if (evm_status != INTEGRITY_PASS)
+			rc = -EPERM;
+		break;
+	case EVM_IMA_XATTR_DIGSIG:
+		/* never copy up? */
+		rc = -EPERM;
+		break;
+	case EVM_XATTR_PORTABLE_DIGSIG:
+		/* only allow file copy-up if signature is good now */
+		evm_status = evm_verify_current_integrity(dentry);
+		if (evm_status != INTEGRITY_PASS)
+			rc = -EPERM;
+		break;
+	default:
+		rc = -EPERM;
+	}
+
+	kfree(xattr_data);
+	return rc;
 }
 
 int evm_inode_copy_up_xattr(const char *name)

@@ -2605,7 +2605,7 @@ EXPORT_SYMBOL(security_inode_copy_up);
  */
 int security_file_copy_up(struct dentry *src)
 {
-	return 0;
+	return evm_file_copy_up(src);
 }
 EXPORT_SYMBOL(security_file_copy_up);
 
