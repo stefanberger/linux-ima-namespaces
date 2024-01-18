@@ -2596,6 +2596,20 @@ int security_inode_copy_up(struct dentry *src, struct cred **new)
 EXPORT_SYMBOL(security_inode_copy_up);
 
 /**
+ * security_file_copy_up() - Check permission on copy-up of file
+ * @src: union dentry of copy-up file
+ *
+ * Check whether a file is allowed to be copied up.
+ *
+ * Return: Returns 0 on success or a negative error code on error.
+ */
+int security_file_copy_up(struct dentry *src)
+{
+	return 0;
+}
+EXPORT_SYMBOL(security_file_copy_up);
+
+/**
  * security_inode_copy_up_xattr() - Filter xattrs in an overlayfs copy-up op
  * @name: xattr name
  *
