@@ -945,7 +945,8 @@ int ksmbd_vfs_setxattr(struct mnt_idmap *idmap,
 			   attr_name,
 			   attr_value,
 			   attr_size,
-			   flags);
+			   flags,
+			   0);
 	if (err)
 		ksmbd_debug(VFS, "setxattr failed, err %d\n", err);
 	if (get_write == true)

@@ -364,7 +364,8 @@ int security_inode_setattr(struct mnt_idmap *idmap,
 int security_inode_getattr(const struct path *path);
 int security_inode_setxattr(struct mnt_idmap *idmap,
 			    struct dentry *dentry, const char *name,
-			    const void *value, size_t size, int flags);
+			    const void *value, size_t size, int flags,
+			    int check_flags);
 int security_inode_set_acl(struct mnt_idmap *idmap,
 			   struct dentry *dentry, const char *acl_name,
 			   struct posix_acl *kacl);

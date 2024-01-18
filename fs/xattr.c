@@ -275,7 +275,8 @@ int __vfs_setxattr_noperm(struct mnt_idmap *idmap,
 int
 __vfs_setxattr_locked(struct mnt_idmap *idmap, struct dentry *dentry,
 		      const char *name, const void *value, size_t size,
-		      int flags, struct inode **delegated_inode)
+		      int flags, struct inode **delegated_inode,
+		      int check_flags)
 {
 	struct inode *inode = dentry->d_inode;
 	int error;
@@ -285,7 +286,7 @@ __vfs_setxattr_locked(struct mnt_idmap *idmap, struct dentry *dentry,
 		return error;
 
 	error = security_inode_setxattr(idmap, dentry, name, value, size,
-					flags);
+					flags, check_flags);
 	if (error)
 		goto out;
 
@@ -303,7 +304,8 @@ EXPORT_SYMBOL_GPL(__vfs_setxattr_locked);
 
 int
 vfs_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
-	     const char *name, const void *value, size_t size, int flags)
+	     const char *name, const void *value, size_t size, int flags,
+	     int check_flags)
 {
 	struct inode *inode = dentry->d_inode;
 	struct inode *delegated_inode = NULL;
@@ -320,7 +322,7 @@ vfs_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 retry_deleg:
 	inode_lock(inode);
 	error = __vfs_setxattr_locked(idmap, dentry, name, value, size,
-				      flags, &delegated_inode);
+				      flags, &delegated_inode, check_flags);
 	inode_unlock(inode);
 
 	if (delegated_inode) {
@@ -628,7 +630,7 @@ int do_setxattr(struct mnt_idmap *idmap, struct dentry *dentry,
 				  ctx->kvalue, ctx->size);
 
 	return vfs_setxattr(idmap, dentry, ctx->kname->name,
-			ctx->kvalue, ctx->size, ctx->flags);
+			ctx->kvalue, ctx->size, ctx->flags, 0);
 }
 
 static long

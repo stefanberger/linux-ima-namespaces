@@ -308,7 +308,7 @@ static inline int ovl_do_setxattr(struct ovl_fs *ofs, struct dentry *dentry,
 				  size_t size, int flags)
 {
 	int err = vfs_setxattr(ovl_upper_mnt_idmap(ofs), dentry, name,
-			       value, size, flags);
+			       value, size, flags, 0);
 
 	pr_debug("setxattr(%pd2, \"%s\", \"%*pE\", %zu, %d) = %i\n",
 		 dentry, name, min((int)size, 48), value, size, flags, err);

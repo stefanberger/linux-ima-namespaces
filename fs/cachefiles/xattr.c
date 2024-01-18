@@ -66,7 +66,7 @@ int cachefiles_set_object_xattr(struct cachefiles_object *object)
 	ret = cachefiles_inject_write_error();
 	if (ret == 0)
 		ret = vfs_setxattr(&nop_mnt_idmap, dentry, cachefiles_xattr_cache,
-				   buf, sizeof(struct cachefiles_xattr) + len, 0);
+				   buf, sizeof(struct cachefiles_xattr) + len, 0, 0);
 	if (ret < 0) {
 		trace_cachefiles_vfs_error(object, file_inode(file), ret,
 					   cachefiles_trace_setxattr_error);
@@ -208,7 +208,7 @@ bool cachefiles_set_volume_xattr(struct cachefiles_volume *volume)
 	ret = cachefiles_inject_write_error();
 	if (ret == 0)
 		ret = vfs_setxattr(&nop_mnt_idmap, dentry, cachefiles_xattr_cache,
-				   buf, len, 0);
+				   buf, len, 0, 0);
 	if (ret < 0) {
 		trace_cachefiles_vfs_error(NULL, d_inode(dentry), ret,
 					   cachefiles_trace_setxattr_error);

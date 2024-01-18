@@ -2252,7 +2252,8 @@ int security_inode_getattr(const struct path *path)
  */
 int security_inode_setxattr(struct mnt_idmap *idmap,
 			    struct dentry *dentry, const char *name,
-			    const void *value, size_t size, int flags)
+			    const void *value, size_t size, int flags,
+			    int check_flags)
 {
 	int ret;
 
@@ -2272,7 +2273,7 @@ int security_inode_setxattr(struct mnt_idmap *idmap,
 	ret = ima_inode_setxattr(dentry, name, value, size);
 	if (ret)
 		return ret;
-	return evm_inode_setxattr(idmap, dentry, name, value, size);
+	return evm_inode_setxattr(idmap, dentry, name, value, size, check_flags);
 }
 
 /**

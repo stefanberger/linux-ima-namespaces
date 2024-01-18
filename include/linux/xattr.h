@@ -71,6 +71,10 @@ struct xattr {
 	size_t value_len;
 };
 
+/* setxattr check flags: */
+/* do not security-check xattr contents (EVM): */
+#define XATTR_NO_CHECK_XATTR_CONTENTS	(1 << 0)
+
 ssize_t __vfs_getxattr(struct dentry *, struct inode *, const char *, void *, size_t);
 ssize_t vfs_getxattr(struct mnt_idmap *, struct dentry *, const char *,
 		     void *, size_t);
@@ -81,9 +85,9 @@ int __vfs_setxattr_noperm(struct mnt_idmap *, struct dentry *,
 			  const char *, const void *, size_t, int);
 int __vfs_setxattr_locked(struct mnt_idmap *, struct dentry *,
 			  const char *, const void *, size_t, int,
-			  struct inode **);
+			  struct inode **, int check_flags);
 int vfs_setxattr(struct mnt_idmap *, struct dentry *, const char *,
-		 const void *, size_t, int);
+		 const void *, size_t, int, int);
 int __vfs_removexattr(struct mnt_idmap *, struct dentry *, const char *);
 int __vfs_removexattr_locked(struct mnt_idmap *, struct dentry *,
 			     const char *, struct inode **);
