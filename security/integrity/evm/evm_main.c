@@ -733,6 +733,18 @@ static void evm_reset_status(struct inode *inode)
 		iint->evm_status = INTEGRITY_UNKNOWN;
 }
 
+/*
+ * Reset the EVM status when only the file metadata is copied
+ * up.
+ */
+void evm_reset_cache_status(struct file *file)
+{
+	struct dentry *dentry = file_dentry(file);
+
+	if (d_real_inode(dentry) != d_backing_inode(dentry))
+		evm_reset_status(file_inode(file));
+}
+
 /**
  * evm_revalidate_status - report whether EVM status re-validation is necessary
  * @xattr_name: pointer to the affected extended attribute name
