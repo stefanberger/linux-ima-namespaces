@@ -926,6 +926,7 @@ static void vli_mmod_fast_521(u64 *result, const u64 *product,
 	tmp[8] &= 0x1ff;
 
 	vli_mod_add(result, result, tmp, curve_prime, ndigits);
+	BUG_ON(vli_cmp(curve_prime, result, ndigits) != 1);
 }
 
 
@@ -1370,6 +1371,8 @@ static void ecc_point_mult(struct ecc_point *result,
 
 	vli_set(result->x, rx[0], ndigits);
 	vli_set(result->y, ry[0], ndigits);
+	BUG_ON(vli_cmp(curve_prime, result->x, ndigits) != 1);
+	BUG_ON(vli_cmp(curve_prime, result->y, ndigits) != 1);
 }
 
 /* Computes R = P + Q mod p */
@@ -1630,6 +1633,8 @@ int ecc_is_pubkey_valid_full(const struct ecc_curve *curve,
 	nQ = ecc_alloc_point(pk->ndigits);
 	if (!nQ)
 		return -ENOMEM;
+	BUG_ON(curve->g.ndigits != pk->ndigits);
+	BUG_ON(nQ->ndigits != pk->ndigits);
 
 	ecc_point_mult(nQ, pk, curve->n, NULL, curve, pk->ndigits);
 	if (!ecc_point_is_zero(nQ))
