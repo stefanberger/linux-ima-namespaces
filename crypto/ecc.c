@@ -43,6 +43,18 @@ typedef struct {
 	u64 m_high;
 } uint128_t;
 
+#if CONFIG_UML
+static __inline__ unsigned long long rdtsc(void) {
+    unsigned long h, l;
+
+    __asm__ __volatile__ ("rdtsc" : "=a"(l), "=d"(h));
+
+    return  (unsigned long long)l |
+           ((unsigned long long)h << 32 );
+}
+#endif
+
+
 /* Returns curv25519 curve param */
 const struct ecc_curve *ecc_get_curve25519(void)
 {
@@ -975,6 +987,7 @@ static void vli_mmod_fast_521(u64 *result, const u64 *product,
 	tmp[8] &= 0x1ff;
 
 	vli_mod_add(result, result, tmp, curve_prime, ndigits);
+	BUG_ON(vli_cmp(curve_prime, result, ndigits) != 1);
 }
 
 
@@ -1077,6 +1090,7 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 	u64 carry, carr_;
 	int cmp_result;
 	u64 dummy[ECC_MAX_DIGITS] = { 0, };
+	int l = 0;
 
 	if (vli_is_zero(input, ndigits)) {
 		vli_clear(result, ndigits);
@@ -1091,6 +1105,7 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 
 	while ((cmp_result = vli_cmp(a, b, ndigits)) != 0) {
 		carry = 0;
+		l++;
 
 		if (EVEN(a)) {
 			vli_sub(dummy, a, b, ndigits); // ct
@@ -1166,6 +1181,7 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 				v[ndigits - 1] |= 0x8000000000000000ull;
 		}
 	}
+	printk(KERN_INFO "loops: %d\n", l);
 
 	vli_set(result, u, ndigits);
 }
@@ -1404,6 +1420,9 @@ static void ecc_point_mult(struct ecc_point *result,
 	int i, nb;
 	int num_bits;
 	int carry;
+	u64 t11,t12,t13,t14,t15,t21,t22;
+
+	t11 = rdtsc();
 
 	carry = vli_add(sk[0], scalar, curve->n, ndigits);
 	vli_add(sk[1], sk[0], curve->n, ndigits);
@@ -1416,7 +1435,11 @@ static void ecc_point_mult(struct ecc_point *result,
 	vli_set(rx[1], point->x, ndigits);
 	vli_set(ry[1], point->y, ndigits);
 
+	t12 = rdtsc();
+
 	xycz_initial_double(rx[1], ry[1], rx[0], ry[0], initial_z, curve);
+
+	t13 = rdtsc();
 
 	for (i = num_bits - 2; i > 0; i--) {
 		nb = !vli_test_bit(scalar, i);
@@ -1427,6 +1450,8 @@ static void ecc_point_mult(struct ecc_point *result,
 	nb = !vli_test_bit(scalar, 0);
 	xycz_add_c(rx[1 - nb], ry[1 - nb], rx[nb], ry[nb], curve);
 
+	t14 = rdtsc();
+
 	/* Find final 1/Z value. */
 	/* X1 - X0 */
 	vli_mod_sub(z, rx[1], rx[0], curve_prime, ndigits);
@@ -1435,8 +1460,12 @@ static void ecc_point_mult(struct ecc_point *result,
 	/* xP * Yb * (X1 - X0) */
 	vli_mod_mult_fast(z, z, point->x, curve);
 
+	t15 = rdtsc();
+
 	/* 1 / (xP * Yb * (X1 - X0)) */
 	vli_mod_inv(z, z, curve_prime, point->ndigits);
+
+	t21 = rdtsc();
 
 	/* yP / (xP * Yb * (X1 - X0)) */
 	vli_mod_mult_fast(z, z, point->y, curve);
@@ -1450,6 +1479,12 @@ static void ecc_point_mult(struct ecc_point *result,
 
 	vli_set(result->x, rx[0], ndigits);
 	vli_set(result->y, ry[0], ndigits);
+
+	t22 = rdtsc();
+	printk("t1: %lld t2: %lld   t3: %lld   t4: %lld  t5: %lld T: %lld\n", t12 - t11, t13 - t12, t14 - t13, t15 - t14, t22 - t21, t21 - t14);
+
+	BUG_ON(vli_cmp(curve_prime, result->x, ndigits) != 1);
+	BUG_ON(vli_cmp(curve_prime, result->y, ndigits) != 1);
 }
 
 /* Computes R = P + Q mod p */
@@ -1697,6 +1732,46 @@ int ecc_is_pubkey_valid_partial(const struct ecc_curve *curve,
 }
 EXPORT_SYMBOL(ecc_is_pubkey_valid_partial);
 
+static void ecc_run_test(void)
+{
+	u64 priv[ECC_MAX_DIGITS], pub[ECC_MAX_DIGITS * 2], secret[ECC_MAX_DIGITS];
+	unsigned int ndigits = 9;
+	unsigned int curve_id = ECC_CURVE_NIST_P521;
+	const struct ecc_curve *curve = ecc_get_curve(curve_id);
+	unsigned int nbytes = ecc_curve_get_nbytes(curve);
+	u64 msd_mask = 0x1ff;
+	u64 t0, t1,t21,t22,t23,t31,t32,t33;
+	unsigned long flags;
+	static int in_test = 0;
+	
+	if (in_test)
+		return;
+	in_test = 1;
+
+	//local_irq_save(flags);
+	t0 = rdtsc();
+	WARN_ON(ecc_gen_privkey(curve_id, ndigits, priv, msd_mask) < 0);
+	t1 = rdtsc();
+	WARN_ON(ecc_make_pub_key(curve_id, ndigits, priv, (u8*)pub, nbytes) < 0);
+	t21 = rdtsc();
+	WARN_ON(ecc_make_pub_key(curve_id, ndigits, priv, (u8*)pub, nbytes) < 0);
+	t22 = rdtsc();
+	WARN_ON(ecc_make_pub_key(curve_id, ndigits, priv, (u8*)pub, nbytes) < 0);
+	t23 = rdtsc();
+
+	WARN_ON(crypto_ecdh_shared_secret(curve_id, ndigits, priv, (u8*)pub, nbytes, (u8*)secret, msd_mask) < 0);
+	t31 = rdtsc();
+	WARN_ON(crypto_ecdh_shared_secret(curve_id, ndigits, priv, (u8*)pub, nbytes, (u8*)secret, msd_mask) < 0);
+	t32 = rdtsc();
+	WARN_ON(crypto_ecdh_shared_secret(curve_id, ndigits, priv, (u8*)pub, nbytes, (u8*)secret, msd_mask) < 0);
+	t33 = rdtsc();
+	//local_irq_restore(flags);
+	//printk(KERN_INFO "1: %lld   2: %lld,%lld,%lld  3: %lld,%lld,%lld   msd priv: 0x%llx\n",
+	//       t1-t0,t21-t1,t22-t21,t23-t22,t31-t23,t32-t31,t33-t32, get_unaligned_be64(&priv[0]));
+
+	in_test = 0;
+}
+
 /* SP800-56A section 5.6.2.3.3 full verification */
 int ecc_is_pubkey_valid_full(const struct ecc_curve *curve,
 			     struct ecc_point *pk)
@@ -1713,10 +1788,14 @@ int ecc_is_pubkey_valid_full(const struct ecc_curve *curve,
 	nQ = ecc_alloc_point(pk->ndigits);
 	if (!nQ)
 		return -ENOMEM;
+	BUG_ON(curve->g.ndigits != pk->ndigits);
+	BUG_ON(nQ->ndigits != pk->ndigits);
 
 	ecc_point_mult(nQ, pk, curve->n, NULL, curve, pk->ndigits);
 	if (!ecc_point_is_zero(nQ))
 		ret = -EINVAL;
+
+	ecc_run_test();
 
 	ecc_free_point(nQ);
 
@@ -1735,6 +1814,7 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 	u8 tmp[ECC_MAX_DIGITS << ECC_DIGITS_TO_BYTES_SHIFT];
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
 	unsigned int nbits;
+	u64 t1,t2,t3,t4;
 
 	if (!private_key || !public_key || !curve ||
 	    ndigits > ARRAY_SIZE(priv) || ndigits > ARRAY_SIZE(rand_z)) {
@@ -1773,7 +1853,16 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 		goto err_alloc_product;
 	}
 
+	local_irq_disable();
+	t1 = rdtsc();
 	ecc_point_mult(product, pk, priv, rand_z, curve, ndigits);
+	t2 = rdtsc();
+	ecc_point_mult(product, pk, priv, rand_z, curve, ndigits);
+	t3 = rdtsc();
+	ecc_point_mult(product, pk, priv, rand_z, curve, ndigits);
+	t4 = rdtsc();
+	local_irq_enable();
+	//printk(KERN_INFO "mult: %lld,%lld,%lld   msd rand_z: %llx  msd priv: %llx\n", t2-t1, t3-t2, t4-t3, rand_z[ndigits-1], priv[ndigits-1]);
 
 	if (ecc_point_is_zero(product)) {
 		ret = -EFAULT;

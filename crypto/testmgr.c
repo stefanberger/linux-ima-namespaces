@@ -3939,6 +3939,14 @@ static int do_test_kpp(struct crypto_kpp *tfm, const struct kpp_testvec *vec,
 		}
 	} else {
 		/* Verify calculated public key */
+#if 0
+		u8 *ptr = sg_virt(req->dst);
+		printk(KERN_INFO "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			ptr[0], ptr[1], ptr[2], ptr[3],
+			ptr[4], ptr[5], ptr[6], ptr[7],
+			ptr[8], ptr[9]
+		);
+#endif
 		if (memcmp(vec->expected_a_public, sg_virt(req->dst),
 			   vec->expected_a_public_size)) {
 			pr_err("alg: %s: Party A: generate public key test failed. Invalid output\n",
@@ -4008,6 +4016,16 @@ static int do_test_kpp(struct crypto_kpp *tfm, const struct kpp_testvec *vec,
 	 * verify shared secret from which the user will derive
 	 * secret key by executing whatever hash it has chosen
 	 */
+#if 0
+	{
+		unsigned char *ptr = sg_virt(req->dst);
+		printk(KERN_INFO "secret: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			ptr[0], ptr[1], ptr[2], ptr[3],
+			ptr[4], ptr[5], ptr[6], ptr[7],
+			ptr[8], ptr[9]
+		);
+	}
+#endif
 	if (memcmp(shared_secret, sg_virt(req->dst),
 		   vec->expected_ss_size)) {
 		pr_err("alg: %s: compute shared secret test failed. Invalid output\n",
