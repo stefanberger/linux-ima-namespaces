@@ -101,6 +101,8 @@ static int _ecdsa_verify(struct ecc_ctx *ctx, const u64 *hash, const u64 *r, con
 	u64 x1[ECC_MAX_DIGITS];
 	u64 y1[ECC_MAX_DIGITS];
 	struct ecc_point res = ECC_POINT_INIT(x1, y1, ndigits);
+	size_t c = 0;
+	static size_t ctr;
 
 	/* 0 < r < n  and 0 < s < n */
 	if (vli_is_zero(r, ndigits) || vli_cmp(r, curve->n, ndigits) >= 0 ||
@@ -121,9 +123,17 @@ static int _ecdsa_verify(struct ecc_ctx *ctx, const u64 *hash, const u64 *r, con
 	ecc_point_mult_shamir(&res, u1, &curve->g, u2, &ctx->pub_key, curve);
 
 	/* res.x = res.x mod n (if res.x > order) */
-	while (unlikely(vli_cmp(res.x, curve->n, ndigits) == 1))
+	while (unlikely(vli_cmp(res.x, curve->n, ndigits) == 1)) {
 		/* faster alternative for NIST p521, p384, p256 & p192 */
 		vli_sub(res.x, res.x, curve->n, ndigits);
+		c++;
+	}
+	if (c)
+		printk(KERN_INFO "CHECK c=%zu ndigits=%d\n", c, ndigits);
+
+	ctr++;
+	if ((ctr % 100) == 0)
+		printk(KERN_INFO "verified!\n");
 
 	if (!vli_cmp(res.x, r, ndigits))
 		return 0;
