@@ -58,8 +58,8 @@ static int ecdh_compute_value(struct kpp_request *req)
 	struct ecdh_ctx *ctx = ecdh_get_ctx(tfm);
 	const struct ecc_curve *curve = ecc_get_curve(ctx->curve_id);
 	unsigned int nbytes = ecc_curve_get_nbytes(curve);
-	u64 *public_key;
-	u64 *shared_secret = NULL;
+	u8 *public_key;
+	u8 *shared_secret = NULL;
 	void *buf;
 	size_t copied, public_key_sz;
 	int ret = -ENOMEM;
