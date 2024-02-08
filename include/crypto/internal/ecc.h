@@ -104,6 +104,17 @@ static inline unsigned int ecc_curve_get_nbits(const struct ecc_curve *curve)
 	return curve->g.ndigits << ECC_DIGITS_TO_BYTES_SHIFT * 8;
 }
 
+/*
+ * ecc_curve_get_nbytes() - Get the number of bytes the curve requires
+ * @curve:   The curve
+ */
+static inline unsigned int ecc_curve_get_nbytes(const struct ecc_curve *curve)
+{
+	if (curve->nbits)
+		return DIV_ROUND_UP(curve->nbits, 8);
+	return curve->g.ndigits << ECC_DIGITS_TO_BYTES_SHIFT;
+}
+
 /**
  * ecc_is_key_valid() - Validate a given ECDH private key
  *
