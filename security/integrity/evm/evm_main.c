@@ -226,7 +226,7 @@ static enum integrity_status evm_verify_hmac(struct dentry *dentry,
 
 		digest.hdr.algo = HASH_ALGO_SHA1;
 		rc = evm_calc_hmac(dentry, xattr_name, xattr_value,
-				   xattr_value_len, &digest);
+				   xattr_value_len, &digest, iint);
 		if (rc)
 			break;
 		rc = crypto_memneq(xattr_data->data, digest.digest,
@@ -247,7 +247,8 @@ static enum integrity_status evm_verify_hmac(struct dentry *dentry,
 		hdr = (struct signature_v2_hdr *)xattr_data;
 		digest.hdr.algo = hdr->hash_algo;
 		rc = evm_calc_hash(dentry, xattr_name, xattr_value,
-				   xattr_value_len, xattr_data->type, &digest);
+				   xattr_value_len, xattr_data->type, &digest,
+				   iint);
 		if (rc)
 			break;
 		rc = integrity_digsig_verify(INTEGRITY_KEYRING_EVM,
@@ -743,6 +744,31 @@ void evm_reset_cache_status(struct file *file)
 
 	if (d_real_inode(dentry) != d_backing_inode(dentry))
 		evm_reset_status(file_inode(file));
+}
+
+/**
+ * evm_metadata_changed: Detect changes to the inode holding metadata
+ * @inode: a file's inode
+ * @metadata_inode: inode holding the metadata
+ *
+ * On a stacked filesystem detect whether the inode holding the metadata has
+ * changed or its content has changed. If this is the case reset the
+ * evm_status associated with the inode that represents the file.
+ */
+bool evm_metadata_changed(struct inode *inode, struct inode *metadata_inode)
+{
+	struct evm_iint_cache *iint = evm_iint_inode(inode);
+	bool ret = false;
+
+	if (iint) {
+		ret = (!IS_I_VERSION(metadata_inode) ||
+		       integrity_inode_attrs_changed(&iint->metadata_inode,
+						     metadata_inode));
+		if (ret)
+			iint->evm_status = INTEGRITY_UNKNOWN;
+	}
+
+	return ret;
 }
 
 /**
