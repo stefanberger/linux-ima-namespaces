@@ -212,6 +212,7 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	struct inode *real_inode, *inode = file_inode(file);
 	struct ima_iint_cache *iint = NULL;
 	struct ima_template_desc *template_desc = NULL;
+	struct inode *metadata_inode;
 	char *pathbuf = NULL;
 	char filename[NAME_MAX];
 	const char *pathname = NULL;
@@ -288,20 +289,33 @@ static int process_measurement(struct file *file, const struct cred *cred,
 
 	/*
 	 * On stacked filesystems, detect and re-evaluate changes made to the
-	 * inode holding file data.
+	 * inode holding file data and the inode holding file metadata.
 	 */
 	real_inode = d_real_inode(file_dentry(file));
 	if (real_inode != inode &&
 	    (action & IMA_DO_MASK) && (iint->flags & IMA_DONE_MASK)) {
+		metadata_inode = d_inode(d_real(file_dentry(file),
+					 D_REAL_METADATA));
 		if (!IS_I_VERSION(real_inode) ||
 		    integrity_inode_attrs_changed(&iint->real_inode,
 						  real_inode)) {
 			iint->flags &= ~IMA_DONE_MASK;
 			iint->measured_pcrs = 0;
 
-			if (real_inode == d_inode(d_real(file_dentry(file),
-							 D_REAL_METADATA)))
+			/* real inode also holding metadata: reset EVM status */
+			if (real_inode == metadata_inode)
 				evm_reset_cache_status(file);
+		}
+
+		/*
+		 * Reset the EVM status when only the file metadata is copied
+		 * up.
+		 */
+		if (metadata_inode != real_inode &&
+		    metadata_inode != inode) {
+			if (evm_metadata_changed(inode, metadata_inode))
+				iint->flags &= ~(IMA_APPRAISED |
+						 IMA_APPRAISED_SUBMASK);
 		}
 	}
 
