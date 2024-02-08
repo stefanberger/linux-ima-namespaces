@@ -204,6 +204,31 @@ static struct kpp_alg ecdh_nist_p384 = {
 	},
 };
 
+static int ecdh_nist_p521_init_tfm(struct crypto_kpp *tfm)
+{
+	struct ecdh_ctx *ctx = ecdh_get_ctx(tfm);
+
+	ctx->curve_id = ECC_CURVE_NIST_P521;
+	ctx->ndigits = ECC_CURVE_NIST_P521_DIGITS;
+
+	return 0;
+}
+
+static struct kpp_alg ecdh_nist_p521 = {
+	.set_secret = ecdh_set_secret,
+	.generate_public_key = ecdh_compute_value,
+	.compute_shared_secret = ecdh_compute_value,
+	.max_size = ecdh_max_size,
+	.init = ecdh_nist_p521_init_tfm,
+	.base = {
+		.cra_name = "ecdh-nist-p521",
+		.cra_driver_name = "ecdh-nist-p521-generic",
+		.cra_priority = 100,
+		.cra_module = THIS_MODULE,
+		.cra_ctxsize = sizeof(struct ecdh_ctx),
+	},
+};
+
 static bool ecdh_nist_p192_registered;
 
 static int __init ecdh_init(void)
@@ -222,7 +247,14 @@ static int __init ecdh_init(void)
 	if (ret)
 		goto nist_p384_error;
 
+	ret = crypto_register_kpp(&ecdh_nist_p521);
+	if (ret)
+		goto nist_p521_error;
+
 	return 0;
+
+nist_p521_error:
+	crypto_unregister_kpp(&ecdh_nist_p384);
 
 nist_p384_error:
 	crypto_unregister_kpp(&ecdh_nist_p256);
@@ -239,6 +271,7 @@ static void __exit ecdh_exit(void)
 		crypto_unregister_kpp(&ecdh_nist_p192);
 	crypto_unregister_kpp(&ecdh_nist_p256);
 	crypto_unregister_kpp(&ecdh_nist_p384);
+	crypto_unregister_kpp(&ecdh_nist_p521);
 }
 
 subsys_initcall(ecdh_init);
