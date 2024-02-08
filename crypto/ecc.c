@@ -1540,11 +1540,12 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits,
 EXPORT_SYMBOL(ecc_gen_privkey);
 
 int ecc_make_pub_key(unsigned int curve_id, unsigned int ndigits,
-		     const u64 *private_key, u64 *public_key)
+		     const u64 *private_key, u8 *public_key)
 {
 	int ret = 0;
 	struct ecc_point *pk;
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
+	unsigned int nbytes = ecc_curve_get_nbytes(curve);
 
 	if (!private_key) {
 		ret = -EINVAL;
@@ -1565,8 +1566,8 @@ int ecc_make_pub_key(unsigned int curve_id, unsigned int ndigits,
 		goto err_free_point;
 	}
 
-	ecc_swap_digits(pk->x, public_key, ndigits);
-	ecc_swap_digits(pk->y, &public_key[ndigits], ndigits);
+	ecc_digits_to_bytes(pk->x, ndigits, public_key, nbytes);
+	ecc_digits_to_bytes(pk->y, ndigits, &public_key[nbytes], nbytes);
 
 err_free_point:
 	ecc_free_point(pk);
@@ -1636,8 +1637,8 @@ int ecc_is_pubkey_valid_full(const struct ecc_curve *curve,
 EXPORT_SYMBOL(ecc_is_pubkey_valid_full);
 
 int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
-			      const u64 *private_key, const u64 *public_key,
-			      u64 *secret)
+			      const u64 *private_key, const u8 *public_key,
+			      u8 *secret)
 {
 	int ret = 0;
 	struct ecc_point *product, *pk;
@@ -1660,8 +1661,9 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 		goto out;
 	}
 
-	ecc_swap_digits(public_key, pk->x, ndigits);
-	ecc_swap_digits(&public_key[ndigits], pk->y, ndigits);
+	ecc_digits_from_bytes(public_key, nbytes, pk->x, ndigits);
+	ecc_digits_from_bytes(&public_key[nbytes], nbytes, pk->y, ndigits);
+
 	ret = ecc_is_pubkey_valid_partial(curve, pk);
 	if (ret)
 		goto err_alloc_product;
@@ -1679,7 +1681,7 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 		goto err_validity;
 	}
 
-	ecc_swap_digits(product->x, secret, ndigits);
+	ecc_digits_to_bytes(product->x, ndigits, secret, nbytes);
 
 err_validity:
 	memzero_explicit(rand_z, sizeof(rand_z));

@@ -145,7 +145,7 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits,
  * if an error occurred.
  */
 int ecc_make_pub_key(const unsigned int curve_id, unsigned int ndigits,
-		     const u64 *private_key, u64 *public_key);
+		     const u64 *private_key, u8 *public_key);
 
 /**
  * crypto_ecdh_shared_secret() - Compute a shared secret
@@ -163,8 +163,8 @@ int ecc_make_pub_key(const unsigned int curve_id, unsigned int ndigits,
  * if an error occurred.
  */
 int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
-			      const u64 *private_key, const u64 *public_key,
-			      u64 *secret);
+			      const u64 *private_key, const u8 *public_key,
+			      u8 *secret);
 
 /**
  * ecc_is_pubkey_valid_partial() - Partial public key validation
