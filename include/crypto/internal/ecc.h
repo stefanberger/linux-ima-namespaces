@@ -136,11 +136,13 @@ int ecc_is_key_valid(unsigned int curve_id, unsigned int ndigits,
  * @curve_id:		id representing the curve to use
  * @ndigits:		curve number of digits
  * @private_key:	buffer for storing the generated private key
+ * @msd_mask:		optional mask to apply to the most significant digit
  *
  * Returns 0 if the private key was generated successfully, a negative value
  * if an error occurred.
  */
-int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey);
+int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey,
+		    u64 msd_mask);
 
 /**
  * ecc_make_pub_key() - Compute an ECC public key

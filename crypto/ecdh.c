@@ -38,7 +38,7 @@ static int ecdh_set_secret(struct crypto_kpp *tfm, const void *buf,
 
 	if (!params.key || !params.key_size)
 		return ecc_gen_privkey(ctx->curve_id, ctx->ndigits,
-				       ctx->private_key);
+				       ctx->private_key, ctx->msd_mask);
 
 	ecc_digits_from_bytes(params.key, ctx->nbytes, priv, ctx->ndigits);
 	ecc_swap_digits(priv, ctx->private_key, ctx->ndigits);

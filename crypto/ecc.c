@@ -1500,7 +1500,8 @@ EXPORT_SYMBOL(ecc_is_key_valid);
  * This method generates a private key uniformly distributed in the range
  * [1, n-1].
  */
-int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey)
+int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey,
+		    u64 msd_mask)
 {
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
 	u64 priv[ECC_MAX_DIGITS];
@@ -1527,6 +1528,8 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits, u64 *privkey)
 		return -EFAULT;
 
 	err = crypto_rng_get_bytes(crypto_default_rng, (u8 *)priv, nbytes);
+	if (msd_mask)
+		priv[ndigits - 1] &= msd_mask;
 	crypto_put_default_rng();
 	if (err)
 		return err;
