@@ -76,6 +76,17 @@ static inline void ecc_digits_from_bytes(const u8 *in, unsigned int nbytes,
 }
 
 /**
+ * ecc_curve_get_nbits() - Get the number of bits of the curve
+ * @curve:    The curve
+ */
+static inline unsigned int ecc_curve_get_nbits(const struct ecc_curve *curve)
+{
+	if (curve->nbits)
+		return curve->nbits;
+	return curve->g.ndigits << ECC_DIGITS_TO_BYTES_SHIFT * 8;
+}
+
+/**
  * ecc_is_key_valid() - Validate a given ECDH private key
  *
  * @curve_id:		id representing the curve to use
