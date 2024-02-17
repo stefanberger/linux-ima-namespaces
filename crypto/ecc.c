@@ -1654,6 +1654,7 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 	u64 rand_z[ECC_MAX_DIGITS];
 	u8 tmp[ECC_MAX_DIGITS << ECC_DIGITS_TO_BYTES_SHIFT];
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
+	unsigned int nbits;
 
 	if (!private_key || !public_key || !curve ||
 	    ndigits > ARRAY_SIZE(priv) || ndigits > ARRAY_SIZE(rand_z)) {
@@ -1663,8 +1664,13 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 
 	get_random_bytes(tmp, nbytes);
 	ecc_digits_from_bytes(tmp, nbytes, rand_z, ndigits);
-	if (msd_mask)
+	if (msd_mask) {
 		rand_z[ndigits - 1] &= msd_mask;
+
+		/* always set most significant bit in rand_z */
+		nbits = ecc_curve_get_nbits(curve);
+		rand_z[ndigits - 1] |= 1 << ((nbits - 1) & 63);
+	}
 
 	pk = ecc_alloc_point(ndigits);
 	if (!pk) {
