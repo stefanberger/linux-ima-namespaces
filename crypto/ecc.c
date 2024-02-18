@@ -216,19 +216,48 @@ static void vli_set(u64 *dest, const u64 *src, unsigned int ndigits)
 		dest[i] = src[i];
 }
 
+static u64 vli_make_mask(bool b)
+{
+	u64 mask = b;
+	mask |= (mask << 1);
+	mask |= (mask << 2);
+	mask |= (mask << 4);
+	mask |= (mask << 8);
+	mask |= (mask << 16);
+	mask |= (mask << 32);
+	return mask;
+}
+
+/* Constant-time copy one of two digits into a result digit */
+static void vli_select_copy(bool s1, u64 *dest, const u64 *src1,
+			    const u64 *src2, unsigned int ndigits)
+{
+	int i;
+	u64 mask = vli_make_mask(s1);
+
+	for (i = 0; i < ndigits; i++)
+		dest[i] = (src1[i] & mask) | (src2[i] & ~mask);
+}
+
 /* Returns sign of left - right. */
 int vli_cmp(const u64 *left, const u64 *right, unsigned int ndigits)
 {
 	int i;
+	int ret[2] = {0,0};
+	int x = 0;
 
 	for (i = ndigits - 1; i >= 0; i--) {
 		if (left[i] > right[i])
-			return 1;
+			ret[x++] = 1;
 		else if (left[i] < right[i])
-			return -1;
+			ret[x++] = -1;
+		if (x >= 1)
+			x = 1;
+		else
+			x = 0;
 	}
 
-	return 0;
+	return ret[0];
 }
 EXPORT_SYMBOL(vli_cmp);
 
@@ -271,14 +300,17 @@ static u64 vli_add(u64 *result, const u64 *left, const u64 *right,
 		   unsigned int ndigits)
 {
 	u64 carry = 0;
+	u64 zero = 0;
 	int i;
 
 	for (i = 0; i < ndigits; i++) {
 		u64 sum;
 
-		sum = left[i] + right[i] + carry;
+		sum = left[i] + right[i] + carry + zero;
 		if (sum != left[i])
 			carry = (sum < left[i]);
+		else
+			zero = (sum > left[i]);
 
 		result[i] = sum;
 	}
@@ -291,16 +323,17 @@ static u64 vli_uadd(u64 *result, const u64 *left, u64 right,
 		    unsigned int ndigits)
 {
 	u64 carry = right;
+	u64 zero = 0;
 	int i;
 
 	for (i = 0; i < ndigits; i++) {
 		u64 sum;
 
-		sum = left[i] + carry;
+		sum = left[i] + carry + zero;
 		if (sum != left[i])
 			carry = (sum < left[i]);
 		else
-			carry = !!carry;
+			zero = (sum > left[i]);
 
 		result[i] = sum;
 	}
@@ -313,14 +346,17 @@ u64 vli_sub(u64 *result, const u64 *left, const u64 *right,
 		   unsigned int ndigits)
 {
 	u64 borrow = 0;
+	u64 zero = 0;
 	int i;
 
 	for (i = 0; i < ndigits; i++) {
 		u64 diff;
 
-		diff = left[i] - right[i] - borrow;
+		diff = left[i] - right[i] - borrow + zero;
 		if (diff != left[i])
 			borrow = (diff > left[i]);
+		else
+			zero = (diff < left[i]); /* will be 0 */
 
 		result[i] = diff;
 	}
@@ -334,14 +370,17 @@ static u64 vli_usub(u64 *result, const u64 *left, u64 right,
 	     unsigned int ndigits)
 {
 	u64 borrow = right;
+	u64 zero = 0;
 	int i;
 
 	for (i = 0; i < ndigits; i++) {
 		u64 diff;
 
-		diff = left[i] - borrow;
+		diff = left[i] - borrow + zero;
 		if (diff != left[i])
 			borrow = (diff > left[i]);
+		else
+			zero = (diff < left[i]);
 
 		result[i] = diff;
 	}
@@ -373,6 +412,8 @@ static uint128_t mul_64_64(u64 left, u64 right)
 	/* Overflow */
 	if (m2 < m1)
 		m3 += 0x100000000ull;
+	else
+		m1 += 0x100000000ull;
 
 	result.m_low = (m0 & 0xffffffffull) | (m2 << 32);
 	result.m_high = m3 + (m2 >> 32);
@@ -493,15 +534,21 @@ static void vli_square(u64 *result, const u64 *left, unsigned int ndigits)
 static void vli_mod_add(u64 *result, const u64 *left, const u64 *right,
 			const u64 *mod, unsigned int ndigits)
 {
+	u64 result2[ECC_MAX_DIGITS];
 	u64 carry;
+	bool b;
 
 	carry = vli_add(result, left, right, ndigits);
 
 	/* result > mod (result = mod + remainder), so subtract mod to
 	 * get remainder.
 	 */
-	if (carry || vli_cmp(result, mod, ndigits) >= 0)
-		vli_sub(result, result, mod, ndigits);
+	b = vli_cmp(result, mod, ndigits) >= 0;
+	b |= carry;
+
+	vli_sub(result2, result, mod, ndigits);
+	/* if b use result2, result otherwise */
+	vli_select_copy(b, result, result2, result, ndigits);
 }
 
 /* Computes result = (left - right) % mod.
@@ -510,14 +557,16 @@ static void vli_mod_add(u64 *result, const u64 *left, const u64 *right,
 static void vli_mod_sub(u64 *result, const u64 *left, const u64 *right,
 			const u64 *mod, unsigned int ndigits)
 {
+	u64 result2[ECC_MAX_DIGITS];
 	u64 borrow = vli_sub(result, left, right, ndigits);
 
 	/* In this case, p_result == -diff == (max int) - diff.
 	 * Since -x % d == d - x, we can get the correct result from
 	 * result + mod (with overflow).
 	 */
-	if (borrow)
-		vli_add(result, result, mod, ndigits);
+	vli_add(result2, result, mod, ndigits);
+	/* if borrow use result 2, result otherwise */
+	vli_select_copy(borrow, result, result2, result, ndigits);
 }
 
 /*
@@ -1025,8 +1074,9 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 {
 	u64 a[ECC_MAX_DIGITS], b[ECC_MAX_DIGITS];
 	u64 u[ECC_MAX_DIGITS], v[ECC_MAX_DIGITS];
-	u64 carry;
+	u64 carry, carr_;
 	int cmp_result;
+	u64 dummy[ECC_MAX_DIGITS] = { 0, };
 
 	if (vli_is_zero(input, ndigits)) {
 		vli_clear(result, ndigits);
@@ -1043,19 +1093,37 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 		carry = 0;
 
 		if (EVEN(a)) {
+			vli_sub(dummy, a, b, ndigits); // ct
 			vli_rshift1(a, ndigits);
 
+			if (vli_cmp(u, v, ndigits))	// ct
+				vli_add(dummy, u, mod, ndigits);
+			else
+				vli_add(dummy, v, mod, ndigits);
+
+			vli_sub(dummy, u, v, ndigits);
 			if (!EVEN(u))
 				carry = vli_add(u, u, mod, ndigits);
+			else
+				carr_ = vli_add(dummy, v, mod, ndigits);
 
 			vli_rshift1(u, ndigits);
 			if (carry)
 				u[ndigits - 1] |= 0x8000000000000000ull;
 		} else if (EVEN(b)) {
+			vli_sub(dummy, a, b, ndigits); // ct
 			vli_rshift1(b, ndigits);
 
+			if (vli_cmp(u, v, ndigits))	// ct
+				vli_add(dummy, u, mod, ndigits);
+			else
+				vli_add(dummy, v, mod, ndigits);
+
+			vli_sub(dummy, u, v, ndigits);
 			if (!EVEN(v))
 				carry = vli_add(v, v, mod, ndigits);
+			else
+				carr_ = vli_add(dummy, v, mod, ndigits);
 
 			vli_rshift1(v, ndigits);
 			if (carry)
@@ -1066,10 +1134,14 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 
 			if (vli_cmp(u, v, ndigits) < 0)
 				vli_add(u, u, mod, ndigits);
+			else
+				vli_add(dummy, u, mod, ndigits);
 
 			vli_sub(u, u, v, ndigits);
 			if (!EVEN(u))
 				carry = vli_add(u, u, mod, ndigits);
+			else
+				carr_ = vli_add(dummy, u, mod, ndigits);
 
 			vli_rshift1(u, ndigits);
 			if (carry)
@@ -1080,10 +1152,14 @@ void vli_mod_inv(u64 *result, const u64 *input, const u64 *mod,
 
 			if (vli_cmp(v, u, ndigits) < 0)
 				vli_add(v, v, mod, ndigits);
+			else
+				vli_add(dummy, v, mod, ndigits);
 
 			vli_sub(v, v, u, ndigits);
 			if (!EVEN(v))
 				carry = vli_add(v, v, mod, ndigits);
+			else
+				carr_ = vli_add(dummy, u, mod, ndigits);
 
 			vli_rshift1(v, ndigits);
 			if (carry)
@@ -1118,6 +1194,7 @@ static void ecc_point_double_jacobian(u64 *x1, u64 *y1, u64 *z1,
 	u64 t5[ECC_MAX_DIGITS];
 	const u64 *curve_prime = curve->p;
 	const unsigned int ndigits = curve->g.ndigits;
+	u64 dummy[ECC_MAX_DIGITS];
 
 	if (vli_is_zero(z1, ndigits))
 		return;
@@ -1152,7 +1229,10 @@ static void ecc_point_double_jacobian(u64 *x1, u64 *y1, u64 *z1,
 		vli_rshift1(x1, ndigits);
 		x1[ndigits - 1] |= carry << 63;
 	} else {
+		u64 carry = vli_add(dummy, x1, curve_prime, ndigits);
+
 		vli_rshift1(x1, ndigits);
+		dummy[ndigits - 1] |= carry << 63;
 	}
 	/* t1 = 3/2*(x1^2 - z1^4) = B */
 
