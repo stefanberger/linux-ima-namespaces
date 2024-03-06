@@ -163,6 +163,9 @@ static int __prombss prom_iommu_force_on;
 static int __prombss prom_iommu_off;
 static unsigned long __prombss prom_tce_alloc_start;
 static unsigned long __prombss prom_tce_alloc_end;
+
+static u64 __prombss sml_base;
+static u32 __prombss sml_size;
 #endif
 
 #ifdef CONFIG_PPC_PSERIES
@@ -1954,17 +1957,15 @@ static void __init prom_instantiate_sml(void)
 	}
 	prom_printf(" done\n");
 
-	reserve_mem(base, size);
-
-	prom_setprop(ibmvtpm_node, "/vdevice/vtpm", "linux,sml-base",
-		     &base, sizeof(base));
-	prom_setprop(ibmvtpm_node, "/vdevice/vtpm", "linux,sml-size",
-		     &size, sizeof(size));
-
-	prom_debug("sml base     = 0x%llx\n", base);
+	/* Add property now, defer adding log to tree flattening phase */
+	prom_setprop(ibmvtpm_node, "/vdevice/vtpm", "linux,sml-log",
+		     NULL, 0);
 	prom_debug("sml size     = 0x%x\n", size);
 
 	prom_debug("prom_instantiate_sml: end...\n");
+
+	sml_base = base;
+	sml_size = size;
 }
 
 /*
@@ -2644,6 +2645,20 @@ static void __init scan_dt_build_struct(phandle node, unsigned long *mem_start,
 			break;
 		}
 		prev_name = sstart + soff;
+
+#ifdef CONFIG_PPC64
+		if (!prom_strcmp("linux,sml-log", pname)) {
+			/* push property head */
+			dt_push_token(OF_DT_PROP, mem_start, mem_end);
+			dt_push_token(sml_size, mem_start, mem_end);
+			dt_push_token(soff, mem_start, mem_end);
+			/* push property content */
+			valp = make_room(mem_start, mem_end, sml_size, 1);
+			memcpy(valp, (void *)sml_base, sml_size);
+			*mem_start = ALIGN(*mem_start, 4);
+			continue;
+		}
+#endif
 
 		/* get length */
 		l = call_prom("getproplen", 2, 1, node, pname);
