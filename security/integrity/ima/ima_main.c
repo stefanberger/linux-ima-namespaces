@@ -269,6 +269,14 @@ static int __process_measurement(struct user_namespace *user_ns,
 	unsigned int allowed_algos = 0;
 	unsigned long flags;
 
+	if (1) {
+		struct name_snapshot filename;
+
+		take_dentry_name_snapshot(&filename, file->f_path.dentry);
+		release_dentry_name_snapshot(&filename);
+	}
+
+
 	if (!ns->ima_policy_flag || !S_ISREG(inode->i_mode))
 		return 0;
 
