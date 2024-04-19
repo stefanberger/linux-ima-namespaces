@@ -105,6 +105,18 @@ static inline unsigned int ecc_curve_get_nbytes(const struct ecc_curve *curve)
 	return DIV_ROUND_UP(curve->nbits, 8);
 }
 
+/*
+ * ecc_curve_get_msd_mask() - Get the mask for the most significant digit (msd)
+ * @curve:   The curve
+ *
+ * Returns 0 if no mask needs to be applied (e.g., for NIST P192/256/384), a
+ * mask otherwise (NIST P521).
+ */
+static inline u64 ecc_curve_get_msd_mask(const struct ecc_curve *curve)
+{
+	return ~(~0 << (curve->nbits & 63));
+}
+
 /**
  * ecc_is_key_valid() - Validate a given ECDH private key
  *
