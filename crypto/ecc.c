@@ -1499,8 +1499,10 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits,
 		    u64 *private_key)
 {
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
-	unsigned int nbytes = ndigits << ECC_DIGITS_TO_BYTES_SHIFT;
 	unsigned int nbits = vli_num_bits(curve->n, ndigits);
+	u8 tmp[ECC_MAX_DIGITS << ECC_DIGITS_TO_BYTES_SHIFT];
+	unsigned int nbytes = ecc_curve_get_nbytes(curve);
+	u64 msd_mask = ecc_curve_get_msd_mask(curve);
 	int err;
 
 	/*
@@ -1525,15 +1527,20 @@ int ecc_gen_privkey(unsigned int curve_id, unsigned int ndigits,
 		return -EFAULT;
 
 	/* Step 3: obtain N returned_bits from the DRBG. */
-	err = crypto_rng_get_bytes(crypto_default_rng,
-				   (u8 *)private_key, nbytes);
+	err = crypto_rng_get_bytes(crypto_default_rng, tmp, nbytes);
 	crypto_put_default_rng();
 	if (err)
 		return err;
 
+	ecc_digits_from_bytes(tmp, nbytes, private_key, ndigits);
+	if (msd_mask)
+		private_key[ndigits - 1] &= msd_mask;
+
 	/* Step 4: make sure the private key is in the valid range. */
 	if (__ecc_is_key_valid(curve, private_key, ndigits))
 		return -EINVAL;
+
+	memzero_explicit(tmp, nbytes);
 
 	return 0;
 }
@@ -1643,17 +1650,20 @@ int crypto_ecdh_shared_secret(unsigned int curve_id, unsigned int ndigits,
 	int ret = 0;
 	struct ecc_point *product, *pk;
 	u64 rand_z[ECC_MAX_DIGITS];
-	unsigned int nbytes;
+	u8 tmp[ECC_MAX_DIGITS << ECC_DIGITS_TO_BYTES_SHIFT];
 	const struct ecc_curve *curve = ecc_get_curve(curve_id);
+	unsigned int nbytes = ecc_curve_get_nbytes(curve);
+	u64 msd_mask = ecc_curve_get_msd_mask(curve);
 
 	if (!private_key || !public_key || ndigits > ARRAY_SIZE(rand_z)) {
 		ret = -EINVAL;
 		goto out;
 	}
 
-	nbytes = ndigits << ECC_DIGITS_TO_BYTES_SHIFT;
-
-	get_random_bytes(rand_z, nbytes);
+	get_random_bytes(tmp, nbytes);
+	ecc_digits_from_bytes(tmp, nbytes, rand_z, ndigits);
+	if (msd_mask)
+		rand_z[ndigits - 1] &= msd_mask;
 
 	pk = ecc_alloc_point(ndigits);
 	if (!pk) {
