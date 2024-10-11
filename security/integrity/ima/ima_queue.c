@@ -16,6 +16,7 @@
  */
 
 #include <linux/rculist.h>
+#include <linux/reboot.h>
 #include <linux/slab.h>
 #include "ima.h"
 
@@ -43,6 +44,12 @@ struct ima_h_table ima_htable = {
  * long (and the tpm driver uses a mutex), we can't use the spinlock.
  */
 static DEFINE_MUTEX(ima_extend_list_mutex);
+
+/*
+ * Used internally by the kernel to suspend measurements.
+ * Protected by ima_extend_list_mutex.
+ */
+static bool ima_measurements_suspended;
 
 /* lookup up the digest value in the hash table, and return the entry */
 static struct ima_queue_entry *ima_lookup_digest_entry(u8 *digest_value,
@@ -148,6 +155,13 @@ static int ima_pcr_extend(struct tpm_digest *digests_arg, int pcr)
 	return result;
 }
 
+static void ima_measurements_suspend(void)
+{
+	mutex_lock(&ima_extend_list_mutex);
+	ima_measurements_suspended = true;
+	mutex_unlock(&ima_extend_list_mutex);
+}
+
 /*
  * Add template entry to the measurement list and hash table, and
  * extend the pcr.
@@ -174,6 +188,17 @@ int ima_add_template_entry(struct ima_template_entry *entry, int violation,
 			result = -EEXIST;
 			goto out;
 		}
+	}
+
+	/*
+	 * suspend_ima_measurements will be set before the TPM subsystem has
+	 * been shut down.
+	 */
+	if (ima_measurements_suspended) {
+		audit_cause = "measurements_suspended";
+		audit_info = 0;
+		result = -ENODEV;
+		goto out;
 	}
 
 	result = ima_add_digest_entry(entry,
@@ -209,6 +234,24 @@ int ima_restore_measurement_entry(struct ima_template_entry *entry)
 	result = ima_add_digest_entry(entry, 0);
 	mutex_unlock(&ima_extend_list_mutex);
 	return result;
+}
+
+static int ima_reboot_notifier(struct notifier_block *nb,
+			       unsigned long action,
+			       void *data)
+{
+	ima_measurements_suspend();
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block ima_reboot_nb = {
+	.notifier_call = ima_reboot_notifier,
+};
+
+void __init ima_init_reboot_notifier(void)
+{
+	register_reboot_notifier(&ima_reboot_nb);
 }
 
 int __init ima_init_digests(void)
