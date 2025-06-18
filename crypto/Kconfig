@@ -318,6 +318,15 @@ config CRYPTO_ECDSA
 
 	  Only signature verification is implemented.
 
+config CRYPTO_MLDSA
+	tristate "MLDSA (Module Lattice Digital Signature Algorithm)"
+	select CRYPTO_SHA3
+	help
+	  MLDSA (Module Lattice Digital Signature Algorithm) (FIPS 204)
+          supporting ML-DSA-44
+
+	  Only signature verification is implemented.
+
 config CRYPTO_ECRDSA
 	tristate "EC-RDSA (Elliptic Curve Russian Digital Signature Algorithm)"
 	select CRYPTO_ECC
