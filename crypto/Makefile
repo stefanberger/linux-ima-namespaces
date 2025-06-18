@@ -60,6 +60,10 @@ ecdsa_generic-y += ecdsa-p1363.o
 ecdsa_generic-y += ecdsasignature.asn1.o
 obj-$(CONFIG_CRYPTO_ECDSA) += ecdsa_generic.o
 
+mldsa_generic-y += mldsa.o
+mldsa_generic-y += mldsa_crypto.o
+obj-$(CONFIG_CRYPTO_MLDSA) += mldsa_generic.o
+
 crypto_acompress-y := acompress.o
 crypto_acompress-y += scompress.o
 obj-$(CONFIG_CRYPTO_ACOMP2) += crypto_acompress.o
