@@ -5049,6 +5049,13 @@ static const struct alg_test_desc alg_test_descs[] = {
 			.sig = __VECS(ecdsa_nist_p521_tv_template)
 		}
 	}, {
+		.alg = "mldsa-87",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(mldsa_87_tv_template)
+		}
+	}, {
 		.alg = "ecrdsa",
 		.test = alg_test_sig,
 		.suite = {

@@ -237,6 +237,94 @@ int crypto_sha3_final(struct shash_desc *desc, u8 *out)
 }
 EXPORT_SYMBOL(crypto_sha3_final);
 
+
+static int crypto_shake_init(struct shash_desc *desc)
+{
+	struct sha3_state *sctx = shash_desc_ctx(desc);
+	unsigned int digest_size = crypto_shash_digestsize(desc->tfm);
+
+	sctx->rsiz = 200 - 2 * digest_size;
+	sctx->rsizw = sctx->rsiz / 8;
+	sctx->partial = 0;
+
+	memset(sctx->st, 0, sizeof(sctx->st));
+	return 0;
+}
+
+static int crypto_shake_update(struct shash_desc *desc, const u8 *data,
+		           unsigned int len)
+{
+	return crypto_sha3_update(desc, data, len);
+}
+
+static int crypto_shake_final(struct shash_desc *desc, u8 *out)
+{
+	struct sha3_state *sctx = shash_desc_ctx(desc);
+	unsigned int i, inlen = sctx->partial;
+	unsigned int digest_size = crypto_shash_digestsize(desc->tfm);
+	__le64 *digest = (__le64 *)out;
+
+	sctx->buf[inlen++] = 0x1F;
+	memset(sctx->buf + inlen, 0, sctx->rsiz - inlen);
+	sctx->buf[sctx->rsiz - 1] |= 0x80;
+
+	for (i = 0; i < sctx->rsizw; i++)
+		sctx->st[i] ^= get_unaligned_le64(sctx->buf + 8 * i);
+
+	keccakf(sctx->st);
+
+	for (i = 0; i < digest_size / 8; i++)
+		put_unaligned_le64(sctx->st[i], digest++);
+
+	if (digest_size & 4)
+		put_unaligned_le32(sctx->st[i], (__le32 *)digest);
+
+	memset(sctx, 0, sizeof(*sctx));
+	return 0;
+}
+
+int crypto_shake_squeeze(struct shash_desc *desc, u8 *out, size_t outlen)
+{
+	struct sha3_state *sctx = shash_desc_ctx(desc);
+	unsigned int i, inlen = sctx->partial;
+	//unsigned int digest_size = crypto_shash_digestsize(desc->tfm);
+	__le64 *digest = (__le64 *)out;
+	size_t nblocks = outlen / sctx->rsiz;
+	size_t j;
+
+	sctx->buf[inlen++] = 0x1F;
+	memset(sctx->buf + inlen, 0, sctx->rsiz - inlen);
+	sctx->buf[sctx->rsiz - 1] |= 0x80;
+
+	for (i = 0; i < sctx->rsizw; i++)
+		sctx->st[i] ^= get_unaligned_le64(sctx->buf + 8 * i);
+
+	printk(KERN_INFO "nblocks=%zu stcx->rsiz: %d  outlen: %zu\n", nblocks, sctx->rsiz, outlen);
+
+	for (j = 0; j < nblocks; j++) {
+		keccakf(sctx->st);
+
+		for (i = 0; i < sctx->rsiz / 8; i++)
+			put_unaligned_le64(sctx->st[i], digest++);
+
+		outlen -= sctx->rsiz;
+	}
+
+	keccakf(sctx->st);
+
+	for (i = 0; i < (outlen / 8); i++)
+		put_unaligned_le64(sctx->st[i], digest++);
+
+
+//	if (digest_size & 4)
+//		put_unaligned_le32(sctx->st[i], (__le32 *)digest);
+
+	return 0;
+}
+EXPORT_SYMBOL(crypto_shake_squeeze);
+
+
+
 static struct shash_alg algs[] = { {
 	.digestsize		= SHA3_224_DIGEST_SIZE,
 	.init			= crypto_sha3_init,
@@ -277,6 +365,26 @@ static struct shash_alg algs[] = { {
 	.base.cra_driver_name	= "sha3-512-generic",
 	.base.cra_blocksize	= SHA3_512_BLOCK_SIZE,
 	.base.cra_module	= THIS_MODULE,
+}, {
+	.digestsize		= SHA3_256_DIGEST_SIZE / 2,
+	.init			= crypto_shake_init,
+	.update			= crypto_shake_update,
+	.final			= crypto_shake_final,
+	.descsize		= sizeof(struct sha3_state),
+	.base.cra_name		= "shake128",
+	.base.cra_driver_name	= "shake128-generic",
+	.base.cra_blocksize	= SHA3_256_BLOCK_SIZE / 2,
+	.base.cra_module	= THIS_MODULE,
+}, {
+	.digestsize		= SHA3_256_DIGEST_SIZE,
+	.init			= crypto_shake_init,
+	.update			= crypto_shake_update,
+	.final			= crypto_shake_final,
+	.descsize		= sizeof(struct sha3_state),
+	.base.cra_name		= "shake256",
+	.base.cra_driver_name	= "shake256-generic",
+	.base.cra_blocksize	= SHA3_256_BLOCK_SIZE,
+	.base.cra_module	= THIS_MODULE,
 } };
 
 static int __init sha3_generic_mod_init(void)
@@ -303,3 +411,5 @@ MODULE_ALIAS_CRYPTO("sha3-384");
 MODULE_ALIAS_CRYPTO("sha3-384-generic");
 MODULE_ALIAS_CRYPTO("sha3-512");
 MODULE_ALIAS_CRYPTO("sha3-512-generic");
+MODULE_ALIAS_CRYPTO("shake256");
+MODULE_ALIAS_CRYPTO("shake256-generic");
