@@ -49,6 +49,16 @@ int x509_get_sig_params(struct x509_certificate *cert)
 		return PTR_ERR(tfm);
 	}
 
+	if (strcmp(sig->pkey_algo, "mldsa") == 0) {
+		/* FIXME: MLDSA needs the plain message... */
+		sig->digest_size = cert->tbs_size;
+		sig->digest = kmalloc(sig->digest_size, GFP_KERNEL);
+		if (!sig->digest)
+			goto error;
+		memcpy(sig->digest, cert->tbs, cert->tbs_size);
+		return 0;
+	}
+
 	desc_size = crypto_shash_descsize(tfm) + sizeof(*desc);
 	sig->digest_size = crypto_shash_digestsize(tfm);
 

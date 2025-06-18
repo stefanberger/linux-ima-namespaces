@@ -142,6 +142,23 @@ software_key_determine_akcipher(const struct public_key *pkey,
 		if (strcmp(hash_algo, "streebog256") != 0 &&
 		    strcmp(hash_algo, "streebog512") != 0)
 			return -EINVAL;
+	} else if (strncmp(pkey->pkey_algo, "mldsa", 5) == 0) {
+		if (strcmp(encoding, "raw") != 0) {
+			printk(KERN_INFO "%s @ %u: Bad encoding: %s", __func__, __LINE__, encoding);
+			return -EINVAL;
+		}
+		if (!hash_algo) {
+			printk(KERN_INFO "%s @ %u: No hash algo", __func__, __LINE__);
+			return -EINVAL;
+		}
+		if (strcmp(hash_algo, "sha224") != 0 &&
+		    strcmp(hash_algo, "sha256") != 0 &&
+		    strcmp(hash_algo, "sha384") != 0 &&
+		    strcmp(hash_algo, "sha512") != 0 &&
+		    strcmp(hash_algo, "sha3-256") != 0 &&
+		    strcmp(hash_algo, "sha3-384") != 0 &&
+		    strcmp(hash_algo, "sha3-512") != 0)
+			return -EINVAL;
 	} else {
 		/* Unknown public key algorithm */
 		return -ENOPKG;
@@ -384,6 +401,8 @@ int public_key_verify_signature(const struct public_key *pkey,
 	 */
 	if (sig->pkey_algo) {
 		if (strcmp(pkey->pkey_algo, sig->pkey_algo) != 0 &&
+		    (strncmp(pkey->pkey_algo, "mldsa-", 6) != 0 ||
+		     strcmp(sig->pkey_algo, "mldsa") != 0) &&
 		    (strncmp(pkey->pkey_algo, "ecdsa-", 6) != 0 ||
 		     strcmp(sig->pkey_algo, "ecdsa") != 0))
 			return -EKEYREJECTED;
