@@ -144,6 +144,9 @@ enum OID {
 	OID_id_rsassa_pkcs1_v1_5_with_sha3_256, /* 2.16.840.1.101.3.4.3.14 */
 	OID_id_rsassa_pkcs1_v1_5_with_sha3_384, /* 2.16.840.1.101.3.4.3.15 */
 	OID_id_rsassa_pkcs1_v1_5_with_sha3_512, /* 2.16.840.1.101.3.4.3.16 */
+	OID_id_mldsa_44,                        /* 2.16.840.1.101.3.4.3.17 */
+	OID_id_mldsa_65,                        /* 2.16.840.1.101.3.4.3.18 */
+	OID_id_mldsa_87,                        /* 2.16.840.1.101.3.4.3.19 */
 
 	OID__NR
 };
