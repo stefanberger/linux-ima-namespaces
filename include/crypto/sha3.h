@@ -31,4 +31,23 @@ int crypto_sha3_update(struct shash_desc *desc, const u8 *data,
 		       unsigned int len);
 int crypto_sha3_final(struct shash_desc *desc, u8 *out);
 
+
+#define SHAKE128_DIGEST_SIZE	(128 / 8)
+#define SHAKE128_BLOCK_SIZE	(200 - 2 * SHAKE128_DIGEST_SIZE)
+
+#define SHAKE256_DIGEST_SIZE	(256 / 8)
+#define SHAKE256_BLOCK_SIZE	(200 - 2 * SHAKE256_DIGEST_SIZE)
+
+struct shake_state {
+	u64		st[25];
+	unsigned int	rsiz;
+	unsigned int	rsizw;
+
+	unsigned int	partial;
+	u8		buf[SHAKE128_BLOCK_SIZE];
+	bool		finalized;
+	bool		permute;
+	unsigned int	ridx;
+};
+
 #endif
