@@ -186,6 +186,12 @@ int x509_note_sig_algo(void *context, size_t hdrlen, unsigned char tag,
 	default:
 		return -ENOPKG; /* Unsupported combination */
 
+	case OID_id_mldsa_44:
+	case OID_id_mldsa_65:
+	case OID_id_mldsa_87:
+		ctx->cert->sig->hash_algo = "shake256";
+		goto mldsa;
+
 	case OID_sha1WithRSAEncryption:
 		ctx->cert->sig->hash_algo = "sha1";
 		goto rsa_pkcs1;
@@ -274,6 +280,11 @@ ecdsa:
 	ctx->cert->sig->encoding = "x962";
 	ctx->sig_algo = ctx->last_oid;
 	return 0;
+mldsa:
+	ctx->cert->sig->pkey_algo = "mldsa";
+	ctx->cert->sig->encoding = "raw";
+	ctx->sig_algo = ctx->last_oid;
+	return 0;
 }
 
 /*
@@ -300,7 +311,8 @@ int x509_note_signature(void *context, size_t hdrlen,
 
 	if (strcmp(ctx->cert->sig->pkey_algo, "rsa") == 0 ||
 	    strcmp(ctx->cert->sig->pkey_algo, "ecrdsa") == 0 ||
-	    strcmp(ctx->cert->sig->pkey_algo, "ecdsa") == 0) {
+	    strcmp(ctx->cert->sig->pkey_algo, "ecdsa") == 0 ||
+	    strcmp(ctx->cert->sig->pkey_algo, "mldsa") == 0) {
 		/* Discard the BIT STRING metadata */
 		if (vlen < 1 || *(const u8 *)value != 0)
 			return -EBADMSG;
@@ -523,6 +535,15 @@ int x509_extract_key_data(void *context, size_t hdrlen,
 		default:
 			return -ENOPKG;
 		}
+		break;
+	case OID_id_mldsa_44:
+		ctx->cert->pub->pkey_algo = "mldsa-44";
+		break;
+	case OID_id_mldsa_65:
+		ctx->cert->pub->pkey_algo = "mldsa-65";
+		break;
+	case OID_id_mldsa_87:
+		ctx->cert->pub->pkey_algo = "mldsa-87";
 		break;
 	default:
 		return -ENOPKG;
