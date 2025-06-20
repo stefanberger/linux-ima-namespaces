@@ -184,19 +184,17 @@ struct shash_desc {
 #define HASH_STATE_AND_BLOCK(state, block) ((state) + (block) + 1)
 
 
-/* Worst case is sha3-224. */
-#define HASH_MAX_STATESIZE	 HASH_STATE_AND_BLOCK(200, 144)
+/* Worst case is shake128 with XOF state */
+#define HASH_MAX_STATESIZE	 HASH_STATE_AND_BLOCK(200, 168 + 8)
 
 /* This needs to match arch/s390/crypto/sha.h. */
 #define S390_SHA_CTX_SIZE	216
 
 /*
- * Worst case is hmac(sha3-224-s390).  Its context is a nested 'shash_desc'
- * containing a 'struct s390_sha_ctx'.
+ * Worst case is shake128
  */
 #define SHA3_224_S390_DESCSIZE	HASH_STATE_AND_BLOCK(S390_SHA_CTX_SIZE, 144)
-#define HASH_MAX_DESCSIZE	(sizeof(struct shash_desc) + \
-				 SHA3_224_S390_DESCSIZE)
+#define HASH_MAX_DESCSIZE	(sizeof(struct shash_desc) + 384)
 #define MAX_SYNC_HASH_REQSIZE	(sizeof(struct ahash_request) + \
 				 HASH_MAX_DESCSIZE)
 
