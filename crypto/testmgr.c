@@ -4161,7 +4161,7 @@ static int test_sig_one(struct crypto_sig *tfm, const struct sig_testvec *vecs)
 	 */
 	err = crypto_sig_verify(tfm, vecs->c, vecs->c_size,
 				vecs->m, vecs->m_size,
-				NULL, NULL, 0, NULL, 0);
+				NULL, vecs->p, vecs->p_size, NULL, 0);
 	if (err) {
 		pr_err("alg: sig: verify test failed: err %d\n", err);
 		return err;
@@ -5335,6 +5335,27 @@ static const struct alg_test_desc alg_test_descs[] = {
 		.test = alg_test_hash,
 		.suite = {
 			.hash = __VECS(michael_mic_tv_template)
+		}
+	}, {
+		.alg = "mldsa-44",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(mldsa_44_tv_template)
+		}
+	}, {
+		.alg = "mldsa-65",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(mldsa_65_tv_template)
+		}
+	}, {
+		.alg = "mldsa-87",
+		.test = alg_test_sig,
+		.fips_allowed = 1,
+		.suite = {
+			.sig = __VECS(mldsa_87_tv_template)
 		}
 	}, {
 		.alg = "nhpoly1305",
