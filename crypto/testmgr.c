@@ -1647,6 +1647,59 @@ result_ready:
 				 driver, cfg);
 }
 
+static int test_shash_xof(const struct hash_testvec *vec,
+			  struct shash_desc *desc)
+{
+	struct shash_alg *alg = crypto_shash_alg(desc->tfm);
+	struct steps {
+		unsigned int first;
+		unsigned int other;
+	} steps[] = {
+		{ .first = 0, .other = alg->base.cra_blocksize, },
+		{ .first = 0, .other = alg->base.cra_blocksize + 1, },
+		{ .first = 1, .other = alg->base.cra_blocksize, },
+		{ .first = 1, .other = 1, },
+		{ .first = 1, .other = 33, },
+	};
+	unsigned char *output = NULL, *tmp;
+	unsigned int off, req;
+	int ret = 0;
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(steps); i++) {
+		if (!vec->xof)
+			continue;
+
+		tmp = krealloc(output, vec->xof_size, GFP_KERNEL);
+		if (IS_ERR(output))
+			return PTR_ERR(output);
+		output = tmp;
+
+		crypto_shash_init(desc);
+		crypto_shash_update(desc, vec->plaintext, vec->psize);
+		crypto_shash_squeeze(desc, output, steps[i].first, false);
+		off = steps[i].first;
+
+		while (off < vec->xof_size) {
+			req = steps[i].other;
+			if (off + req > vec->xof_size)
+				req = vec->xof_size - off;
+			crypto_shash_squeeze(desc, &output[off], req, false);
+			off += req;
+		}
+
+		if (memcmp(output, vec->xof, vec->xof_size) != 0) {
+			pr_err("XOF output of %s is wrong! (steps: %d, %d)\n",
+			       alg->base.cra_name, steps[i].first,
+			       steps[i].other);
+			ret = -EINVAL;
+		}
+	}
+	kfree(output);
+
+	return ret;
+}
+
 static int test_hash_vec_cfg(const struct hash_testvec *vec,
 			     const char *vec_name,
 			     const struct testvec_config *cfg,
@@ -1998,6 +2051,11 @@ static int __alg_test_hash(const struct hash_testvec *vecs,
 		err = test_hash_vec(&vecs[i], i, req, desc, tsgl, hashstate);
 		if (err)
 			goto out;
+		if (desc && crypto_shash_alg(desc->tfm)->squeeze) {
+			err = test_shash_xof(&vecs[i], desc);
+			if (err)
+				return err;
+		}
 		cond_resched();
 	}
 	err = test_hash_vs_generic_impl(generic_driver, maxkeysize, req,
