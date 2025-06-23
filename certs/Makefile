@@ -42,6 +42,7 @@ targets += x509_certificate_list
 # boolean option and we unfortunately can't make it depend on !RANDCONFIG.
 ifeq ($(CONFIG_MODULE_SIG_KEY),certs/signing_key.pem)
 
+keytype-$(CONFIG_MODULE_SIG_KEY_TYPE_MLDSA) := -newkey mldsa44
 keytype-$(CONFIG_MODULE_SIG_KEY_TYPE_ECDSA) := -newkey ec -pkeyopt ec_paramgen_curve:secp384r1
 
 quiet_cmd_gen_key = GENKEY  $@
