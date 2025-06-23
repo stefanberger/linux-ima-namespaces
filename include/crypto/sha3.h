@@ -50,4 +50,7 @@ struct shake_state {
 	unsigned int	ridx;
 };
 
+#include "crypto/hash.h"
+static_assert(sizeof(struct shake_state) <= HASH_MAX_DESCSIZE);
+
 #endif
