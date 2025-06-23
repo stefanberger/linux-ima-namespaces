@@ -31,6 +31,8 @@ struct sha3_state {
 	u64		st[SHA3_STATE_SIZE / 8];
 };
 
+struct shash_desc;
+
 int crypto_sha3_init(struct shash_desc *desc);
 
 
