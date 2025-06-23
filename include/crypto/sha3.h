@@ -55,4 +55,7 @@ struct shake_state {
 	bool		permute;
 };
 
+#include "crypto/hash.h"
+static_assert(sizeof(struct shake_state) <= HASH_MAX_DESCSIZE);
+
 #endif

@@ -518,8 +518,10 @@ static int shash_prepare_alg(struct shash_alg *alg)
 
 	if (alg->descsize > HASH_MAX_DESCSIZE)
 		return -EINVAL;
-	if (alg->statesize > HASH_MAX_STATESIZE)
+	if (alg->statesize > HASH_MAX_STATESIZE) {
+		printk(KERN_INFO "BAD: %d > %d\n", alg->statesize, HASH_MAX_STATESIZE);
 		return -EINVAL;
+	}
 
 	base->cra_reqsize = sizeof(struct shash_desc) + alg->descsize;
 
