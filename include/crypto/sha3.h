@@ -40,6 +40,9 @@ int crypto_sha3_final(struct shash_desc *desc, u8 *out);
 #define SHAKE256_DIGEST_SIZE	(256 / 8)
 #define SHAKE256_BLOCK_SIZE	(200 - 2 * SHAKE256_DIGEST_SIZE)
 
+#define SHAKE128_RATE		((1600 - 256) / 8)
+#define SHAKE256_RATE		((1600 - 512) / 8)
+
 struct shake_state {
 	u64		st[25];
 	unsigned int	rsiz;
