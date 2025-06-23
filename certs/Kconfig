@@ -39,6 +39,14 @@ config MODULE_SIG_KEY_TYPE_ECDSA
 	 Note: Remove all ECDSA signing keys, e.g. certs/signing_key.pem,
 	 when falling back to building Linux 5.14 and older kernels.
 
+config MODULE_SIG_KEY_TYPE_MLDSA
+	bool "MLDSA"
+	select CRYPTO_MLDSA
+	help
+	 Use an ML-DSA-44 key for module signing. The hash algorithm is
+	 always shake256. A version of OpenSSL is required that supports
+	 CMS with ML-DSA signatures.
+
 endchoice
 
 config SYSTEM_TRUSTED_KEYRING
