@@ -11,6 +11,7 @@
 #include <linux/key-type.h>
 #include <crypto/public_key.h>
 #include <crypto/hash_info.h>
+#include <crypto/mldsa.h>
 #include <keys/asymmetric-type.h>
 #include <keys/system_keyring.h>
 
@@ -84,7 +85,9 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 {
 	struct public_key_signature pks;
 	struct signature_v2_hdr *hdr = (struct signature_v2_hdr *)sig;
+	unsigned char *encoding __free(kfree) = NULL;
 	const struct public_key *pk;
+	ssize_t encoding_size;
 	struct key *key;
 	int ret;
 
@@ -114,6 +117,15 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 	} else if (!strncmp(pk->pkey_algo, "ecdsa-", 6)) {
 		/* edcsa-nist-p192 etc. */
 		pks.encoding = "x962";
+	} else if (!strncmp(pk->pkey_algo, "mldsa-", 6)) {
+		/* ml-dsa-44/65/87 */
+		encoding_size = mldsa_oid_hash_build(&encoding,
+						     hdr->hash_algo,
+						     data, datalen);
+		if (encoding_size < 0)
+			return encoding_size;
+
+		pks.encoding = "raw";
 	} else if (!strcmp(pk->pkey_algo, "ecrdsa")) {
 		pks.encoding = "raw";
 	} else {
@@ -121,8 +133,13 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 		goto out;
 	}
 
-	pks.digest = (u8 *)data;
-	pks.digest_size = datalen;
+	if (encoding) {
+		pks.digest = encoding;
+		pks.digest_size = encoding_size;
+	} else {
+		pks.digest = (u8 *)data;
+		pks.digest_size = datalen;
+	}
 	pks.s = hdr->sig;
 	pks.s_size = siglen;
 	ret = verify_signature(key, &pks);
