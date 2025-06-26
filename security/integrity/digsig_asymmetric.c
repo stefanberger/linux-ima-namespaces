@@ -114,6 +114,9 @@ int asymmetric_verify(struct key *keyring, const char *sig,
 	} else if (!strncmp(pk->pkey_algo, "ecdsa-", 6)) {
 		/* edcsa-nist-p192 etc. */
 		pks.encoding = "x962";
+	} else if (!strncmp(pk->pkey_algo, "mldsa-", 6)) {
+		/* ml-dsa-44/65/87 */
+		pks.encoding = "raw";
 	} else if (!strcmp(pk->pkey_algo, "ecrdsa")) {
 		pks.encoding = "raw";
 	} else {
