@@ -4116,7 +4116,8 @@ static int test_sig_one(struct crypto_sig *tfm, const struct sig_testvec *vecs)
 	 * (which does not require a private key)
 	 */
 	err = crypto_sig_verify(tfm, vecs->c, vecs->c_size,
-				vecs->m, vecs->m_size);
+				vecs->m, vecs->m_size,
+				NULL, NULL, 0, NULL, 0);
 	if (err) {
 		pr_err("alg: sig: verify test failed: err %d\n", err);
 		return err;

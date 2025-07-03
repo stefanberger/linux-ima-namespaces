@@ -44,8 +44,12 @@ struct public_key_signature {
 	struct asymmetric_key_id *auth_ids[3];
 	u8 *s;			/* Signature */
 	u8 *digest;
+	u8 *msg;		/* ml-dsa: plain message */
+	u8 *ctx;		/* ml-dsa: context */
 	u32 s_size;		/* Number of bytes in signature */
 	u32 digest_size;	/* Number of bytes in digest */
+	u32 m_size;		/* Number of bytes in message */
+	u32 c_size;		/* NUmber of bytes in context */
 	const char *pkey_algo;
 	const char *hash_algo;
 	const char *encoding;
