@@ -89,7 +89,7 @@ static int ecdsa_x962_verify(struct crypto_sig *tfm,
 		return err;
 
 	return crypto_sig_verify(ctx->child, &sig_ctx.sig, sizeof(sig_ctx.sig),
-				 digest, dlen);
+				 digest, dlen, NULL, NULL, 0, NULL, 0);
 }
 
 static unsigned int ecdsa_x962_key_size(struct crypto_sig *tfm)
