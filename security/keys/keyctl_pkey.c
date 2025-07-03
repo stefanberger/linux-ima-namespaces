@@ -11,12 +11,14 @@
 #include <linux/keyctl.h>
 #include <linux/parser.h>
 #include <linux/uaccess.h>
+#include <linux/base64.h>
 #include <keys/user-type.h>
 #include "internal.h"
 
 static void keyctl_pkey_params_free(struct kernel_pkey_params *params)
 {
 	kfree(params->info);
+	kfree(params->msg);
 	key_put(params->key);
 }
 
@@ -24,11 +26,13 @@ enum {
 	Opt_err,
 	Opt_enc,		/* "enc=<encoding>" eg. "enc=oaep" */
 	Opt_hash,		/* "hash=<digest-name>" eg. "hash=sha1" */
+	Opt_msg			/* "msg=<b64 message>" eg. "msg=Cg==" */
 };
 
 static const match_table_t param_keys = {
 	{ Opt_enc,	"enc=%s" },
 	{ Opt_hash,	"hash=%s" },
+	{ Opt_msg,	"msg=%s" },
 	{ Opt_err,	NULL }
 };
 
@@ -40,6 +44,7 @@ static int keyctl_pkey_params_parse(struct kernel_pkey_params *params)
 	unsigned long token_mask = 0;
 	substring_t args[MAX_OPT_ARGS];
 	char *c = params->info, *p, *q;
+	size_t qlen;
 	int token;
 
 	while ((p = strsep(&c, " \t"))) {
@@ -61,6 +66,16 @@ static int keyctl_pkey_params_parse(struct kernel_pkey_params *params)
 
 		case Opt_hash:
 			params->hash_algo = q;
+			break;
+
+		case Opt_msg:
+			qlen = strlen(q);
+			params->msg = kmalloc(qlen, GFP_KERNEL);
+			if (!params->msg)
+				return -ENOMEM;
+			params->msg_len = base64_decode(q, qlen, params->msg);
+			if (params->msg_len < 0)
+				return -EINVAL;
 			break;
 
 		default:
