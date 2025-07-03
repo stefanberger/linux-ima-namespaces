@@ -57,6 +57,12 @@ struct sig_alg {
 	int (*verify)(struct crypto_sig *tfm,
 		      const void *src, unsigned int slen,
 		      const void *digest, unsigned int dlen);
+	int (*verify2)(struct crypto_sig *tfm,
+		       const void *src, unsigned int slen,
+		       const void *digest, unsigned int dlen,
+		       const char *prehash_algo,
+		       const void *msg, unsigned int mlen,
+		       const void *ctx, unsigned int clen);
 	int (*set_pub_key)(struct crypto_sig *tfm,
 			   const void *key, unsigned int keylen);
 	int (*set_priv_key)(struct crypto_sig *tfm,
@@ -209,14 +215,26 @@ static inline int crypto_sig_sign(struct crypto_sig *tfm,
  * @slen:	source length
  * @digest:	digest
  * @dlen:	digest length
+ * @hash_algo:	preHash algorithm that produced @digest
+ * @msg:	plain message; alternative to digest for ml-dsa
+ * @mlen:	plain message length
+ * @ctx:	context for ml-dsa
+ * @clen:	context length
  *
  * Return: zero on verification success; error code in case of error.
  */
 static inline int crypto_sig_verify(struct crypto_sig *tfm,
 				    const void *src, unsigned int slen,
-				    const void *digest, unsigned int dlen)
+				    const void *digest, unsigned int dlen,
+				    const char *prehash_algo,
+				    const void *msg, unsigned int mlen,
+				    const void *ctx, unsigned int clen)
 {
 	struct sig_alg *alg = crypto_sig_alg(tfm);
+
+	if (alg->verify2)
+		return alg->verify2(tfm, src, slen, digest, dlen,
+				    prehash_algo, msg, mlen, ctx, clen);
 
 	return alg->verify(tfm, src, slen, digest, dlen);
 }
