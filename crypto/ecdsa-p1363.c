@@ -32,7 +32,8 @@ static int ecdsa_p1363_verify(struct crypto_sig *tfm,
 	ecc_digits_from_bytes(src, keylen, sig.r, ndigits);
 	ecc_digits_from_bytes(src + keylen, keylen, sig.s, ndigits);
 
-	return crypto_sig_verify(ctx->child, &sig, sizeof(sig), digest, dlen);
+	return crypto_sig_verify(ctx->child, &sig, sizeof(sig), digest, dlen,
+				 NULL, NULL, 0, NULL, 0);
 }
 
 static unsigned int ecdsa_p1363_key_size(struct crypto_sig *tfm)

@@ -426,7 +426,10 @@ int public_key_verify_signature(const struct public_key *pkey,
 		goto error_free_key;
 
 	ret = crypto_sig_verify(tfm, sig->s, sig->s_size,
-				sig->digest, sig->digest_size);
+				sig->digest, sig->digest_size,
+				sig->hash_algo,
+				sig->msg, sig->m_size,
+				sig->ctx, sig->c_size);
 
 error_free_key:
 	kfree_sensitive(key);
