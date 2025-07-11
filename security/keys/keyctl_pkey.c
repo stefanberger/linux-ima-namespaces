@@ -19,6 +19,7 @@ static void keyctl_pkey_params_free(struct kernel_pkey_params *params)
 {
 	kfree(params->info);
 	kfree(params->msg);
+	kfree(params->ctx);
 	key_put(params->key);
 }
 
@@ -26,13 +27,15 @@ enum {
 	Opt_err,
 	Opt_enc,		/* "enc=<encoding>" eg. "enc=oaep" */
 	Opt_hash,		/* "hash=<digest-name>" eg. "hash=sha1" */
-	Opt_msg			/* "msg=<b64 message>" eg. "msg=Cg==" */
+	Opt_msg,		/* "msg=<b64 message>" eg. "msg=Cg==" */
+	Opt_ctx,		/* "ctx=<b64 context>" */
 };
 
 static const match_table_t param_keys = {
 	{ Opt_enc,	"enc=%s" },
 	{ Opt_hash,	"hash=%s" },
 	{ Opt_msg,	"msg=%s" },
+	{ Opt_ctx,	"ctx=%s" },
 	{ Opt_err,	NULL }
 };
 
@@ -75,6 +78,16 @@ static int keyctl_pkey_params_parse(struct kernel_pkey_params *params)
 				return -ENOMEM;
 			params->msg_len = base64_decode(q, qlen, params->msg);
 			if (params->msg_len < 0)
+				return -EINVAL;
+			break;
+
+		case Opt_ctx:
+			qlen = strlen(q);
+			params->ctx = kmalloc(qlen, GFP_KERNEL);
+			if (!params->ctx)
+				return -ENOMEM;
+			params->ctx_len = base64_decode(q, qlen, params->ctx);
+			if (params->ctx_len < 0)
 				return -EINVAL;
 			break;
 
