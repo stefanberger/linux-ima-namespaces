@@ -594,6 +594,8 @@ static int asymmetric_key_verify_signature(struct kernel_pkey_params *params,
 		.s		= (void *)in2,
 		.msg		= (void *)params->msg,
 		.m_size		= params->msg_len,
+		.ctx		= (void *)params->ctx,
+		.c_size		= params->ctx_len,
 	};
 
 	return verify_signature(params->key, &sig);
