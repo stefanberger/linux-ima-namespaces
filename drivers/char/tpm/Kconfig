@@ -244,5 +244,11 @@ config TCG_SVSM
 	  level (usually VMPL0).  To compile this driver as a module, choose M
 	  here; the module will be called tpm_svsm.
 
+config TCG_VIRTIO
+	tristate "Virtio TPM Driver"
+	depends on VIRTIO_PCI
+	help
+          Virtio TPM Driver for a TPM 2
+
 source "drivers/char/tpm/st33zp24/Kconfig"
 endif # TCG_TPM
