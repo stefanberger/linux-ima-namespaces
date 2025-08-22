@@ -314,6 +314,7 @@ unsigned long tpm1_calc_ordinal_duration(struct tpm_chip *chip, u32 ordinal)
 /**
  * tpm1_startup() - turn on the TPM
  * @chip: TPM chip to use
+ * @type: The startup type
  *
  * Normally the firmware should start the TPM. This function is provided as a
  * workaround if this does not happen. A legal case for this could be for
@@ -321,7 +322,7 @@ unsigned long tpm1_calc_ordinal_duration(struct tpm_chip *chip, u32 ordinal)
  *
  * Return: same as tpm_transmit_cmd()
  */
-static int tpm1_startup(struct tpm_chip *chip)
+int tpm1_startup(struct tpm_chip *chip, enum tpm1_startup_types type)
 {
 	struct tpm_buf buf;
 	int rc;
@@ -332,7 +333,7 @@ static int tpm1_startup(struct tpm_chip *chip)
 	if (rc < 0)
 		return rc;
 
-	tpm_buf_append_u16(&buf, TPM_ST_CLEAR);
+	tpm_buf_append_u16(&buf, type);
 
 	rc = tpm_transmit_cmd(chip, &buf, 0, "attempting to start the TPM");
 	tpm_buf_destroy(&buf);
@@ -349,7 +350,7 @@ int tpm1_get_timeouts(struct tpm_chip *chip)
 	rc = tpm1_getcap(chip, TPM_CAP_PROP_TIS_TIMEOUT, &cap, NULL,
 			 sizeof(cap.timeout));
 	if (rc == TPM_ERR_INVALID_POSTINIT) {
-		if (tpm1_startup(chip))
+		if (tpm1_startup(chip, TPM_ST_CLEAR))
 			return rc;
 
 		rc = tpm1_getcap(chip, TPM_CAP_PROP_TIS_TIMEOUT, &cap,

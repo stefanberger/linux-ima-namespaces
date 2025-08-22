@@ -450,6 +450,31 @@ int tpm_pm_resume(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(tpm_pm_resume);
 
+/*
+ * Resume from a power safe. The BIOS did not restore
+ * the TPM state.
+ */
+int tpm_pm_resume_state(struct device *dev)
+{
+	struct tpm_chip *chip = dev_get_drvdata(dev);
+	int err;
+
+	err = tpm_pm_resume(dev);
+	if (err)
+		return err;
+
+	if (chip == NULL)
+		return -ENODEV;
+
+	if (chip->flags & TPM_CHIP_FLAG_TPM2)
+		err = tpm2_startup(chip, TPM2_SU_STATE);
+	else
+		err = tpm1_startup(chip, TPM_ST_STATE);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(tpm_pm_resume_state);
+
 /**
  * tpm_get_random() - get random bytes from the TPM's RNG
  * @chip:	a &struct tpm_chip instance, %NULL for the default chip

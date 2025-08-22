@@ -723,6 +723,7 @@ EXPORT_SYMBOL_GPL(tpm2_get_cc_attrs_tbl);
 /**
  * tpm2_startup - turn on the TPM
  * @chip: TPM chip to use
+ * @type: The startup type
  *
  * Normally the firmware should start the TPM. This function is provided as a
  * workaround if this does not happen. A legal case for this could be for
@@ -730,8 +731,7 @@ EXPORT_SYMBOL_GPL(tpm2_get_cc_attrs_tbl);
  *
  * Return: same as tpm_transmit_cmd()
  */
-
-static int tpm2_startup(struct tpm_chip *chip)
+int tpm2_startup(struct tpm_chip *chip, enum tpm2_startup_types type)
 {
 	struct tpm_buf buf;
 	int rc;
@@ -742,7 +742,7 @@ static int tpm2_startup(struct tpm_chip *chip)
 	if (rc < 0)
 		return rc;
 
-	tpm_buf_append_u16(&buf, TPM2_SU_CLEAR);
+	tpm_buf_append_u16(&buf, type);
 	rc = tpm_transmit_cmd(chip, &buf, 0, "attempting to start the TPM");
 	tpm_buf_destroy(&buf);
 
@@ -769,7 +769,7 @@ int tpm2_auto_startup(struct tpm_chip *chip)
 		goto out;
 
 	if (rc == TPM2_RC_INITIALIZE) {
-		rc = tpm2_startup(chip);
+		rc = tpm2_startup(chip, TPM2_SU_CLEAR);
 		if (rc)
 			goto out;
 

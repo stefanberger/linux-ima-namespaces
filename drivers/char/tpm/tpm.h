@@ -60,6 +60,11 @@ enum tpm_addr {
 
 #define TPM_TAG_RQU_COMMAND 193
 
+enum tpm1_startup_types {
+	TPM_ST_CLEAR = 0x0001,
+	TPM_ST_STATE = 0x0002,
+};
+
 /* TPM2 specific constants. */
 #define TPM2_SPACE_BUFFER_SIZE		16384 /* 16 kB */
 
@@ -253,9 +258,11 @@ ssize_t tpm1_getcap(struct tpm_chip *chip, u32 subcap_id, cap_t *cap,
 		    const char *desc, size_t min_cap_length);
 int tpm1_get_random(struct tpm_chip *chip, u8 *out, size_t max);
 int tpm1_get_pcr_allocation(struct tpm_chip *chip);
+int tpm1_startup(struct tpm_chip *chip, enum tpm1_startup_types type);
 unsigned long tpm_calc_ordinal_duration(struct tpm_chip *chip, u32 ordinal);
 int tpm_pm_suspend(struct device *dev);
 int tpm_pm_resume(struct device *dev);
+int tpm_pm_resume_state(struct device *dev);
 int tpm_class_shutdown(struct device *dev);
 
 static inline void tpm_msleep(unsigned int delay_msec)
@@ -298,6 +305,7 @@ ssize_t tpm2_get_tpm_pt(struct tpm_chip *chip, u32 property_id,
 
 ssize_t tpm2_get_pcr_allocation(struct tpm_chip *chip);
 int tpm2_auto_startup(struct tpm_chip *chip);
+int tpm2_startup(struct tpm_chip *chip, enum tpm2_startup_types type);
 void tpm2_shutdown(struct tpm_chip *chip, u16 shutdown_type);
 unsigned long tpm2_calc_ordinal_duration(struct tpm_chip *chip, u32 ordinal);
 int tpm2_probe(struct tpm_chip *chip);
