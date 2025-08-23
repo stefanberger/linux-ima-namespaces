@@ -86,7 +86,8 @@ int tpm_read_log_acpi(struct tpm_chip *chip)
 	/* Unfortuntely ACPI does not associate the event log with a specific
 	 * TPM, like PPI. Thus all ACPI TPMs will read the same log.
 	 */
-	if (!chip->acpi_dev_handle)
+	if (!chip->acpi_dev_handle &&
+	    !(chip->flags & TPM_CHIP_FLAG_VIRTIO_WITH_ACPI_LOG))
 		return -ENODEV;
 
 	if (chip->flags & TPM_CHIP_FLAG_TPM2) {

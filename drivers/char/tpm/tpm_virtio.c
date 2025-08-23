@@ -241,6 +241,9 @@ static int virtio_tpm_probe(struct virtio_device *vdev)
 	if (tpm_version == 2)
 		chip->flags |= TPM_CHIP_FLAG_TPM2;
 
+#if defined(CONFIG_ACPI) && CONFIG_ACPI
+	chip->flags |= TPM_CHIP_FLAG_VIRTIO_WITH_ACPI_LOG;
+#endif
 	err = tpm_chip_register(chip);
 	if (err)
 		goto err_del_vqs;
