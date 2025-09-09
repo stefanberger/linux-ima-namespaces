@@ -59,9 +59,9 @@
 	((768 + DIL_STREAM128_BLOCKBYTES - 1) / DIL_STREAM128_BLOCKBYTES)
 
 typedef enum {
-	MLCA_ID_DIL_MLDSA_44 = 0x0444,
-	MLCA_ID_DIL_MLDSA_65 = 0x0465,
-	MLCA_ID_DIL_MLDSA_87 = 0x0487,
+	MLCA_ID_DIL_MLDSA_44 = 0x44,
+	MLCA_ID_DIL_MLDSA_65 = 0x65,
+	MLCA_ID_DIL_MLDSA_87 = 0x87,
 } MLCA_ID_t ;
 
 typedef struct {
@@ -809,7 +809,7 @@ static void spolyt1_unpack(spoly *r, const uint8_t *a)
 }
 
 /*
- * spolyw1_unpack
+ * spolyw1_pack
  *
  * Bit-pack polynomial w1 with coefficients in [0,15] or [0,43].
  * Input coefficients are assumed to be standard representatives.
@@ -841,14 +841,14 @@ static void spolyw1_pack(uint8_t *r, const spoly *a, unsigned int dil_k)
 }
 
 
-static unsigned int dil_omega(unsigned int k, unsigned int round)
+static unsigned int dil_omega(unsigned int k)
 {
-	switch ((round << 4) | k) {
-	case 0x34:
+	switch (k) {
+	case 0x4:
 		return DIL_R3_OMEGA4x4;
-	case 0x36:
+	case 0x6:
 		return DIL_R3_OMEGA6x5;
-	case 0x38:
+	case 0x8:
 		return DIL_R3_OMEGA8x7;
 
 	default:
@@ -865,15 +865,14 @@ static unsigned int dil_omega(unsigned int k, unsigned int round)
  *
  * see also: dil_sigbytes2type(), which is practically the inverse
  */
-static size_t dil_signature_bytes(unsigned int k, unsigned int l,
-				  unsigned int round)
+static size_t dil_signature_bytes(unsigned int k, unsigned int l)
 {
-	switch ((round << 16) | (k << 4) | l) {
-	case 0x40044:
+	switch ((k << 4) | l) {
+	case 0x44:
 		return DIL_MLDSA_SIGBYTES4x4;
-	case 0x40065:
+	case 0x65:
 		return DIL_MLDSA_SIGBYTES6x5;
-	case 0x40087:
+	case 0x87:
 		return DIL_MLDSA_SIGBYTES8x7;
 
 	default:
@@ -899,50 +898,21 @@ static unsigned int dil__pubbytes2type_mldsa(size_t pubbytes)
 /*
  * does not check 'type' validity; call only after verification
  *
- * currently, type is either  <round> 0 <K>  or <round> <K> <L>
- *
- * expect this 'function' to be cheap, no need to cache etc.
+ * Type is <K> <L>
  */
 static unsigned int dil_type2k(unsigned int type)
 {
-	if (type & 0xf0) {
-		return ((type >> 4) & 0x0f); /* <K> <L> */
-	} else {
-		return (type & 0x0f); /* 0 <K> */
-	}
+	return ((type >> 4) & 0x0f); /* <K> <L> */
 }
 
 /*
  * does not check 'type' validity; call only after verification
  *
- * currently, type is either  <round> 0 <K>  or <round> <K> <L>
- * K == L-1  for all variants of the first type
- *
- * expect this 'function' to be cheap, no need to cache etc.
+ * Type is <K> <L>
  */
 static unsigned int dil_type2l(unsigned int type)
 {
-	if (type & 0xf0) {
-		return type & 0x0f; /* <K> <L> */
-	} else {
-		return ((type >> 4) & 0x0f) - 1; /* 0 <K> -> L == K-1 */
-	}
-}
-
-/*
- * does not check 'type' validity; call only after verification
- */
-static unsigned int dil_type2round(unsigned int type)
-{
-	switch (type) {
-	case MLCA_ID_DIL_MLDSA_44:
-	case MLCA_ID_DIL_MLDSA_65:
-	case MLCA_ID_DIL_MLDSA_87:
-		return 4;
-
-	default:
-		return 0;
-	}
+	return type & 0x0f; /* <K> <L> */
 }
 
 #include "polyvec-include.h" /* size-specialized fn set */
@@ -950,36 +920,25 @@ static unsigned int dil_type2round(unsigned int type)
 /*
  * mldsa_wire2sig - Unpack signature sig = (z, h, c)
  *
- * @chash: challenge hash  [CTILBYTES]
  * @z: pointer to output vector z
  * @h: pointer to output hint vector h
  * @dil_k: K parameter
  * @dil_l: L parameter
- * @sig: pointer to bit-packed signature
- * @sbytes: size of signature
+ * @sig: pointer to bit-packed signature; its size must have been checked
+ *       by caller
  *
  * Returns >0 in case of malformed signature; otherwise 0.
  *
  * accesses only necessary number of elements of z[] and h[],
  * 'sig' and 'chash' may be the same buffer; other overlap is undefined
  */
-static int mldsa_wire2sig(unsigned char chash[DIL_MLDSA_MAX_CTILDEBYTES],
-			  spolyvec_max *z, spolyvec_max *h, unsigned int dil_k,
-			  unsigned int dil_l, const unsigned char *sig,
-			  size_t sbytes)
+static int mldsa_wire2sig(spolyvec_max *z, spolyvec_max *h, unsigned int dil_k,
+			  unsigned int dil_l, const unsigned char *sig)
 {
-	size_t sb = dil_signature_bytes(dil_k, dil_l, 4);
 	size_t ctilbytes = dil_mldsa_ctilbytes(dil_k);
 	size_t pzb = dil_r3k2polyz_bytes(dil_k);
-	unsigned int omega = dil_omega(dil_k, 3);
+	unsigned int omega = dil_omega(dil_k);
 	unsigned int i, j, k;
-
-	if (!sig || (sb != sbytes))	// FIXME: already tested in calling function
-		return 1;
-	if (!z || !h || !chash)		// FIXME: seems unnecessary in our case
-		return 2; /* should-not-happen */
-
-	memmove(chash, sig, ctilbytes);	// FIXME: Can the caller make this 'backup'?
 
 	sig += ctilbytes;
 
@@ -1016,8 +975,6 @@ static int mldsa_wire2sig(unsigned char chash[DIL_MLDSA_MAX_CTILDEBYTES],
 			return 5;
 	}
 
-	sig += omega + dil_k;
-
 	return 0;
 }
 
@@ -1030,11 +987,12 @@ static int mldsa_wire2sig(unsigned char chash[DIL_MLDSA_MAX_CTILDEBYTES],
  * @mlen: length of message
  * @pk: pointer to bit-packed public key
  * @pkbytes: length of @pk
- * @domdep: byte for domain separtion; 0 or 1
+ * @domsep: byte for domain separation; 0 or 1
  * @ctx: optional context
  * @cbytes: length of context; must be <= 255
  *
- * Returns >0 if signature could be verified correctly and 0 otherwise
+ * Returns >0 if signature could be verified correctly, negative errno
+ * otherwise.
  */
 int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 			  const uint8_t *m, size_t mlen,
@@ -1061,7 +1019,6 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 
 	if (cbytes > 255)
 		return -EINVAL;
-	clen = cbytes;
 
 	struct ver_mat *pMat = kmalloc(sizeof(*pMat), GFP_KERNEL);
 	if (!pMat)
@@ -1078,12 +1035,12 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 	w1pb = K * dil_r3k2polyw1_bytes(K);
 
 	if (!type || !K || !L || !gamma1 || !gamma2 || !w1pb ||
-	    (w1pb > sizeof(pMat->w1pack)) || (dil_type2round(type) != 4)) {	// FIXME: dil_type2round needed?
+	    (w1pb > sizeof(pMat->w1pack))) {
 		ret = -EKEYREJECTED;
 		goto err_free_pmat;
 	}
 
-	sigb = dil_signature_bytes(K, L, 4);	// FIXME: parameter '4' needed?
+	sigb = dil_signature_bytes(K, L);
 	beta = 0;
 
 	if (!sig || !sigb || (siglen != sigb)) {
@@ -1106,7 +1063,9 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 		goto err_free_pmat;
 	}
 
-	if (mldsa_wire2sig(chash, &pMat->z, &pMat->h, K, L, sig, siglen)) {
+	memcpy(chash, sig, ctilbytes);
+
+	if (mldsa_wire2sig(&pMat->z, &pMat->h, K, L, sig)) {
 		ret = -EINVAL;
 		goto err_free_pmat;
 	}
@@ -1137,6 +1096,7 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 	crypto_shash_update(shash, pk, pkbytes);
 	crypto_shash_squeeze(shash, mu, DIL_R3_CRHBYTES, true);
 
+	clen = cbytes;
 	crypto_shash_init(shash);
 	crypto_shash_update(shash, mu, DIL_R3_CRHBYTES);
 	crypto_shash_update(shash, &domsep, 1);
@@ -1248,7 +1208,7 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 
 	sigb = 0;
 	for (i = 0; i < ctilbytes; ++i)
-		sigb += !!(chash[i] == rho[i]);
+		sigb += (chash[i] == rho[i]);
 
 	ret = (sigb == ctilbytes);
 
