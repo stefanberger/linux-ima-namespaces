@@ -15,7 +15,7 @@
 int mldsa_verify_internal(const unsigned char *sig, size_t sbytes,
 			  const unsigned char *msg, size_t mbytes,
 			  const unsigned char *pub, size_t pbytes,
-			  const uint8_t domsep,
+			  const unsigned char *domsep, size_t domseplen,
 			  const unsigned char *ctx, size_t cbytes);
 
 #endif

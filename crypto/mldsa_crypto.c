@@ -18,17 +18,21 @@
 
 /* FIPS-204 parameter set */
 #define MLDSA_Q 8380417
-
-#define MLDSA_SD 13
 #define MLDSA_SQINV 58728449 /* 1/MLDSA_Q mod 2^32, signed units */
 
-#define MLDSA_GAMMA1_4x4  (1 << 17)
-#define MLDSA_GAMMA1_6x5  (1 << 19)
-#define MLDSA_GAMMA1_8x7  (1 << 19)
+#define MLDSA_SD 13
 
-#define MLDSA_GAMMA2_4x4  ((MLDSA_Q - 1) / 88)
-#define MLDSA_GAMMA2_6x5  ((MLDSA_Q - 1) / 32)
-#define MLDSA_GAMMA2_8x7  ((MLDSA_Q - 1) / 32)
+#define MLDSA_TAU4x4 39
+#define MLDSA_TAU6x5 49
+#define MLDSA_TAU8x7 60
+
+#define MLDSA_GAMMA1_4x4 (1 << 17)
+#define MLDSA_GAMMA1_6x5 (1 << 19)
+#define MLDSA_GAMMA1_8x7 (1 << 19)
+
+#define MLDSA_GAMMA2_4x4 ((MLDSA_Q - 1) / 88)
+#define MLDSA_GAMMA2_6x5 ((MLDSA_Q - 1) / 32)
+#define MLDSA_GAMMA2_8x7 ((MLDSA_Q - 1) / 32)
 
 #define MLDSA_BETA4x4 78
 #define MLDSA_BETA6x5 196
@@ -39,17 +43,28 @@
 #define MLDSA_OMEGA8x7 75
 
 /* other constants */
-#define MLDSA_SEEDBYTES (256 / 8)
-#define MLDSA_CRHBYTES (512 / 8)
+#define MLDSA_SEEDBYTES	(256 / 8)
+#define MLDSA_CRHBYTES	(512 / 8)
+#define MLDSA_TRBYTES   (512 / 8)
 
 #define MLDSA_STREAM128_BLOCKBYTES SHAKE128_RATE
 
 #define MLDSA_POLYT1_PACKEDBYTES 320
 
-#define MLDSA_PUB4x4_BYTES ((size_t)1312)
-#define MLDSA_PUB6x5_BYTES ((size_t)1952)
-#define MLDSA_PUB8x7_BYTES ((size_t)2592)
+#define MLDSA_POLYZ_BYTES4x4 576
+#define MLDSA_POLYZ_BYTES6x5 640
+#define MLDSA_POLYZ_BYTES8x7 640
 
+#define MLDSA_POLYW1_BYTES4x4 192
+#define MLDSA_POLYW1_BYTES6x5 128
+#define MLDSA_POLYW1_BYTES8x7 128
+
+/* public key sizes */
+#define MLDSA_PUB4x4_BYTES MLDSA_44_PUB_BYTES
+#define MLDSA_PUB6x5_BYTES MLDSA_65_PUB_BYTES
+#define MLDSA_PUB8x7_BYTES MLDSA_87_PUB_BYTES
+
+/* signature sizes */
 #define MLDSA_SIGBYTES4x4 2420
 #define MLDSA_SIGBYTES6x5 3309
 #define MLDSA_SIGBYTES8x7 4627
@@ -71,11 +86,11 @@
 #define POLY_UNIFORM_NBLOCKS \
 	((768 + MLDSA_STREAM128_BLOCKBYTES - 1) / MLDSA_STREAM128_BLOCKBYTES)
 
-typedef enum {
+enum mldsa_id {
 	MLDSA_44_ID = 0x44,
 	MLDSA_65_ID = 0x65,
 	MLDSA_87_ID = 0x87,
-} MLCA_ID_t;
+};
 
 struct poly {
 	uint32_t coeffs[MLDSA_N];
@@ -85,27 +100,17 @@ struct spoly {
 	int32_t coeffs[MLDSA_N];
 };
 
-/*
- * The largest polyvecl, polyveck possible;
- * safe to cast to any valid, smaller size
- */
-typedef struct {
-	struct poly vec[MLDSA_VECT_MAX];
-} polyvec_max;
-
+/* The largest spoly vector. Safe to cast to any valid, smaller size. */
 struct spolyvec_max {
 	struct spoly vec[MLDSA_VECT_MAX];
 };
 
-
-/*
- * Signed counterpart of montgomery_reduce()
- */
+/* Signed counterpart of montgomery_reduce() */
 static int32_t montgomery_s_reduce(int64_t a)
 {
 	int32_t t;
 
-	t = a * MLDSA_SQINV;
+	t = (int64_t)(int32_t)a * MLDSA_SQINV;
 	t = (a - (int64_t)t * MLDSA_Q) >> 32;
 
 	return t;
@@ -224,8 +229,8 @@ static void sntt256(int32_t a[MLDSA_N])
  */
 static void invntt_s_tomont256(int32_t a[MLDSA_N])
 {
-	int32_t f = 41978; /* mont^2/256 */
 	unsigned int start, len, j, k;
+	const int64_t f = 41978; /* mont^2/256 */
 	int32_t t, zeta;
 
 	k = 256;
@@ -248,14 +253,14 @@ static void invntt_s_tomont256(int32_t a[MLDSA_N])
 	}
 
 	for (j = 0; j < MLDSA_N; ++j)
-		a[j] = montgomery_s_reduce((int64_t)f * a[j]);
+		a[j] = montgomery_s_reduce(f * a[j]);
 }
 
 /*
  * Expanded form of GAMMA1, replacing ref.impl. #define
- * Returns 0 for unknown param sets (which SNH).
+ * Returns 0 for unknown 'k' (which SNH).
  */
-static int32_t dil_r3k2gamma1(unsigned int k)
+static int32_t mldsa_k2gamma1(unsigned int k)
 {
 	switch (k) {
 	case 4:
@@ -271,9 +276,9 @@ static int32_t dil_r3k2gamma1(unsigned int k)
 
 /*
  * Expanded form of GAMMA2, replacing ref.impl. #define
- * Returns 0 for unknown param sets (which SNH).
+ * Returns 0 for unknown 'k' (which SNH).
  */
-static int32_t dil_r3k2gamma2(unsigned int k)
+static int32_t mldsa_k2gamma2(unsigned int k)
 {
 	switch (k) {
 	case 4:
@@ -291,16 +296,15 @@ static int32_t dil_r3k2gamma2(unsigned int k)
  * Expanded form of POLYZ_PACKEDBYTES, replacing ref.impl. #define
  * returns 0 for unknown param sets (which SNH)
  */
-static size_t dil_r3k2polyz_bytes(unsigned int k)
+static size_t mldsa_k2polyz_bytes(unsigned int k)
 {
 	switch (k) {
 	case 4:
-		return 576;
-
+		return MLDSA_POLYZ_BYTES4x4;
 	case 6:
+		return MLDSA_POLYZ_BYTES6x5;
 	case 8:
-		return 640;
-
+		return MLDSA_POLYZ_BYTES8x7;
 	default:
 		return 0;
 	}
@@ -310,15 +314,15 @@ static size_t dil_r3k2polyz_bytes(unsigned int k)
  * Expanded form of POLYW1_PACKEDBYTES, replacing ref.impl. #define
  * returns 0 for unknown param sets (which SNH)
  */
-static size_t dil_r3k2polyw1_bytes(unsigned int k)
+static size_t mldsa_k2polyw1_bytes(unsigned int k)
 {
 	switch (k) {
 	case 4:
-		return 192;
+		return MLDSA_POLYW1_BYTES4x4;
 	case 6:
+		return MLDSA_POLYW1_BYTES6x5;
 	case 8:
-		return 128;
-
+		return MLDSA_POLYW1_BYTES8x7;
 	default:
 		return 0;
 	}
@@ -327,10 +331,8 @@ static size_t dil_r3k2polyw1_bytes(unsigned int k)
 /*
  * Expanded form of POLYETA_PACKEDBYTES, replacing ref.impl. #define
  * returns 0 for unknown param sets (which SNH).
- *
- * Assume inlining/const-propagation on any reasonable platform
  */
-static size_t dil_mldsa_ctilbytes(unsigned int k)
+static size_t mldsa_ctilbytes(unsigned int k)
 {
 	switch (k) {
 	case 4:
@@ -347,7 +349,7 @@ static size_t dil_mldsa_ctilbytes(unsigned int k)
 /*
  * Signed (r3 ref.) counterpart of decompose()
  */
-static int32_t s_decompose(int32_t *a0, int32_t a, unsigned int dil_k)
+static int32_t s_decompose(int32_t *a0, int32_t a, unsigned int mldsa_k)
 {
 	int32_t a1;
 
@@ -357,20 +359,20 @@ static int32_t s_decompose(int32_t *a0, int32_t a, unsigned int dil_k)
 	 * Original condition: GAMMA2 == (MLDSA_Q-1) /32
 	 *   -> Dil3 (6x5), Dil5 (8x7)
 	 */
-	if (dil_k != 4) {
+	if (mldsa_k != 4) {
 		a1 = (a1 * 1025 + (1 << 21)) >> 22;
 		a1 &= 15;
 
-	/*
-	 * Original condition: GAMMA2 == (MLDSA_Q-1) /88
-	 *   -> Dil2 (4x4)
-	 */
+		/*
+		 * Original condition: GAMMA2 == (MLDSA_Q-1) /88
+		 *   -> Dil2 (4x4)
+		 */
 	} else {
 		a1 = (a1 * 11275 + (1 << 23)) >> 24;
-		a1 ^= (((43 - a1) >> 31) ^ 0) & a1;
+		a1 ^= ((43 - a1) >> 31) & a1;
 	}
 
-	*a0 = a - a1 * 2 * dil_r3k2gamma2(dil_k); /* was: * GAMMA2; */
+	*a0 = a - a1 * 2 * mldsa_k2gamma2(mldsa_k);
 
 	*a0 -= (((MLDSA_Q - 1) / 2 - *a0) >> 31) & MLDSA_Q;
 
@@ -380,11 +382,11 @@ static int32_t s_decompose(int32_t *a0, int32_t a, unsigned int dil_k)
 /*
  * signed (r3 ref.) counterpart of use_hint()
  */
-static int32_t use_s_hint(int32_t a, unsigned int hint, unsigned int dil_k)
+static int32_t use_s_hint(int32_t a, unsigned int hint, unsigned int mldsa_k)
 {
 	int32_t a0, a1;
 
-	a1 = s_decompose(&a0, a, dil_k);
+	a1 = s_decompose(&a0, a, mldsa_k);
 
 	if (hint == 0)
 		return a1;
@@ -393,7 +395,7 @@ static int32_t use_s_hint(int32_t a, unsigned int hint, unsigned int dil_k)
 	 * original condition: GAMMA2 == (MLDSA_Q-1) /32
 	 *   -> Dil3 (6x5), Dil5 (8x7)
 	 */
-	if (dil_k != 4) {
+	if (mldsa_k != 4) {
 		if (a0 > 0)
 			return (a1 + 1) & 15;
 		else
@@ -534,17 +536,17 @@ static void spoly_pointwise_montgomery(struct spoly *c,
  * @b: pointer to output polynomial with corrected high bits
  * @a: pointer to input polynomial
  * @h: pointer to input hint polynomial
- * @dil_k: K parameter
+ * @mldsa_k: K parameter
  */
 static void spoly_use_hint(struct spoly *b,
 			   const struct spoly *a,
 			   const struct spoly *h,
-			   unsigned int dil_k)
+			   unsigned int mldsa_k)
 {
 	unsigned int i;
 
 	for (i = 0; i < MLDSA_N; ++i)
-		b->coeffs[i] = use_s_hint(a->coeffs[i], h->coeffs[i], dil_k);
+		b->coeffs[i] = use_s_hint(a->coeffs[i], h->coeffs[i], mldsa_k);
 }
 
 /*
@@ -649,12 +651,14 @@ static void spoly_uniform(struct spoly *a,
 	ctr = rej_s_uniform(a->coeffs, MLDSA_N, buf, buflen);
 
 	while (ctr < MLDSA_N) {
+		// FIXME: simplify loop: https://ibm-research.slack.com/archives/D08BUJ8CKEY/p1758187493346489
 		off = buflen % 3;
+		printk(KERN_INFO "off=%u\n", off);
 
 		for (i = 0; i < off; ++i)
 			buf[i] = buf[buflen - off + i];
 
-		crypto_shash_squeeze(shash, buf,
+		crypto_shash_squeeze(shash, buf + off,
 				     MLDSA_STREAM128_BLOCKBYTES, false);
 
 		buflen = MLDSA_STREAM128_BLOCKBYTES + off;
@@ -670,11 +674,14 @@ static void spoly_uniform(struct spoly *a,
  *
  * @r: pointer to output polynomial
  * @a: byte array with bit-packed polynomial
- * @dil_k: K parameter
+ * @mldsa_k: K parameter
  */
-static void spolyz_unpack(struct spoly *r, const uint8_t *a, unsigned int dil_k)
+static void spolyz_unpack(struct spoly *r, const uint8_t *a,
+			  unsigned int mldsa_k)
 {
-	unsigned int i, gamma1 = dil_r3k2gamma1(dil_k);
+	unsigned int i, gamma1;
+
+	gamma1 = mldsa_k2gamma1(mldsa_k);
 
 	if (gamma1 == (1 << 17)) { /* was: GAMMA1 == (1 << 17) */
 		for (i = 0; i < MLDSA_N / 4; ++i) {
@@ -714,7 +721,6 @@ static void spolyz_unpack(struct spoly *r, const uint8_t *a, unsigned int dil_k)
 			r->coeffs[2 * i + 1] = a[5 * i + 2] >> 4;
 			r->coeffs[2 * i + 1] |= (uint32_t)a[5 * i + 3] << 4;
 			r->coeffs[2 * i + 1] |= (uint32_t)a[5 * i + 4] << 12;
-			r->coeffs[2 * i + 0] &= 0xFFFFF;
 
 			r->coeffs[2 * i + 0] = gamma1 - r->coeffs[2 * i + 0];
 			r->coeffs[2 * i + 1] = gamma1 - r->coeffs[2 * i + 1];
@@ -726,16 +732,15 @@ static void spolyz_unpack(struct spoly *r, const uint8_t *a, unsigned int dil_k)
 /*
  * returns 0 for unknown param.sets, which should not happen
  */
-static unsigned int dilr3_k2tau(unsigned int dil_k)
+static unsigned int mldsa_k2tau(unsigned int mldsa_k)
 {
-	switch (dil_k) {
+	switch (mldsa_k) {
 	case 4:
-		return 39;
+		return MLDSA_TAU4x4;
 	case 6:
-		return 49;
+		return MLDSA_TAU6x5;
 	case 8:
-		return 60;
-
+		return MLDSA_TAU8x7;
 	default:
 		return 0; /* SNH */
 	}
@@ -747,13 +752,13 @@ static unsigned int dilr3_k2tau(unsigned int dil_k)
  *
  * @c: pointer to output polynomial
  * @seed: byte array containing seed of length ctildebytes
- * @dil_k: K parameter
+ * @mldsa_k: K parameter
  */
 static void ml_spoly_challenge(struct spoly *c, const uint8_t *seed,
-			       unsigned int dil_k)
+			       unsigned int mldsa_k)
 {
 	SHASH_DESC_ON_STACK(shash, crypto_mldsa_shake256);
-	size_t ctilbytes = dil_mldsa_ctilbytes(dil_k);
+	size_t ctilbytes = mldsa_ctilbytes(mldsa_k);
 	uint8_t buf[SHAKE256_RATE];
 	unsigned int pos;
 	unsigned int i;
@@ -775,7 +780,7 @@ static void ml_spoly_challenge(struct spoly *c, const uint8_t *seed,
 	for (i = 0; i < MLDSA_N; ++i)
 		c->coeffs[i] = 0;
 
-	for (i = MLDSA_N - dilr3_k2tau(dil_k); i < MLDSA_N; ++i) {
+	for (i = MLDSA_N - mldsa_k2tau(mldsa_k); i < MLDSA_N; ++i) {
 		do {
 			if (pos >= SHAKE256_RATE) {
 				crypto_shash_squeeze(shash, buf,
@@ -833,11 +838,14 @@ static void spolyt1_unpack(struct spoly *r, const uint8_t *a)
  * @r: pointer to output byte array with at least
  *     POLYW1_PACKEDBYTES bytes
  * @a: pointer to input polynomial
- * @dil_k: K parameter
+ * @mldsa_k: K parameter
  */
-static void spolyw1_pack(uint8_t *r, const struct spoly *a, unsigned int dil_k)
+static void spolyw1_pack(uint8_t *r, const struct spoly *a,
+			 unsigned int mldsa_k)
 {
-	unsigned int i, gamma2 = dil_r3k2gamma2(dil_k);
+	unsigned int i, gamma2;
+
+	gamma2 = mldsa_k2gamma2(mldsa_k);
 
 	if (gamma2 == (MLDSA_Q - 1) / 88) {
 		for (i = 0; i < MLDSA_N / 4; ++i) {
@@ -857,7 +865,7 @@ static void spolyw1_pack(uint8_t *r, const struct spoly *a, unsigned int dil_k)
 }
 
 
-static unsigned int dil_omega(unsigned int k)
+static unsigned int mldsa_omega(unsigned int k)
 {
 	switch (k) {
 	case 0x4:
@@ -871,7 +879,7 @@ static unsigned int dil_omega(unsigned int k)
 	}
 }
 
-static unsigned int dil_k2beta(unsigned int k)
+static unsigned int mldsa_k2beta(unsigned int k)
 {
 	switch (k) {
 	case 0x4:
@@ -892,9 +900,8 @@ static unsigned int dil_k2beta(unsigned int k)
  * ref.impl:
  * CRYPTO_BYTES == (L*POLYZ_PACKEDBYTES + OMEGA + K + N/8 + 8)  [r2]
  *
- * see also: dil_sigbytes2type(), which is practically the inverse
  */
-static size_t dil_signature_bytes(unsigned int k, unsigned int l)
+static size_t mldsa_signature_bytes(unsigned int k, unsigned int l)
 {
 	switch ((k << 4) | l) {
 	case 0x44:
@@ -908,7 +915,7 @@ static size_t dil_signature_bytes(unsigned int k, unsigned int l)
 	}
 }
 
-static unsigned int dil__pubbytes2type_mldsa(size_t pubbytes)
+static enum mldsa_id mldsa_pubbytes2type(size_t pubbytes)
 {
 	switch (pubbytes) {
 	case MLDSA_44_PUB_BYTES:
@@ -927,7 +934,7 @@ static unsigned int dil__pubbytes2type_mldsa(size_t pubbytes)
  *
  * Type is <K> <L>
  */
-static unsigned int dil_type2k(unsigned int type)
+static unsigned int mldsa_type2k(enum mldsa_id type)
 {
 	return ((type >> 4) & 0x0f); /* <K> <L> */
 }
@@ -937,7 +944,7 @@ static unsigned int dil_type2k(unsigned int type)
  *
  * Type is <K> <L>
  */
-static unsigned int dil_type2l(unsigned int type)
+static unsigned int mldsa_type2l(enum mldsa_id type)
 {
 	return type & 0x0f; /* <K> <L> */
 }
@@ -949,8 +956,8 @@ static unsigned int dil_type2l(unsigned int type)
  *
  * @z: pointer to output vector z
  * @h: pointer to output hint vector h
- * @dil_k: K parameter
- * @dil_l: L parameter
+ * @mldsa_k: K parameter
+ * @mldsa_l: L parameter
  * @sig: pointer to bit-packed signature; its size must have been checked
  *       by caller
  *
@@ -959,26 +966,29 @@ static unsigned int dil_type2l(unsigned int type)
  * accesses only necessary number of elements of z[] and h[],
  * 'sig' and 'chash' may be the same buffer; other overlap is undefined
  */
-static int mldsa_wire2sig(struct spolyvec_max *z, struct spolyvec_max *h,
-			  unsigned int dil_k, unsigned int dil_l,
+static int mldsa_wire2sig(unsigned char chash[MLDSA_MAX_CTILDEBYTES],
+                          struct spolyvec_max *z, struct spolyvec_max *h,
+			  unsigned int mldsa_k, unsigned int mldsa_l,
 			  const unsigned char *sig)
 {
-	size_t ctilbytes = dil_mldsa_ctilbytes(dil_k);
-	size_t pzb = dil_r3k2polyz_bytes(dil_k);
-	unsigned int omega = dil_omega(dil_k);
+	size_t ctilbytes = mldsa_ctilbytes(mldsa_k);
+	size_t pzb = mldsa_k2polyz_bytes(mldsa_k);
+	unsigned int omega = mldsa_omega(mldsa_k);
 	unsigned int i, j, k;
+
+	memmove(chash, sig, ctilbytes);
 
 	sig += ctilbytes;
 
-	for (i = 0; i < dil_l; ++i) /* L */
-		spolyz_unpack(&(z->vec[i]), sig + i * pzb, dil_k);
+	for (i = 0; i < mldsa_l; ++i) /* L */
+		spolyz_unpack(&(z->vec[i]), sig + i * pzb, mldsa_k);
 
-	sig += dil_l * pzb; /* L * ... */
+	sig += mldsa_l * pzb; /* L * ... */
 
 	/* Decode h */
 	k = 0;
 
-	for (i = 0; i < dil_k; ++i) {
+	for (i = 0; i < mldsa_k; ++i) {
 		for (j = 0; j < MLDSA_N; ++j)
 			h->vec[i].coeffs[j] = 0;
 
@@ -1016,6 +1026,8 @@ static int mldsa_wire2sig(struct spolyvec_max *z, struct spolyvec_max *h,
  * @pk: pointer to bit-packed public key
  * @pkbytes: length of @pk
  * @domsep: byte for domain separation; 0 or 1
+ * @domseplen: length of domain separator; if 0 then domain separator
+ *             and context will not be added to hash
  * @ctx: optional context
  * @cbytes: length of context; must be <= 255
  *
@@ -1025,7 +1037,7 @@ static int mldsa_wire2sig(struct spolyvec_max *z, struct spolyvec_max *h,
 int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 			  const uint8_t *m, size_t mlen,
 			  const uint8_t *pk, size_t pkbytes,
-			  const uint8_t domsep,
+			  const uint8_t *domsep, size_t domseplen,
 			  const uint8_t *ctx, size_t cbytes)
 {
 	struct ver_mat {
@@ -1038,30 +1050,31 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 	unsigned char chash[MLDSA_MAX_CTILDEBYTES];
 	/* note: rho size is max(MLDSA_MAX_CTILDEBYTES, MLDSA_SEEDBYTES) */
 	unsigned char rho[MLDSA_MAX_CTILDEBYTES];
-	unsigned int beta, type, fail, K, L;
 	unsigned char mu[MLDSA_CRHBYTES];
 	size_t ctilbytes, sigb, w1pb, i;
+	unsigned int beta, fail, K, L;
 	int32_t gamma1, gamma2;
+	enum mldsa_id type;
 	unsigned char clen;
 	int ret = -EINVAL;
 
 	if (cbytes > 255)
 		return -EINVAL;
 
-	type = dil__pubbytes2type_mldsa(pkbytes);
-	K = dil_type2k(type);
-	L = dil_type2l(type);
-	ctilbytes = dil_mldsa_ctilbytes(K);
-	gamma1 = dil_r3k2gamma1(K);
-	gamma2 = dil_r3k2gamma2(K);
-	w1pb = K * dil_r3k2polyw1_bytes(K);
+	type = mldsa_pubbytes2type(pkbytes);
+	K = mldsa_type2k(type);
+	L = mldsa_type2l(type);
+	ctilbytes = mldsa_ctilbytes(K);
+	gamma1 = mldsa_k2gamma1(K);
+	gamma2 = mldsa_k2gamma2(K);
+	w1pb = K * mldsa_k2polyw1_bytes(K);
 
 	if (!type || !K || !L || !gamma1 || !gamma2 || !w1pb ||
 	    (w1pb > sizeof(pMat->w1pack)))
 		return -EKEYREJECTED;
 
-	sigb = dil_signature_bytes(K, L);
-	beta = dil_k2beta(K);
+	sigb = mldsa_signature_bytes(K, L);
+	beta = mldsa_k2beta(K);
 
 	if (!sig || !sigb || (siglen != sigb))
 		return -EINVAL;
@@ -1085,9 +1098,7 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 		goto err_free_pmat;
 	}
 
-	memcpy(chash, sig, ctilbytes);
-
-	if (mldsa_wire2sig(&pMat->z, &pMat->h, K, L, sig)) {
+	if (mldsa_wire2sig(chash, &pMat->z, &pMat->h, K, L, sig)) {
 		ret = -EINVAL;
 		goto err_free_pmat;
 	}
@@ -1120,15 +1131,17 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 	crypto_shash_update(shash, pk, pkbytes);
 	crypto_shash_squeeze(shash, mu, MLDSA_CRHBYTES, true);
 
-	clen = cbytes;
 	crypto_shash_init(shash);
-	crypto_shash_update(shash, mu, MLDSA_CRHBYTES);
-	crypto_shash_update(shash, &domsep, 1);
-	crypto_shash_update(shash, &clen, 1);
-	if (ctx)
-		crypto_shash_update(shash, ctx, cbytes);
+	crypto_shash_update(shash, mu, MLDSA_TRBYTES);
+	if (domseplen > 0) {
+		clen = cbytes;
+		crypto_shash_update(shash, domsep, domseplen);
+		crypto_shash_update(shash, &clen, 1);
+		if (ctx)
+			crypto_shash_update(shash, ctx, cbytes);
+	}
 	crypto_shash_update(shash, m, mlen);
-	crypto_shash_squeeze(shash, mu, MLDSA_CRHBYTES, true);
+	crypto_shash_squeeze(shash, mu, MLDSA_TRBYTES, true);
 
 	ml_spoly_challenge(&pMat->cp, chash, K);
 

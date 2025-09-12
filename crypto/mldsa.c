@@ -31,6 +31,25 @@ static const unsigned char mldsa_oid_prefix[10] = {
 	0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02
 };
 
+static const struct prehash {
+	char *name;
+	unsigned int id;
+	size_t hashlen;
+} prehashes[] = {
+	{ "sha256", 1, SHA256_DIGEST_SIZE },
+	{ "sha384", 2, SHA384_DIGEST_SIZE },
+	{ "sha512", 3, SHA512_DIGEST_SIZE },
+	{ "sha224", 4, SHA224_DIGEST_SIZE },
+	{ "sha512-224", 5, SHA224_DIGEST_SIZE },
+	{ "sha512-256", 6, SHA256_DIGEST_SIZE },
+	{ "sha3-224", 7, SHA3_224_DIGEST_SIZE },
+	{ "sha3-256", 8, SHA3_256_DIGEST_SIZE },
+	{ "sha3-384", 9, SHA3_384_DIGEST_SIZE },
+	{ "sha3-512", 10, SHA3_512_DIGEST_SIZE },
+	{ "shake128" , 11, SHAKE128_DIGEST_SIZE * 2 },
+	{ "shake256" , 12, SHAKE256_DIGEST_SIZE * 2 },
+};
+
 /*
  * Verify an MLDSA signature
  *
@@ -54,43 +73,53 @@ static int mldsa_verify(struct crypto_sig *tfm,
 {
 	unsigned char encoded[MLDSA_HASH_OID_SIZE + SHA512_DIGEST_SIZE];
 	struct mldsa_ctx *ctx = crypto_sig_ctx(tfm);
-	size_t explen;
+	unsigned char hashid;
+	unsigned char domsep;
+	size_t explen, i;
 	int ret;
 
 	if (unlikely(ctx->pub_key_size == 0))
 		return -EKEYREJECTED;
 
 	if (!msg) {
+		/*
+		 * The input expects a valid digest and prehash_alg describing
+		 * what the digest represents.
+		 */
 		if (!prehash_algo)
 			return -EBADMSG;
-		if (!strcmp(prehash_algo, "sha256")) {
-			encoded[10] = 0x1;
-			explen = SHA256_DIGEST_SIZE;
-		} else if (!strcmp(prehash_algo, "sha512")) {
-			encoded[10] = 0x3;
-			explen = SHA512_DIGEST_SIZE;
-		} else if (!strcmp(prehash_algo, "shake128")) {
-			encoded[10] = 0xb;
-			explen = 256 / 8;
-		} else {
-			return -EBADMSG;
+
+		explen = 0;
+		for (i = 0; i < ARRAY_SIZE(prehashes); i++) {
+			if (!strcmp(prehashes[i].name, prehash_algo)) {
+				hashid = prehashes[i].id;
+				explen = prehashes[i].hashlen;
+				break;
+			}
 		}
-		if (explen != dlen)
+		if (!explen || explen != dlen)
 			return -EBADMSG;
 
 		memcpy(encoded, mldsa_oid_prefix, 10);
+		encoded[10] = hashid;
 		memcpy(&encoded[MLDSA_HASH_OID_SIZE], digest, dlen);
+		domsep = DOMSEP_PREHASH;
 		ret = mldsa_verify_internal(src, slen, encoded,
 					    MLDSA_HASH_OID_SIZE + dlen,
 					    ctx->pub_key,
 					    ctx->pub_key_size,
-					    DOMSEP_PREHASH, ctxt, clen);
+					    &domsep, sizeof(domsep),
+					    ctxt, clen);
 	} else {
+		domsep = DOMSEP_PURE;
 		ret = mldsa_verify_internal(src, slen, msg, mlen,
 					    ctx->pub_key,
 					    ctx->pub_key_size,
-					    DOMSEP_PURE, ctxt, clen);
+					    &domsep, sizeof(domsep),
+					    ctxt, clen);
 	}
+	if (ret < 0)
+		return ret;
 
 	return ret == 1 ? 0 : -EKEYREJECTED;
 }
