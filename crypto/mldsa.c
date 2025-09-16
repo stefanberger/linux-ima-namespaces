@@ -169,11 +169,18 @@ static unsigned int mldsa_max_sig_size(struct crypto_sig *tfm)
 	return MLDSA_MAX_SIG_SIZE;
 }
 
+#include "mldsa_kat.h"
+
 static int mldsa_44_init_tfm(struct crypto_sig *tfm)
 {
 	struct mldsa_ctx *ctx = crypto_sig_ctx(tfm);
+	int ret;
 
-	return mldsa_ctx_init(ctx, MLDSA_44_PUB_BYTES);
+	ret = mldsa_ctx_init(ctx, MLDSA_44_PUB_BYTES);
+
+	mldsa44_kat(tfm);
+
+	return ret;
 }
 
 static struct sig_alg mldsa_44 = {
