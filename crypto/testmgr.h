@@ -7698,6 +7698,33 @@ static const struct hash_testvec sha512_tv_template[] = {
 	}
 };
 
+/*
+ * SHA512-224 test vectors from NIST and kerneli
+ */
+static const struct hash_testvec sha512_224_tv_template[] = {
+	{
+		.plaintext = "",
+		.psize	= 0,
+		.digest	= "\x6e\xd0\xdd\x02\x80\x6f\xa8\x9e"
+		          "\x25\xde\x06\x0c\x19\xd3\xac\x86"
+		          "\xca\xbb\x87\xd6\xa0\xdd\xd0\x5c"
+		          "\x33\x3b\x84\xf4",
+	}
+};
+
+/*
+ * SHA512-256 test vectors from NIST and kerneli
+ */
+static const struct hash_testvec sha512_256_tv_template[] = {
+	{
+		.plaintext = "",
+		.psize	= 0,
+		.digest	= "\xc6\x72\xb8\xd1\xef\x56\xed\x28"
+		          "\xab\x87\xc3\x62\x2c\x51\x14\x06"
+		          "\x9b\xdd\x3a\xd7\xb8\xf9\x73\x74"
+		          "\x98\xd0\xc0\x1e\xce\xf0\x96\x7a",
+	}
+};
 
 /*
  * WHIRLPOOL test vectors from Whirlpool package

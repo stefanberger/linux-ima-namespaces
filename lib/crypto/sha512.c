@@ -32,6 +32,20 @@ static const struct sha512_block_state sha512_iv = {
 	},
 };
 
+static const struct sha512_block_state sha512_224_iv = {
+        .h = {
+                SHA512_224_H0, SHA512_224_H1, SHA512_224_H2, SHA512_224_H3,
+                SHA512_224_H4, SHA512_224_H5, SHA512_224_H6, SHA512_224_H7,
+        },
+};
+
+static const struct sha512_block_state sha512_256_iv = {
+        .h = {
+                SHA512_256_H0, SHA512_256_H1, SHA512_256_H2, SHA512_256_H3,
+                SHA512_256_H4, SHA512_256_H5, SHA512_256_H6, SHA512_256_H7,
+        },
+};
+
 static const u64 sha512_K[80] = {
 	0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL, 0xb5c0fbcfec4d3b2fULL,
 	0xe9b5dba58189dbbcULL, 0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL,
@@ -159,6 +173,18 @@ void sha512_init(struct sha512_ctx *ctx)
 }
 EXPORT_SYMBOL_GPL(sha512_init);
 
+void sha512_224_init(struct sha512_ctx *ctx)
+{
+	__sha512_init(&ctx->ctx, &sha512_224_iv, 0);
+}
+EXPORT_SYMBOL_GPL(sha512_224_init);
+
+void sha512_256_init(struct sha512_ctx *ctx)
+{
+	__sha512_init(&ctx->ctx, &sha512_256_iv, 0);
+}
+EXPORT_SYMBOL_GPL(sha512_256_init);
+
 void __sha512_update(struct __sha512_ctx *ctx, const u8 *data, size_t len)
 {
 	size_t partial = ctx->bytecount_lo % SHA512_BLOCK_SIZE;
@@ -199,6 +225,8 @@ static void __sha512_final(struct __sha512_ctx *ctx,
 	u64 bitcount_hi = (ctx->bytecount_hi << 3) | (ctx->bytecount_lo >> 61);
 	u64 bitcount_lo = ctx->bytecount_lo << 3;
 	size_t partial = ctx->bytecount_lo % SHA512_BLOCK_SIZE;
+	size_t i;
+	u64 tmp;
 
 	ctx->buf[partial++] = 0x80;
 	if (partial > SHA512_BLOCK_SIZE - 16) {
@@ -211,8 +239,12 @@ static void __sha512_final(struct __sha512_ctx *ctx,
 	*(__be64 *)&ctx->buf[SHA512_BLOCK_SIZE - 8] = cpu_to_be64(bitcount_lo);
 	sha512_blocks(&ctx->state, ctx->buf, 1);
 
-	for (size_t i = 0; i < digest_size; i += 8)
+	for (i = 0; i < ALIGN_DOWN(digest_size, 8); i += 8)
 		put_unaligned_be64(ctx->state.h[i / 8], out + i);
+	if (i < digest_size) {
+		put_unaligned_be64(ctx->state.h[i / 8], &tmp);
+		memcpy(out + i, &tmp, digest_size - i);
+	}
 }
 
 void sha384_final(struct sha384_ctx *ctx, u8 out[SHA384_DIGEST_SIZE])
@@ -228,6 +260,20 @@ void sha512_final(struct sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE])
 	memzero_explicit(ctx, sizeof(*ctx));
 }
 EXPORT_SYMBOL_GPL(sha512_final);
+
+void sha512_224_final(struct sha512_ctx *ctx, u8 out[SHA512_224_DIGEST_SIZE])
+{
+	__sha512_final(&ctx->ctx, out, SHA512_224_DIGEST_SIZE);
+	memzero_explicit(ctx, sizeof(*ctx));
+}
+EXPORT_SYMBOL_GPL(sha512_224_final);
+
+void sha512_256_final(struct sha512_ctx *ctx, u8 out[SHA512_256_DIGEST_SIZE])
+{
+	__sha512_final(&ctx->ctx, out, SHA512_256_DIGEST_SIZE);
+	memzero_explicit(ctx, sizeof(*ctx));
+}
+EXPORT_SYMBOL_GPL(sha512_256_final);
 
 void sha384(const u8 *data, size_t len, u8 out[SHA384_DIGEST_SIZE])
 {
@@ -248,6 +294,26 @@ void sha512(const u8 *data, size_t len, u8 out[SHA512_DIGEST_SIZE])
 	sha512_final(&ctx, out);
 }
 EXPORT_SYMBOL_GPL(sha512);
+
+void sha512_224(const u8 *data, size_t len, u8 out[SHA512_224_DIGEST_SIZE])
+{
+	struct sha512_ctx ctx;
+
+	sha512_224_init(&ctx);
+	sha512_update(&ctx, data, len);
+	sha512_224_final(&ctx, out);
+}
+EXPORT_SYMBOL_GPL(sha512_224);
+
+void sha512_256(const u8 *data, size_t len, u8 out[SHA512_256_DIGEST_SIZE])
+{
+	struct sha512_ctx ctx;
+
+	sha512_256_init(&ctx);
+	sha512_update(&ctx, data, len);
+	sha512_256_final(&ctx, out);
+}
+EXPORT_SYMBOL_GPL(sha512_256);
 
 static void __hmac_sha512_preparekey(struct sha512_block_state *istate,
 				     struct sha512_block_state *ostate,
