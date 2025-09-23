@@ -7698,6 +7698,93 @@ static const struct hash_testvec sha512_tv_template[] = {
 	}
 };
 
+/*
+ * SHA512-224 test vectors from NIST and kerneli
+ */
+static const struct hash_testvec sha512_224_tv_template[] = {
+	{
+		.plaintext = "",
+		.psize	= 0,
+		.digest	= "\x6e\xd0\xdd\x02\x80\x6f\xa8\x9e"
+		          "\x25\xde\x06\x0c\x19\xd3\xac\x86"
+		          "\xca\xbb\x87\xd6\xa0\xdd\xd0\x5c"
+		          "\x33\x3b\x84\xf4",
+	}, {
+		.plaintext = "abc",
+		.psize = 3,
+		.digest = "\x46\x34\x27\x0f\x70\x7b\x6a\x54"
+			  "\xda\xae\x75\x30\x46\x08\x42\xe2"
+			  "\x0e\x37\xed\x26\x5c\xee\xe9\xa4"
+			  "\x3e\x89\x24\xaa",
+	}, {
+		.plaintext = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+		.psize	= 56,
+		.digest	= "\xe5\x30\x2d\x6d\x54\xbb\x24\x22"
+			  "\x75\xd1\xe7\x62\x2d\x68\xdf\x6e"
+			  "\xb0\x2d\xed\xd1\x3f\x56\x4c\x13"
+			  "\xdb\xda\x21\x74",
+	}, {
+		.plaintext = "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn"
+			   "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+		.psize	= 112,
+		.digest = "\x23\xfe\xc5\xbb\x94\xd6\x0b\x23"
+			  "\x30\x81\x92\x64\x0b\x0c\x45\x33"
+			  "\x35\xd6\x64\x73\x4f\xe4\x0e\x72"
+			  "\x68\x67\x4a\xf9",
+	}, {
+		.plaintext = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd"
+			   "efghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+		.psize	= 104,
+		.digest = "\x48\x65\x5b\xd9\xea\xe2\x72\x4a"
+			  "\x6b\xff\x8f\x20\x8c\x34\xb5\xca"
+			  "\x6b\x1b\x2e\x00\x99\xa2\x31\x50"
+			  "\x16\xcf\x68\x7c",
+	}
+};
+
+/*
+ * SHA512-256 test vectors from NIST and kerneli
+ */
+static const struct hash_testvec sha512_256_tv_template[] = {
+	{
+		.plaintext = "",
+		.psize	= 0,
+		.digest	= "\xc6\x72\xb8\xd1\xef\x56\xed\x28"
+		          "\xab\x87\xc3\x62\x2c\x51\x14\x06"
+		          "\x9b\xdd\x3a\xd7\xb8\xf9\x73\x74"
+		          "\x98\xd0\xc0\x1e\xce\xf0\x96\x7a",
+	}, {
+		.plaintext = "abc",
+		.psize = 3,
+		.digest = "\x53\x04\x8e\x26\x81\x94\x1e\xf9"
+			  "\x9b\x2e\x29\xb7\x6b\x4c\x7d\xab"
+			  "\xe4\xc2\xd0\xc6\x34\xfc\x6d\x46"
+			  "\xe0\xe2\xf1\x31\x07\xe7\xaf\x23",
+	}, {
+		.plaintext = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+		.psize	= 56,
+		.digest	= "\xbd\xe8\xe1\xf9\xf1\x9b\xb9\xfd"
+			  "\x34\x06\xc9\x0e\xc6\xbc\x47\xbd"
+			  "\x36\xd8\xad\xa9\xf1\x18\x80\xdb"
+			  "\xc8\xa2\x2a\x70\x78\xb6\xa4\x61",
+	}, {
+		.plaintext = "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn"
+			   "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+		.psize	= 112,
+		.digest = "\x39\x28\xe1\x84\xfb\x86\x90\xf8"
+			  "\x40\xda\x39\x88\x12\x1d\x31\xbe"
+			  "\x65\xcb\x9d\x3e\xf8\x3e\xe6\x14"
+			  "\x6f\xea\xc8\x61\xe1\x9b\x56\x3a",
+	}, {
+		.plaintext = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd"
+			   "efghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+		.psize	= 104,
+		.digest = "\x1a\x59\xbe\x4c\xb0\x31\x0d\x17"
+			  "\x04\x15\x21\x68\x5d\xfd\x17\x4c"
+			  "\x48\xc0\xc3\x59\xed\x4b\x1d\xfb"
+			  "\xa6\x3e\x98\x4b\x40\x34\xa4\x0d",
+	}
+};
 
 /*
  * WHIRLPOOL test vectors from Whirlpool package

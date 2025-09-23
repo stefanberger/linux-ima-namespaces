@@ -5590,6 +5590,22 @@ static const struct alg_test_desc alg_test_descs[] = {
 			.hash = __VECS(sha512_tv_template)
 		}
 	}, {
+		.alg = "sha512-224",
+		.generic_driver = "sha512-224-lib",
+		.test = alg_test_hash,
+		.fips_allowed = 1,
+		.suite = {
+			.hash = __VECS(sha512_224_tv_template)
+		}
+	}, {
+		.alg = "sha512-256",
+		.generic_driver = "sha512-256-lib",
+		.test = alg_test_hash,
+		.fips_allowed = 1,
+		.suite = {
+			.hash = __VECS(sha512_256_tv_template)
+		}
+	}, {
 		.alg = "shake128",
 		.test = alg_test_hash,
 		.fips_allowed = 1,

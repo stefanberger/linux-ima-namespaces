@@ -22,6 +22,14 @@
 #define SHA512_BLOCK_SIZE       128
 #define SHA512_STATE_SIZE       80
 
+#define SHA512_224_DIGEST_SIZE  28
+#define SHA512_224_BLOCK_SIZE   128
+#define SHA512_224_STATE_SIZE   80
+
+#define SHA512_256_DIGEST_SIZE  32
+#define SHA512_256_BLOCK_SIZE   128
+#define SHA512_256_STATE_SIZE   80
+
 #define SHA224_H0	0xc1059ed8UL
 #define SHA224_H1	0x367cd507UL
 #define SHA224_H2	0x3070dd17UL
@@ -57,6 +65,24 @@
 #define SHA512_H5	0x9b05688c2b3e6c1fULL
 #define SHA512_H6	0x1f83d9abfb41bd6bULL
 #define SHA512_H7	0x5be0cd19137e2179ULL
+
+#define SHA512_224_H0	0x8C3D37C819544DA2ULL
+#define SHA512_224_H1	0x73E1996689DCD4D6ULL
+#define SHA512_224_H2	0x1DFAB7AE32FF9C82ULL
+#define SHA512_224_H3	0x679DD514582F9FCFULL
+#define SHA512_224_H4	0x0F6D2B697BD44DA8ULL
+#define SHA512_224_H5	0x77E36F7304C48942ULL
+#define SHA512_224_H6	0x3F9D85A86A1D36C8ULL
+#define SHA512_224_H7	0x1112E6AD91D692A1ULL
+
+#define SHA512_256_H0	0x22312194FC2BF72CULL
+#define SHA512_256_H1	0x9F555FA3C84C64C2ULL
+#define SHA512_256_H2	0x2393B86B6F53B151ULL
+#define SHA512_256_H3	0x963877195940EABDULL
+#define SHA512_256_H4	0x96283EE2A88EFFE3ULL
+#define SHA512_256_H5	0xBE5E1E2553863992ULL
+#define SHA512_256_H6	0x2B0199FC2C85B8AAULL
+#define SHA512_256_H7	0x0EB72DDC81C52CA2ULL
 
 extern const u8 sha224_zero_message_hash[SHA224_DIGEST_SIZE];
 
@@ -719,6 +745,26 @@ struct sha512_ctx {
 void sha512_init(struct sha512_ctx *ctx);
 
 /**
+ * sha512_224_init() - Initialize a SHA-512/224 context for a new message
+ * @ctx: the context to initialize
+ *
+ * If you don't need incremental computation, consider sha512() instead.
+ *
+ * Context: Any context.
+ */
+void sha512_224_init(struct sha512_ctx *ctx);
+
+/**
+ * sha512_256_init() - Initialize a SHA-512/256 context for a new message
+ * @ctx: the context to initialize
+ *
+ * If you don't need incremental computation, consider sha512() instead.
+ *
+ * Context: Any context.
+ */
+void sha512_256_init(struct sha512_ctx *ctx);
+
+/**
  * sha512_update() - Update a SHA-512 context with message data
  * @ctx: the context to update; must have been initialized
  * @data: the message data
@@ -746,6 +792,28 @@ static inline void sha512_update(struct sha512_ctx *ctx,
 void sha512_final(struct sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE]);
 
 /**
+ * sha512_224_final() - Finish computing a SHA-512-224 message digest
+ * @ctx: the context to finalize; must have been initialized
+ * @out: (output) the resulting SHA-512-224 message digest
+ *
+ * After finishing, this zeroizes @ctx.  So the caller does not need to do it.
+ *
+ * Context: Any context.
+ */
+void sha512_224_final(struct sha512_ctx *ctx, u8 out[SHA512_224_DIGEST_SIZE]);
+
+/**
+ * sha512_256_final() - Finish computing a SHA-512-256 message digest
+ * @ctx: the context to finalize; must have been initialized
+ * @out: (output) the resulting SHA-512-256 message digest
+ *
+ * After finishing, this zeroizes @ctx.  So the caller does not need to do it.
+ *
+ * Context: Any context.
+ */
+void sha512_256_final(struct sha512_ctx *ctx, u8 out[SHA512_256_DIGEST_SIZE]);
+
+/**
  * sha512() - Compute SHA-512 message digest in one shot
  * @data: the message data
  * @len: the data length in bytes
@@ -754,6 +822,26 @@ void sha512_final(struct sha512_ctx *ctx, u8 out[SHA512_DIGEST_SIZE]);
  * Context: Any context.
  */
 void sha512(const u8 *data, size_t len, u8 out[SHA512_DIGEST_SIZE]);
+
+/**
+ * sha512_224() - Compute SHA-512-224 message digest in one shot
+ * @data: the message data
+ * @len: the data length in bytes
+ * @out: (output) the resulting SHA-512-224 message digest
+ *
+ * Context: Any context.
+ */
+void sha512_224(const u8 *data, size_t len, u8 out[SHA512_224_DIGEST_SIZE]);
+
+/**
+ * sha512_256() - Compute SHA-512 message digest in one shot
+ * @data: the message data
+ * @len: the data length in bytes
+ * @out: (output) the resulting SHA-512-256 message digest
+ *
+ * Context: Any context.
+ */
+void sha512_256(const u8 *data, size_t len, u8 out[SHA512_256_DIGEST_SIZE]);
 
 /**
  * struct hmac_sha512_key - Prepared key for HMAC-SHA512
