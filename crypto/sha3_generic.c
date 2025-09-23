@@ -325,7 +325,6 @@ static void crypto_shake_squeeze_bytes(struct shake_state *sctx,
 			sctx->ridx += to_copy;
 			n -= to_copy;
 			if (sctx->ridx == sctx->rsiz) {
-				printk(KERN_INFO "Block <=7 %d, %zu\n", sctx->rsiz, n);
 				sctx->ridx = 0;
 				if (n == 0) {
 					sctx->permute = true;
@@ -335,18 +334,14 @@ static void crypto_shake_squeeze_bytes(struct shake_state *sctx,
 			}
 			if (n == 0)
 				return;
-			if (n >= 8) {
-				printk(KERN_INFO "Break <=7 %d, %zu\n", sctx->rsiz, n);
+			if (n >= 8)
 				break;
-			}
 			to_copy = n;
-			printk(KERN_INFO "Loop <=7 %d, %zu\n", sctx->rsiz, n);
 		}
 		/* sctx->ridx is 8-byte aligned now */
 
 		if (sctx->ridx == 0 && n >= sctx->rsiz) {
 			/* whole blocks */
-			printk(KERN_INFO "Whole Block  %d, %zu\n", sctx->rsiz, n);
 			nblocks = n / sctx->rsiz;
 			crypto_shake_squeeze_blocks(sctx, &out, nblocks);
 			n -= nblocks * sctx->rsiz;
@@ -369,7 +364,6 @@ static void crypto_shake_squeeze_bytes(struct shake_state *sctx,
 			sctx->ridx += loops * 8;
 			n -= loops * 8;
 			if (sctx->ridx == sctx->rsiz) {
-				printk(KERN_INFO "Block 8  %d, %zu\n", sctx->rsiz, n);
 				sctx->ridx = 0;
 				if (n == 0) {
 					sctx->permute = true;
@@ -381,13 +375,10 @@ static void crypto_shake_squeeze_bytes(struct shake_state *sctx,
 				return;
 
 			out = (u8 *)digest;
-			if (n >= sctx->rsiz || n < 8) {
-				printk(KERN_INFO "Break 8  %d, %zu\n", sctx->rsiz, n);
+			if (n >= sctx->rsiz || n < 8)
 				break;
-			}
 
 			to_copy = n;
-			printk(KERN_INFO "Loop 8  %d, %zu\n", sctx->rsiz, n);
 		}
 	}
 }
