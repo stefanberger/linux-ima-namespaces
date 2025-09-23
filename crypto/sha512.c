@@ -122,6 +122,18 @@ static int crypto_sha512_init(struct shash_desc *desc)
 	return 0;
 }
 
+static int crypto_sha512_224_init(struct shash_desc *desc)
+{
+	sha512_224_init(SHA512_CTX(desc));
+	return 0;
+}
+
+static int crypto_sha512_256_init(struct shash_desc *desc)
+{
+	sha512_256_init(SHA512_CTX(desc));
+	return 0;
+}
+
 static int crypto_sha512_update(struct shash_desc *desc,
 				const u8 *data, unsigned int len)
 {
@@ -135,10 +147,36 @@ static int crypto_sha512_final(struct shash_desc *desc, u8 *out)
 	return 0;
 }
 
+static int crypto_sha512_224_final(struct shash_desc *desc, u8 *out)
+{
+	sha512_224_final(SHA512_CTX(desc), out);
+	return 0;
+}
+
+static int crypto_sha512_256_final(struct shash_desc *desc, u8 *out)
+{
+	sha512_256_final(SHA512_CTX(desc), out);
+	return 0;
+}
+
 static int crypto_sha512_digest(struct shash_desc *desc,
 				const u8 *data, unsigned int len, u8 *out)
 {
 	sha512(data, len, out);
+	return 0;
+}
+
+static int crypto_sha512_224_digest(struct shash_desc *desc,
+				    const u8 *data, unsigned int len, u8 *out)
+{
+	sha512_224(data, len, out);
+	return 0;
+}
+
+static int crypto_sha512_256_digest(struct shash_desc *desc,
+				    const u8 *data, unsigned int len, u8 *out)
+{
+	sha512_256(data, len, out);
 	return 0;
 }
 
@@ -292,6 +330,38 @@ static struct shash_alg algs[] = {
 		.statesize		= SHA512_SHASH_STATE_SIZE,
 	},
 	{
+		.base.cra_name		= "sha512-224",
+		.base.cra_driver_name	= "sha512-224-lib",
+		.base.cra_priority	= 300,
+		.base.cra_blocksize	= SHA512_224_BLOCK_SIZE,
+		.base.cra_module	= THIS_MODULE,
+		.digestsize		= SHA512_224_DIGEST_SIZE,
+		.init			= crypto_sha512_224_init,
+		.update			= crypto_sha512_update,
+		.final			= crypto_sha512_224_final,
+		.digest			= crypto_sha512_224_digest,
+		.export			= crypto_sha512_export,
+		.import			= crypto_sha512_import,
+		.descsize		= sizeof(struct sha512_ctx),
+		.statesize		= SHA512_SHASH_STATE_SIZE,
+	},
+	{
+		.base.cra_name		= "sha512-256",
+		.base.cra_driver_name	= "sha512-256-lib",
+		.base.cra_priority	= 300,
+		.base.cra_blocksize	= SHA512_256_BLOCK_SIZE,
+		.base.cra_module	= THIS_MODULE,
+		.digestsize		= SHA512_256_DIGEST_SIZE,
+		.init			= crypto_sha512_256_init,
+		.update			= crypto_sha512_update,
+		.final			= crypto_sha512_256_final,
+		.digest			= crypto_sha512_256_digest,
+		.export			= crypto_sha512_export,
+		.import			= crypto_sha512_import,
+		.descsize		= sizeof(struct sha512_ctx),
+		.statesize		= SHA512_SHASH_STATE_SIZE,
+	},
+	{
 		.base.cra_name		= "hmac(sha384)",
 		.base.cra_driver_name	= "hmac-sha384-lib",
 		.base.cra_priority	= 300,
@@ -348,6 +418,8 @@ MODULE_ALIAS_CRYPTO("sha384");
 MODULE_ALIAS_CRYPTO("sha384-lib");
 MODULE_ALIAS_CRYPTO("sha512");
 MODULE_ALIAS_CRYPTO("sha512-lib");
+MODULE_ALIAS_CRYPTO("sha512-224");
+MODULE_ALIAS_CRYPTO("sha512-224-lib");
 MODULE_ALIAS_CRYPTO("hmac(sha384)");
 MODULE_ALIAS_CRYPTO("hmac-sha384-lib");
 MODULE_ALIAS_CRYPTO("hmac(sha512)");
