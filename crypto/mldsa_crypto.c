@@ -1038,7 +1038,8 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 			  const uint8_t *m, size_t mlen,
 			  const uint8_t *pk, size_t pkbytes,
 			  const uint8_t *domsep, size_t domseplen,
-			  const uint8_t *ctx, size_t cbytes)
+			  const uint8_t *ctx, size_t cbytes,
+			  const uint8_t *externalMu)
 {
 	struct ver_mat {
 		struct spoly cp;
@@ -1071,7 +1072,7 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 
 	if (!type || !K || !L || !gamma1 || !gamma2 || !w1pb ||
 	    (w1pb > sizeof(pMat->w1pack)))
-		return -EKEYREJECTED;
+		return -EINVAL;
 
 	sigb = mldsa_signature_bytes(K, L);
 	beta = mldsa_k2beta(K);
@@ -1127,21 +1128,25 @@ int mldsa_verify_internal(const uint8_t *sig, size_t siglen,
 
 	shash->tfm = crypto_mldsa_shake256;
 
-	crypto_shash_init(shash);
-	crypto_shash_update(shash, pk, pkbytes);
-	crypto_shash_squeeze(shash, mu, MLDSA_CRHBYTES, true);
+	if (externalMu) {
+		memcpy(mu, externalMu, sizeof(mu));
+	} else {
+		crypto_shash_init(shash);
+		crypto_shash_update(shash, pk, pkbytes);
+		crypto_shash_squeeze(shash, mu, MLDSA_CRHBYTES, true);
 
-	crypto_shash_init(shash);
-	crypto_shash_update(shash, mu, MLDSA_TRBYTES);
-	if (domseplen > 0) {
-		clen = cbytes;
-		crypto_shash_update(shash, domsep, domseplen);
-		crypto_shash_update(shash, &clen, 1);
-		if (ctx)
-			crypto_shash_update(shash, ctx, cbytes);
+		crypto_shash_init(shash);
+		crypto_shash_update(shash, mu, MLDSA_TRBYTES);
+		if (domseplen > 0) {
+			clen = cbytes;
+			crypto_shash_update(shash, domsep, domseplen);
+			crypto_shash_update(shash, &clen, 1);
+			if (ctx)
+				crypto_shash_update(shash, ctx, cbytes);
+		}
+		crypto_shash_update(shash, m, mlen);
+		crypto_shash_squeeze(shash, mu, MLDSA_TRBYTES, true);
 	}
-	crypto_shash_update(shash, m, mlen);
-	crypto_shash_squeeze(shash, mu, MLDSA_TRBYTES, true);
 
 	ml_spoly_challenge(&pMat->cp, chash, K);
 

@@ -102,6 +102,7 @@ static int mldsa_verify(struct crypto_sig *tfm,
 
 		memcpy(encoded, mldsa_oid_prefix, 10);
 		encoded[10] = hashid;
+		//printk(KERN_INFO "hashid: %d\n", hashid);
 		memcpy(&encoded[MLDSA_HASH_OID_SIZE], digest, dlen);
 		domsep = DOMSEP_PREHASH;
 		ret = mldsa_verify_internal(src, slen, encoded,
@@ -109,14 +110,14 @@ static int mldsa_verify(struct crypto_sig *tfm,
 					    ctx->pub_key,
 					    ctx->pub_key_size,
 					    &domsep, sizeof(domsep),
-					    ctxt, clen);
+					    ctxt, clen, NULL);
 	} else {
 		domsep = DOMSEP_PURE;
 		ret = mldsa_verify_internal(src, slen, msg, mlen,
 					    ctx->pub_key,
 					    ctx->pub_key_size,
 					    &domsep, sizeof(domsep),
-					    ctxt, clen);
+					    ctxt, clen, NULL);
 	}
 	if (ret < 0)
 		return ret;
@@ -170,6 +171,7 @@ static unsigned int mldsa_max_sig_size(struct crypto_sig *tfm)
 }
 
 #include "mldsa_kat.h"
+#include "nist_mldsa_kat.h"
 
 static int mldsa_44_init_tfm(struct crypto_sig *tfm)
 {
@@ -179,6 +181,7 @@ static int mldsa_44_init_tfm(struct crypto_sig *tfm)
 	ret = mldsa_ctx_init(ctx, MLDSA_44_PUB_BYTES);
 
 	mldsa44_kat(tfm);
+	nist_mldsa44_kat(tfm);
 
 	return ret;
 }
@@ -203,8 +206,13 @@ static struct sig_alg mldsa_44 = {
 static int mldsa_65_init_tfm(struct crypto_sig *tfm)
 {
 	struct mldsa_ctx *ctx = crypto_sig_ctx(tfm);
+	int ret;
 
-	return mldsa_ctx_init(ctx, MLDSA_65_PUB_BYTES);
+	ret = mldsa_ctx_init(ctx, MLDSA_65_PUB_BYTES);
+
+	nist_mldsa65_kat(tfm);
+
+	return ret;
 }
 
 static struct sig_alg mldsa_65 = {
@@ -227,8 +235,13 @@ static struct sig_alg mldsa_65 = {
 static int mldsa_87_init_tfm(struct crypto_sig *tfm)
 {
 	struct mldsa_ctx *ctx = crypto_sig_ctx(tfm);
+	int ret;
 
-	return mldsa_ctx_init(ctx, MLDSA_87_PUB_BYTES);
+	ret = mldsa_ctx_init(ctx, MLDSA_87_PUB_BYTES);
+
+	nist_mldsa87_kat(tfm);
+
+	return ret;
 }
 
 static struct sig_alg mldsa_87 = {
