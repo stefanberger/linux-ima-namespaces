@@ -638,8 +638,6 @@ static void spoly_uniform(struct spoly *a,
 	SHASH_DESC_ON_STACK(shash, crypto_mldsa_shake128);
 	uint8_t t[2] = { nonce, nonce >> 8 };
 	unsigned int ctr;
-	unsigned int off;
-	unsigned int i;
 
 	shash->tfm = crypto_mldsa_shake128;
 
@@ -651,20 +649,11 @@ static void spoly_uniform(struct spoly *a,
 	ctr = rej_s_uniform(a->coeffs, MLDSA_N, buf, buflen);
 
 	while (ctr < MLDSA_N) {
-		// FIXME: simplify loop: https://ibm-research.slack.com/archives/D08BUJ8CKEY/p1758187493346489
-		off = buflen % 3;
-		printk(KERN_INFO "off=%u\n", off);
-
-		for (i = 0; i < off; ++i)
-			buf[i] = buf[buflen - off + i];
-
-		crypto_shash_squeeze(shash, buf + off,
+		crypto_shash_squeeze(shash, buf,
 				     MLDSA_STREAM128_BLOCKBYTES, false);
 
-		buflen = MLDSA_STREAM128_BLOCKBYTES + off;
-
 		ctr += rej_s_uniform(a->coeffs + ctr, MLDSA_N - ctr,
-				     buf, buflen);
+				     buf, MLDSA_STREAM128_BLOCKBYTES);
 	}
 	crypto_shash_squeeze(shash, NULL, 0, true);
 }
